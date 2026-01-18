@@ -1,0 +1,69 @@
+FAMILY ZOABI ARCHIVE - SYSTEM ISSUES REPORT
+Generated: 2026-01-17 11:20 AM
+
+==============================================================================
+CRITICAL ISSUES FOUND
+==============================================================================
+
+1. HOME PAGE - RECENT HIGHLIGHTS NAVIGATION BUG
+   Location: src/pages/Home.tsx, Line 257
+   Severity: HIGH
+   Description: Clicking on "Recent Highlights" event cards does not navigate 
+                to the event detail page. The Link component has target="_blank"
+                which may be interfering with navigation.
+   Impact: Users cannot access event details from the home page.
+   
+2. HOME PAGE - RAW HTML IN EVENT DESCRIPTIONS
+   Location: src/pages/Home.tsx, Line 268
+   Severity: MEDIUM
+   Description: Event descriptions are displaying raw HTML tags (e.g., <p>, 
+                style attributes) instead of rendered text.
+   Impact: Poor user experience with unformatted text visible.
+
+==============================================================================
+BUILD ERRORS (TypeScript Lint)
+==============================================================================
+
+3. EDITORCANVAS - UNUSED IMPORT
+   Location: src/components/editor/EditorCanvas.tsx, Line 7
+   Severity: LOW
+   Description: 'Box' is imported from 'lucide-react' but never used in the code.
+   Error: TS6133: 'Box' is declared but its value is never read.
+
+4. GOOGLELOCATIONPICKER - UNUSED IMPORT
+   Location: src/components/ui/GoogleLocationPicker.tsx, Line 1
+   Severity: LOW
+   Description: 'useEffect' is imported from 'react' but never used in the code.
+   Error: TS6133: 'useEffect' is declared but its value is never read.
+
+==============================================================================
+ADDITIONAL OBSERVATIONS
+==============================================================================
+
+5. Page State Mismatch
+   Description: Occasional flashes of a "Welcome" screen before the actual home 
+                page content loads.
+   Impact: May indicate race condition in data fetching or state synchronization.
+   Priority: LOW - Monitor for user complaints
+
+==============================================================================
+OVERALL SYSTEM STATUS
+==============================================================================
+
+Development Server: RUNNING (http://localhost:5173/)
+Build Status: FAILING (TypeScript errors)
+Runtime Status: OPERATIONAL (with navigation bugs)
+
+Pages Tested and Working:
+✓ Home Page (loads correctly)
+✓ Events Page (The Hearth)  
+✓ Albums Page (The Library)
+✓ Event Detail Pages (when accessed directly)
+✓ Navigation Menu
+✓ Create Album Modal
+
+Features Not Working:
+✗ Recent Highlights navigation on Home page
+✗ Event description rendering (shows HTML)
+
+==============================================================================
