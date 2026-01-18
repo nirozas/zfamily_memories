@@ -1,0 +1,107 @@
+FAMILY ZOABI ARCHIVE - IMPLEMENTATION PLAN
+Generated: 2026-01-17 11:20 AM
+
+==============================================================================
+PLANNED FIXES & IMPROVEMENTS
+==============================================================================
+
+PHASE 1: CRITICAL BUG FIXES (Immediate)
+-----------------------------------------
+
+Task 1.1: Fix Recent Highlights Navigation
+  File: src/pages/Home.tsx
+  Changes:
+    - Remove target="_blank" attribute from Link component (line 257)
+    - Ensure onClick handler is not being prevented
+  Expected Outcome: Clicking event cards navigates to event detail page
+  Priority: HIGH
+  Estimated Time: 5 minutes
+
+Task 1.2: Fix Event Description HTML Rendering
+  File: src/pages/Home.tsx
+  Changes:
+    - Parse HTML content from event descriptions
+    - Strip HTML tags or render as plain text
+    - Use dangerouslySetInnerHTML if formatted text is needed
+    - Or strip to plain text using a helper function
+  Expected Outcome: Clean, readable event descriptions
+  Priority: MEDIUM
+  Estimated Time: 10 minutes
+
+PHASE 2: BUILD ERROR FIXES (Immediate)
+----------------------------------------
+
+Task 2.1: Remove Unused Import - EditorCanvas
+  File: src/components/editor/EditorCanvas.tsx
+  Changes:
+    - Remove 'Box' from lucide-react import on line 7
+  Expected Outcome: Eliminate TS6133 error
+  Priority: LOW (but blocks build)
+  Estimated Time: 1 minute
+
+Task 2.2: Remove Unused Import - GoogleLocationPicker
+  File: src/components/ui/GoogleLocationPicker.tsx
+  Changes:
+    - Remove 'useEffect' from react import on line 1
+  Expected Outcome: Eliminate TS6133 error
+  Priority: LOW (but blocks build)
+  Estimated Time: 1 minute
+
+PHASE 3: CODE QUALITY IMPROVEMENTS (Optional)
+----------------------------------------------
+
+Task 3.1: Add Helper Function for HTML Stripping
+  Location: src/lib/utils.ts (or new file src/lib/textUtils.ts)
+  Changes:
+    - Create stripHtml(text: string): string function
+    - Use DOMParser or regex to safely remove HTML tags
+    - Export for reuse across components
+  Expected Outcome: Reusable utility for text cleaning
+  Priority: LOW
+  Estimated Time: 15 minutes
+
+Task 3.2: Investigate Page Loading Flash
+  File: src/pages/Home.tsx
+  Changes:
+    - Review data fetching logic in useEffect 
+    - Ensure proper loading states
+    - Check for race conditions in familyId availability
+  Expected Outcome: Smoother page transitions
+  Priority: LOW
+  Estimated Time: 20 minutes
+
+==============================================================================
+IMPLEMENTATION ORDER
+==============================================================================
+
+1. Remove unused imports (Tasks 2.1, 2.2) - Fastest wins
+2. Fix navigation bug (Task 1.1) - User-facing critical issue
+3. Fix HTML rendering (Task 1.2) - User-facing quality issue
+4. Test all changes
+5. Verify build passes
+6. Optional: Implement Phase 3 improvements
+
+==============================================================================
+TESTING CHECKLIST
+==============================================================================
+
+After implementing fixes:
+□ Dev server runs without errors
+□ Build completes successfully (npm run build)
+□ Recent Highlights cards are clickable
+□ Event detail pages load correctly
+□ Event descriptions show clean text
+□ No console errors in browser
+□ All navigation flows work correctly
+
+==============================================================================
+ROLLBACK PLAN
+==============================================================================
+
+If any fix causes new issues:
+1. Use Git to view diff: git diff
+2. Revert specific file: git checkout HEAD -- <filename>
+3. Test incremental changes one at a time
+4. Commit working changes frequently
+
+==============================================================================

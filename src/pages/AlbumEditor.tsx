@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import {
     ArrowLeft, Save, Share, X, Copy, Check, Settings as SettingsIcon, Tag,
     ChevronDown, ChevronRight, ChevronLeft, ChevronUp,
     Layers, Bold, Underline, Pencil, Trash2,
-    Lock, Unlock, Eye, Plus, Undo, Redo, Maximize
+    Lock, Unlock, Eye, Plus, Undo, Redo, Maximize, MapPin
 } from 'lucide-react';
 import { AlbumProvider, useAlbum } from '../contexts/AlbumContext';
 import { EditorCanvas } from '../components/editor/EditorCanvas';
@@ -19,12 +20,13 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useAlbumAutoSave } from '../hooks/useAlbumAutoSave';
 import { AssetLibrary } from '../components/editor/AssetLibrary';
 import { LayersPanel } from '../components/editor/LayersPanel';
-import { LayoutsPanel } from '../components/editor/LayoutsPanel';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
+import { ImageEditorModal } from '../components/editor/ImageEditorModal';
 import { MaskEditorModal } from '../components/editor/MaskEditorModal';
 import { LocationPicker } from '../components/ui/LocationPicker';
-import { calculateLayoutApplication } from '../lib/layoutUtils';
-import type { AlbumLayout } from '../data/defaultLayouts';
+import { LocationPickerModal } from '../components/ui/LocationPickerModal';
+import { MapAssetModal } from '../components/ui/MapAssetModal';
+
 
 function AlbumEditorContent() {
     const { id } = useParams<{ id: string }>();
@@ -51,9 +53,7 @@ function AlbumEditorContent() {
         isLoading,
         toggleLock,
         canUndo,
-        canRedo,
-        updatePage,
-        updatePageAssets
+        canRedo
     } = useAlbum();
 
     // Autosave Hook
@@ -64,7 +64,7 @@ function AlbumEditorContent() {
     const [showShareModal, setShowShareModal] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [hasCopied, setHasCopied] = useState(false);
-    const [activeSidebarTab, setActiveSidebarTab] = useState<'properties' | 'layouts' | 'layers'>('properties');
+    const [activeSidebarTab, setActiveSidebarTab] = useState<'properties' | 'layers'>('properties');
     // Navigation State
     const [zoom, setZoom] = useState(0.5); // Start zoomed out to see full spread
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -81,28 +81,10 @@ function AlbumEditorContent() {
         }
     }, [currentPageIndex, album?.id]); // Only sync when page or album changes, not on every asset update
 
-    // Handle Layout Application (Click or Drop)
-    const handleApplyLayout = (layout: AlbumLayout, targetPageId?: string) => {
-        if (!album) return;
-
-        // Get current spread context
-        const spread = getSpread(album, currentPageIndex);
-        const leftPage = spread[0];
-        const rightPage = spread[1] || null;
-
-        if (!leftPage) return;
-
-        // Calculate updates based on target
-        // If targetPageId is passed (Drop), logic prioritizes it
-        const updates = calculateLayoutApplication(layout, leftPage, rightPage, targetPageId);
-
-        updates.forEach(update => {
-            updatePageAssets(update.pageId, update.assets);
-            updatePage(update.pageId, { layoutTemplate: update.layoutTemplate });
-        });
-    };
-
-    const [editorMode, setEditorMode] = useState<'select' | 'mask' | 'pivot'>('select');
+    // Layout logic removed
+    const [editorMode, setEditorMode] = useState<'select' | 'mask' | 'pivot' | 'studio'>('select');
+    const [showLocationModal, setShowLocationModal] = useState(false);
+    const [showMapModal, setShowMapModal] = useState(false);
     const showPrintSafe = true;
     const workspaceRef = useRef<HTMLDivElement>(null);
 
@@ -128,6 +110,35 @@ function AlbumEditorContent() {
         setZoom(Number(idealZoom.toFixed(2)));
         setPan({ x: 0, y: 0 }); // Reset pan when fitting
     }, [album, currentPageIndex]);
+
+    const handleOpenMapEditor = (assetId: string) => {
+        setSelectedAssetId(assetId);
+        setShowMapModal(true);
+    };
+
+    const handleOpenLocationEditor = (assetId: string) => {
+        setSelectedAssetId(assetId);
+        setShowLocationModal(true);
+    };
+
+    // Global Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Ignore if in input/textarea
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    redo();
+                } else {
+                    undo();
+                }
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [undo, redo]);
 
     // Update zoom when album loads or spread view changes
     useEffect(() => {
@@ -161,8 +172,8 @@ function AlbumEditorContent() {
     }, [selectedAssetId, album, removeAsset, setSelectedAssetId]);
     const [showPreview, setShowPreview] = useState(false);
 
-    const activePage = album?.pages[currentPageIndex];
-    const selectedAsset = activePage?.assets.find(a => a.id === selectedAssetId);
+    const selectedAsset = album?.pages.flatMap(p => p.assets).find(a => a.id === selectedAssetId);
+    const activePage = album?.pages.find(p => p.assets.some(a => a.id === selectedAssetId)) || album?.pages[currentPageIndex];
 
     const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -174,7 +185,7 @@ function AlbumEditorContent() {
                 if (page.id !== activePageId) setActivePageId(page.id);
                 // Auto-open properties for images
                 const asset = page.assets.find(a => a.id === selectedAssetId);
-                if (asset && asset.type === 'image') {
+                if (asset && (asset.type === 'image' || asset.type === 'video' || asset.type === 'frame')) {
                     setActiveSidebarTab('properties');
                 }
             }
@@ -688,6 +699,24 @@ function AlbumEditorContent() {
                                 <span className="text-[10px] font-bold uppercase tracking-wider">Add Text</span>
                             </Button>
 
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (album.config.isLocked) return;
+                                    setShowLocationModal(true);
+                                }}
+                                disabled={album.config.isLocked}
+                                className={cn(
+                                    "h-8 gap-2 bg-purple-50 text-purple-600 hover:bg-purple-600 hover:text-white transition-all border border-purple-200",
+                                    album.config.isLocked && "opacity-50 cursor-not-allowed grayscale"
+                                )}
+                            >
+                                <MapPin className="w-3.5 h-3.5" />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Add Location</span>
+                            </Button>
+
                             <div className="w-[1px] h-4 bg-catalog-accent/10 mx-2" />
 
                             {selectedAsset && !album.config.isLocked ? (
@@ -697,10 +726,10 @@ function AlbumEditorContent() {
                                     {selectedAsset.type === 'text' && (
                                         <div className="flex items-center gap-2 px-2 py-0.5 bg-catalog-stone/5 rounded-md border border-catalog-accent/5 mr-2">
                                             <select
-                                                disabled={album.config.isLocked}
+                                                disabled={album.config.isLocked || selectedAsset.isLocked}
                                                 value={selectedAsset.fontFamily || 'Inter'}
                                                 onChange={(e) => {
-                                                    if (album.config.isLocked) return;
+                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
                                                     const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                     if (pageId) updateAsset(pageId, selectedAsset.id, { fontFamily: e.target.value });
                                                 }}
@@ -720,10 +749,10 @@ function AlbumEditorContent() {
                                                     type="number"
                                                     min="6"
                                                     max="200"
-                                                    disabled={album.config.isLocked}
+                                                    disabled={album.config.isLocked || selectedAsset.isLocked}
                                                     value={selectedAsset.fontSize || 32}
                                                     onChange={(e) => {
-                                                        if (album.config.isLocked) return;
+                                                        if (album.config.isLocked || selectedAsset.isLocked) return;
                                                         const val = parseInt(e.target.value);
                                                         const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                         if (pageId && !isNaN(val)) updateAsset(pageId, selectedAsset.id, { fontSize: val });
@@ -736,36 +765,36 @@ function AlbumEditorContent() {
                                             <div className="w-[1px] h-3 bg-catalog-accent/10" />
 
                                             <button
-                                                disabled={album.config.isLocked}
+                                                disabled={album.config.isLocked || selectedAsset.isLocked}
                                                 onClick={() => {
-                                                    if (album.config.isLocked) return;
+                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
                                                     const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                     if (pageId) updateAsset(pageId, selectedAsset.id, { fontWeight: selectedAsset.fontWeight === 'bold' ? 'normal' : 'bold' });
                                                 }}
-                                                className={cn("p-1 rounded transition-colors", selectedAsset.fontWeight === 'bold' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/40 hover:text-catalog-accent", album.config.isLocked && "opacity-50 cursor-not-allowed")}
+                                                className={cn("p-1 rounded transition-colors", selectedAsset.fontWeight === 'bold' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/40 hover:text-catalog-accent", (album.config.isLocked || selectedAsset.isLocked) && "opacity-50 cursor-not-allowed")}
                                             >
                                                 <Bold className="w-3 h-3" />
                                             </button>
 
                                             <button
-                                                disabled={album.config.isLocked}
+                                                disabled={album.config.isLocked || selectedAsset.isLocked}
                                                 onClick={() => {
-                                                    if (album.config.isLocked) return;
+                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
                                                     const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                     if (pageId) updateAsset(pageId, selectedAsset.id, { textDecoration: selectedAsset.textDecoration === 'underline' ? 'none' : 'underline' } as any);
                                                 }}
-                                                className={cn("p-1 rounded transition-colors", selectedAsset.textDecoration === 'underline' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/40 hover:text-catalog-accent", album.config.isLocked && "opacity-50 cursor-not-allowed")}
+                                                className={cn("p-1 rounded transition-colors", selectedAsset.textDecoration === 'underline' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/40 hover:text-catalog-accent", (album.config.isLocked || selectedAsset.isLocked) && "opacity-50 cursor-not-allowed")}
                                             >
                                                 <Underline className="w-3 h-3" />
                                             </button>
 
-                                            <div className="relative w-4 h-4 rounded-full overflow-hidden border border-catalog-accent/20 cursor-pointer">
+                                            <div className={cn("relative w-4 h-4 rounded-full overflow-hidden border border-catalog-accent/20 cursor-pointer", (album.config.isLocked || selectedAsset.isLocked) && "opacity-50 cursor-not-allowed")}>
                                                 <input
                                                     type="color"
-                                                    disabled={album.config.isLocked}
+                                                    disabled={album.config.isLocked || selectedAsset.isLocked}
                                                     value={selectedAsset.textColor || '#000000'}
                                                     onChange={(e) => {
-                                                        if (album.config.isLocked) return;
+                                                        if (album.config.isLocked || selectedAsset.isLocked) return;
                                                         const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                         if (pageId) updateAsset(pageId, selectedAsset.id, { textColor: e.target.value });
                                                     }}
@@ -781,9 +810,9 @@ function AlbumEditorContent() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            disabled={album.config.isLocked}
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
                                             onClick={() => {
-                                                if (album.config.isLocked) return;
+                                                if (album.config.isLocked || selectedAsset.isLocked) return;
                                                 setEditorMode(selectedAsset.type === 'text' ? 'select' : 'mask');
                                             }}
                                             className="h-8 gap-2 hover:bg-catalog-accent/5"
@@ -797,41 +826,70 @@ function AlbumEditorContent() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            disabled={album.config.isLocked}
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
                                             onClick={() => {
-                                                if (album.config.isLocked) return;
+                                                if (album.config.isLocked || selectedAsset.isLocked) return;
                                                 const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                 if (pageId) updateAssetZIndex(pageId, selectedAsset.id, 'front');
                                             }}
                                             title="Bring to Front"
                                             className="h-8 w-8 p-0"
                                         >
-                                            <ChevronUp className="w-4 h-4 text-catalog-accent/60" />
+                                            <ChevronUp className="w-4 h-4 text-catalog-accent font-bold" />
                                         </Button>
 
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            disabled={album.config.isLocked}
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
                                             onClick={() => {
-                                                if (album.config.isLocked) return;
+                                                if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                if (pageId) updateAssetZIndex(pageId, selectedAsset.id, 'forward');
+                                            }}
+                                            title="Move Forward"
+                                            className="h-8 w-8 p-0"
+                                        >
+                                            <ChevronRight className="w-3.5 h-3.5 rotate-[-90deg] text-catalog-accent/60" />
+                                        </Button>
+
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
+                                            onClick={() => {
+                                                if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                if (pageId) updateAssetZIndex(pageId, selectedAsset.id, 'backward');
+                                            }}
+                                            title="Move Backward"
+                                            className="h-8 w-8 p-0"
+                                        >
+                                            <ChevronRight className="w-3.5 h-3.5 rotate-[90deg] text-catalog-accent/60" />
+                                        </Button>
+
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
+                                            onClick={() => {
+                                                if (album.config.isLocked || selectedAsset.isLocked) return;
                                                 const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                 if (pageId) updateAssetZIndex(pageId, selectedAsset.id, 'back');
                                             }}
                                             title="Send to Back"
                                             className="h-8 w-8 p-0"
                                         >
-                                            <ChevronDown className="w-4 h-4 text-catalog-accent/60" />
+                                            <ChevronDown className="w-4 h-4 text-catalog-accent font-bold" />
                                         </Button>
-                                        {/* Size Input */}
                                         <div className="flex items-center gap-1.5 px-2 py-0.5 bg-catalog-stone/5 rounded-md border border-catalog-accent/5 mr-2">
                                             <span className="text-[9px] font-bold text-catalog-text/40 uppercase tracking-tighter">Size</span>
                                             <input
                                                 type="number"
-                                                disabled={album.config.isLocked}
+                                                disabled={album.config.isLocked || selectedAsset.isLocked}
                                                 value={Math.round(selectedAsset.width)}
                                                 onChange={(e) => {
-                                                    if (album.config.isLocked) return;
+                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
                                                     const val = parseFloat(e.target.value);
                                                     const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                     if (pageId && !isNaN(val) && val > 0) {
@@ -856,6 +914,27 @@ function AlbumEditorContent() {
                                                 if (album.config.isLocked) return;
                                                 const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                 if (pageId) {
+                                                    updateAsset(pageId, selectedAsset.id, { isLocked: !selectedAsset.isLocked });
+                                                }
+                                            }}
+                                            className={cn("h-8 gap-2", selectedAsset.isLocked ? "bg-orange-50 text-orange-600 border-orange-200" : "text-catalog-accent/60")}
+                                            title={selectedAsset.isLocked ? "Unlock Element" : "Lock Element"}
+                                        >
+                                            {selectedAsset.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                                            <span className="text-[10px] font-bold uppercase">{selectedAsset.isLocked ? 'Unlock' : 'Lock'}</span>
+                                        </Button>
+
+                                        <div className="w-[1px] h-4 bg-catalog-accent/10 mx-1" />
+
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (album.config.isLocked) return;
+                                                const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                if (pageId) {
                                                     duplicateAsset(pageId, selectedAsset.id);
                                                 }
                                             }}
@@ -866,24 +945,16 @@ function AlbumEditorContent() {
                                             <span className="text-[10px] font-bold">DUPLICATE</span>
                                         </Button>
 
-
-
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            disabled={album.config.isLocked}
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 if (album.config.isLocked) return;
                                                 const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                 if (pageId) {
                                                     // Calculate Fit logic
-                                                    // We want Width = 100%. Height must respect aspect ratio relative to PAGE dimensions.
-                                                    // Asset Ratio = AssetW / AssetH (pixels or intrinsic unit)
-                                                    // Page converts % to pixels: W_px = W_% * PageW / 100
-                                                    // We want: (100 * PageW) / (H_% * PageH) = AssetRatio
-                                                    // H_% = (100 * PageW) / (PageH * AssetRatio)
-
                                                     const pageW = album.config.dimensions.width;
                                                     const pageH = album.config.dimensions.height;
                                                     const assetRatio = selectedAsset.aspectRatio ||
@@ -911,11 +982,11 @@ function AlbumEditorContent() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            disabled={album.config.isLocked}
-                                            className="h-8 text-red-400 hover:text-red-500 hover:bg-red-50 gap-2 border border-transparent hover:border-red-100"
+                                            disabled={album.config.isLocked || selectedAsset.isLocked}
+                                            className="h-8 text-red-400 hover:text-red-500 hover:bg-red-50 gap-2 border border-transparent hover:border-red-100 disabled:opacity-30"
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                if (album.config.isLocked) return;
+                                                if (album.config.isLocked || selectedAsset.isLocked) return;
                                                 const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
                                                 if (pageId) {
                                                     removeAsset(pageId, selectedAsset.id);
@@ -979,7 +1050,8 @@ function AlbumEditorContent() {
                                                         showPrintSafe={showPrintSafe}
                                                         zoom={zoom}
                                                         onPageSelect={setActivePageId}
-                                                        onApplyLayout={handleApplyLayout}
+                                                        onOpenMapEditor={handleOpenMapEditor}
+                                                        onOpenLocationEditor={handleOpenLocationEditor}
                                                     />
                                                     {/* Gutter Guide */}
                                                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-full z-10 pointer-events-none flex">
@@ -1009,7 +1081,8 @@ function AlbumEditorContent() {
                                                         showPrintSafe={showPrintSafe}
                                                         zoom={zoom}
                                                         onPageSelect={setActivePageId}
-                                                        onApplyLayout={handleApplyLayout}
+                                                        onOpenMapEditor={handleOpenMapEditor}
+                                                        onOpenLocationEditor={handleOpenLocationEditor}
                                                     />
                                                 </div>
                                             );
@@ -1062,7 +1135,7 @@ function AlbumEditorContent() {
                 {/* Right Sidebar: Properties & Layouts */}
                 <aside className="w-64 flex flex-col border-l border-catalog-accent/10 bg-white">
                     <div className="flex border-b border-catalog-accent/10">
-                        {['properties', 'layers', 'layouts'].map((tab) => (
+                        {['properties', 'layers'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveSidebarTab(tab as any)}
@@ -1086,7 +1159,6 @@ function AlbumEditorContent() {
                             />
                         )}
                         {activeSidebarTab === 'layers' && <LayersPanel activePageId={activePageId} />}
-                        {activeSidebarTab === 'layouts' && <LayoutsPanel onApplyLayout={handleApplyLayout} />}
                     </div>
                 </aside>
             </div>
@@ -1118,6 +1190,135 @@ function AlbumEditorContent() {
                     />
                 )
             }
+
+            {/* Pro Image Studio Modal */}
+            {
+                editorMode === 'studio' && selectedAsset && activePage && (
+                    <ImageEditorModal
+                        asset={selectedAsset}
+                        pageId={activePage.id}
+                        updateAsset={updateAsset}
+                        onClose={() => setEditorMode('select')}
+                    />
+                )
+            }
+
+            {/* Location Picker Modal */}
+            <LocationPickerModal
+                isOpen={showLocationModal}
+                onClose={() => setShowLocationModal(false)}
+                onSelect={(address, lat, lng) => {
+                    const targetPageId = activePageId || album.pages[currentPageIndex]?.id;
+                    if (targetPageId) {
+                        const existingAsset = selectedAsset?.type === 'location' ? selectedAsset : null;
+                        if (existingAsset) {
+                            updateAsset(targetPageId, existingAsset.id, {
+                                content: address,
+                                lat,
+                                lng
+                            });
+                        } else {
+                            addAsset(targetPageId, {
+                                type: 'location',
+                                content: address,
+                                x: 30,
+                                y: 85,
+                                width: 40,
+                                height: 8,
+                                rotation: 0,
+                                zIndex: 25,
+                                lat,
+                                lng,
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                fontWeight: 'normal',
+                                textAlign: 'left',
+                                textColor: '#6b7280'
+                            } as any);
+                        }
+                    }
+                    setShowLocationModal(false);
+                }}
+            />
+
+            <MapAssetModal
+                isOpen={showMapModal}
+                onClose={() => setShowMapModal(false)}
+                existingLocations={album?.pages.flatMap(p => p.assets) || []}
+                initialConfig={selectedAsset?.type === 'map' ? selectedAsset.mapConfig : undefined}
+                onAddSnapshot={async (dataUrl) => {
+                    const targetPageId = activePageId || album.pages[currentPageIndex]?.id;
+                    if (targetPageId && album.family_id) {
+                        try {
+                            const res = await fetch(dataUrl);
+                            const blob = await res.blob();
+                            const file = new File([blob], `map-snapshot-${Date.now()}.png`, { type: 'image/png' });
+
+                            // Dynamic import to use storage service
+                            const { storageService } = await import('../services/storage');
+                            const { url, error } = await storageService.uploadFile(
+                                file,
+                                'album-assets',
+                                `maps/${file.name}`,
+                                () => { }
+                            );
+
+                            if (url) {
+                                // Add to family_media table
+                                const { error: dbError } = await supabase.from('family_media').insert({
+                                    family_id: album.family_id,
+                                    url: url,
+                                    type: 'image',
+                                    filename: file.name,
+                                    folder: 'Map Snapshots', // Dedicated folder
+                                    size: file.size,
+                                    mime_type: file.type
+                                } as any);
+
+                                if (dbError) throw dbError;
+
+                                // Optionally add to the page
+                                // Note: uploadMedia logic in context usually handles this, but here we did it manually
+                                // so we could specify the folder and effectively "place" it if we wanted.
+                                // For now, we'll just add it to library as requested, but also placing it on the page is nice.
+                            } else {
+                                console.error('Failed to upload map snapshot:', error);
+                            }
+                        } catch (e) {
+                            console.error("Failed to process map snapshot", e);
+                        }
+                    }
+                    setShowMapModal(false);
+                }}
+                onAddMap={(center, zoom, places) => {
+                    const targetPageId = activePageId || album.pages[currentPageIndex]?.id;
+                    if (targetPageId) {
+                        const existingAsset = selectedAsset?.type === 'map' ? selectedAsset : null;
+                        if (existingAsset) {
+                            updateAsset(targetPageId, existingAsset.id, {
+                                mapConfig: { center, zoom, places }
+                            });
+                        } else {
+                            addAsset(targetPageId, {
+                                type: 'map',
+                                url: '', // Not used for maps
+                                x: 10,
+                                y: 10,
+                                width: 80,
+                                height: 60,
+                                rotation: 0,
+                                zIndex: 30,
+                                mapConfig: {
+                                    center,
+                                    zoom,
+                                    places
+                                }
+                            } as any);
+                        }
+                    }
+                    setShowMapModal(false);
+                }}
+            />
         </div>
     );
 }

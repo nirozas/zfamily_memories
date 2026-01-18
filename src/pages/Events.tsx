@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Calendar, MapPin, Plus, BookOpen } from 'lucide-react';
+import { Calendar, Plus } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import type { Event } from '../types/supabase';
@@ -36,7 +36,6 @@ export function Events() {
     useEffect(() => {
         const locationParam = searchParams.get('location');
         if (locationParam) {
-            console.log('Events: locationParam found', locationParam);
             setFilters(prev => ({ ...prev, location: locationParam }));
         }
     }, [searchParams]);
@@ -177,7 +176,7 @@ export function Events() {
         return matchesQuery && matchesCategory && matchesYear && matchesLocation;
     });
 
-    console.log('Events: filteredEvents count', filteredEvents.length, 'total events', events.length, 'filters', filters);
+
 
     const groupedEvents = filteredEvents.reduce((groups: Record<string, Event[]>, event) => {
         const year = new Date(event.event_date).getFullYear().toString();
@@ -266,145 +265,163 @@ export function Events() {
                     {/* Vertical Line */}
                     <div className="absolute left-[20px] top-0 bottom-0 w-px bg-gradient-to-b from-catalog-accent/40 via-catalog-accent/20 to-transparent hidden md:block" />
 
-                    {sortedYears.map((year) => (
-                        <div key={year} className="relative space-y-8">
-                            {/* Year Indicator */}
-                            <div className="flex items-center gap-4 relative z-10">
-                                <div className="w-10 h-10 rounded-full bg-catalog-accent flex items-center justify-center text-white font-serif italic shadow-lg">
-                                    {year.slice(-2)}
+                    {sortedYears.map((year, yearIndex) => {
+                        const YEAR_COLORS = ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff', '#a0c4ff', '#bdb2ff', '#ffc6ff'];
+                        const yearColor = YEAR_COLORS[yearIndex % YEAR_COLORS.length];
+
+                        return (
+                            <div key={year} className="relative space-y-8">
+                                {/* Year Indicator */}
+                                <div className="flex items-center gap-4 relative z-10">
+                                    <div
+                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-serif italic shadow-lg transition-transform hover:scale-110"
+                                        style={{ backgroundColor: yearColor }}
+                                    >
+                                        {year.slice(-2)}
+                                    </div>
+                                    <h2 className="text-3xl font-serif italic text-catalog-text">{year}</h2>
+                                    <div className="flex-1 h-px bg-catalog-accent/10" />
                                 </div>
-                                <h2 className="text-3xl font-serif italic text-catalog-text">{year}</h2>
-                                <div className="flex-1 h-px bg-catalog-accent/10" />
-                            </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:pl-14">
-                                {groupedEvents[year].map((event) => {
-                                    const linkedAlbumId = linkedAlbums[event.id];
+                                <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-8 md:pl-14">
+                                    {groupedEvents[year].map((event, index) => {
+                                        const linkedAlbumId = linkedAlbums[event.id];
+                                        const titleColor = YEAR_COLORS[(event.title.length + index + yearIndex) % YEAR_COLORS.length];
 
-                                    let firstImage = (event.content as any)?.assets?.find((a: any) => a.type === 'image')?.url;
+                                        // Extract image Logic
+                                        const assets = (event.content as unknown as { assets: { url: string; type: string }[] })?.assets || [];
+                                        let presentationImage = assets.find(a => a.type === 'image')?.url;
 
-                                    if (!firstImage && event.description) {
-                                        const imgMatch = event.description.match(/<img[^>]+src="([^">]+)"/);
-                                        if (imgMatch) firstImage = imgMatch[1];
-                                    }
+                                        if (!presentationImage && event.description) {
+                                            const imgMatch = event.description.match(/<img[^>]+src="([^">]+)"/);
+                                            if (imgMatch) presentationImage = imgMatch[1];
+                                        }
 
-                                    return (
-                                        <motion.div
-                                            key={event.id}
-                                            initial={{ opacity: 0, y: 20 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ duration: 0.4 }}
-                                        >
-                                            <Card
-                                                className="h-full hover:shadow-xl transition-all duration-300 border-t-2 border-t-catalog-accent/20 bg-white cursor-pointer group flex flex-col overflow-hidden"
-                                                onClick={() => window.open(`/event/${event.id}/view`, '_blank')}
+                                        // Fallback placeholder if no image
+                                        if (!presentationImage) {
+                                            presentationImage = 'https://images.unsplash.com/photo-1526749837599-b4eba9fd855e?auto=format&fit=crop&w=800&q=80';
+                                        }
+
+                                        return (
+                                            <motion.div
+                                                key={event.id}
+                                                initial={{ opacity: 0, y: 20 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ duration: 0.4 }}
                                             >
-                                                <div className="flex-1 flex flex-col h-full">
-                                                    {/* Image Presentation */}
-                                                    {(() => {
-                                                        const assets = (event.content as unknown as { assets: { url: string; type: string }[] })?.assets || [];
-                                                        let presentationImage = assets.find(a => a.type === 'image')?.url;
-
-                                                        if (!presentationImage && event.description) {
-                                                            const imgMatch = event.description.match(/<img[^>]+src="([^">]+)"/);
-                                                            if (imgMatch) presentationImage = imgMatch[1];
-                                                        }
-
-                                                        if (presentationImage) {
-                                                            return (
-                                                                <div className="relative h-48 -mx-5 -mt-5 mb-5 overflow-hidden">
-                                                                    <div className="absolute inset-0 bg-black/5 z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                                                    <img
-                                                                        src={presentationImage}
-                                                                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                                                                        alt={event.title}
-                                                                    />
-                                                                    {event.category && (
-                                                                        <div className="absolute top-4 right-4 z-20">
-                                                                            <span className="px-3 py-1 text-[10px] font-bold tracking-widest text-white uppercase bg-black/40 backdrop-blur-md rounded-full border border-white/20">
-                                                                                {event.category}
-                                                                            </span>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        }
-                                                        return <div className="h-4 w-full" />; // Spacer if no image
-                                                    })()}
-
-                                                    {/* Title & Date Section */}
-                                                    <div className="space-y-1 mb-4">
-                                                        <h3 className="text-2xl font-serif font-bold text-catalog-text leading-tight group-hover:text-catalog-accent transition-colors">
-                                                            {event.title}
-                                                        </h3>
-                                                        <div className="flex items-center gap-2 text-catalog-accent font-sans text-sm font-bold uppercase tracking-wider">
-                                                            <Calendar className="w-3.5 h-3.5" />
-                                                            {new Date(event.event_date).toLocaleDateString('en-US', {
-                                                                month: 'long',
-                                                                day: 'numeric'
-                                                            })}
-                                                        </div>
+                                                {/* CodePen Card Implementation with Tailwind */}
+                                                <div className="bg-white rounded shadow-[0_20px_40px_-14px_rgba(0,0,0,0.25)] flex flex-col overflow-hidden hover:shadow-2xl transition-all duration-300 group h-full border-2 border-catalog-accent/5 hover:border-catalog-accent/20 relative">
+                                                    {/* Card Image */}
+                                                    <div
+                                                        className="relative overflow-hidden filter contrast-[0.7] transition-all duration-500 group-hover:contrast-100 bg-[#ececec] cursor-pointer"
+                                                        onClick={() => window.open(`/event/${event.id}/view`, '_blank')}
+                                                    >
+                                                        <div
+                                                            className="w-full bg-cover bg-center bg-no-repeat pt-[56.25%] sm:pt-[66.6%]"
+                                                            style={{ backgroundImage: `url(${presentationImage})` }}
+                                                        />
+                                                        {event.category && (
+                                                            <div className="absolute top-2 right-2 px-2 py-1 bg-white/90 text-[#696969] text-[0.6rem] uppercase tracking-widest font-bold border border-[#cccccc]">
+                                                                {event.category}
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    {/* Location */}
-                                                    {event.location && (
-                                                        <div className="flex items-center gap-1.5 text-[10px] text-catalog-text/40 font-sans uppercase tracking-widest font-black mb-4">
-                                                            <MapPin className="w-3 h-3" />
-                                                            {event.location}
+                                                    {/* Card Content */}
+                                                    <div className="flex flex-1 flex-col p-6 relative">
+                                                        {/* Hover Rainbow Line */}
+                                                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-rainbow opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                                                        <div className="cursor-pointer flex-1 flex flex-col" onClick={() => window.open(`/event/${event.id}/view`, '_blank')}>
+                                                            <h3
+                                                                className="text-2xl font-serif font-medium tracking-wide mb-3 capitalize"
+                                                                style={{ color: titleColor }}
+                                                            >
+                                                                {event.title}
+                                                            </h3>
+
+                                                            <div className="text-xs text-[#999999] font-serif italic mb-4 flex flex-wrap items-center gap-2">
+                                                                <span className="font-sans font-bold uppercase tracking-widest text-[0.65rem]">
+                                                                    {new Date(event.event_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                                                                </span>
+                                                                {event.location && (
+                                                                    <>
+                                                                        <span className="not-italic opacity-50">•</span>
+                                                                        <button
+                                                                            className="hover:text-[#696969] hover:underline transition-colors text-left"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                // Assuming /map or /family-map exists, query param location
+                                                                                navigate(`/map?location=${encodeURIComponent(event.location || '')}`);
+                                                                            }}
+                                                                        >
+                                                                            {event.location}
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+
+                                                            <div className="flex-1 text-[0.95rem] leading-[1.8] mb-6 text-[#999999] line-clamp-3 font-serif">
+                                                                {event.description ? (
+                                                                    <div dangerouslySetInnerHTML={{ __html: event.description.replace(/<[^>]+>/g, ' ').substring(0, 150) + (event.description.length > 150 ? '...' : '') }} />
+                                                                ) : (
+                                                                    <span className="italic opacity-50">No description provided.</span>
+                                                                )}
+                                                            </div>
+
                                                         </div>
-                                                    )}
+                                                        {/* Buttons / Actions */}
+                                                        <div className="mt-auto pt-4 border-t border-[#f0f0f0] flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
 
-                                                    {/* Description Snippet */}
-                                                    {event.description && (
-                                                        <div
-                                                            className="text-catalog-text/60 mb-6 font-serif text-sm leading-relaxed line-clamp-2 italic"
-                                                            dangerouslySetInnerHTML={{ __html: event.description.replace(/<[^>]+>/g, ' ').substring(0, 100).trim() + '...' }}
-                                                        />
-                                                    )}
-
-                                                    <div className="flex justify-between items-center pt-3 border-t border-gray-50 mt-auto" onClick={(e) => e.stopPropagation()}>
-                                                        <ActionToolbar
-                                                            onEdit={canCreate ? () => navigate(`/event/${event.id}/edit`) : undefined}
-                                                            onDelete={canCreate ? () => handleDeleteEvent(event.id) : undefined}
-                                                            onShare={() => handleShareEvent(event.id)}
-                                                            onPrint={() => handlePrintEvent(event)}
-                                                            className="opacity-40 group-hover:opacity-100 transition-opacity transform scale-90 origin-left"
-                                                        />
-                                                        <div className="flex gap-2">
-                                                            {linkedAlbumId ? (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="sm"
-                                                                    className="text-catalog-accent hover:text-catalog-accent/80 hover:bg-catalog-accent/5 text-[9px] font-bold uppercase h-7 px-2"
-                                                                    onClick={() => navigate(`/album/${linkedAlbumId}`)}
-                                                                >
-                                                                    <BookOpen className="w-2.5 h-2.5 mr-1" />
-                                                                    Album
-                                                                </Button>
-                                                            ) : (
-                                                                canCreate && (
-                                                                    <Button
-                                                                        variant="secondary"
-                                                                        size="sm"
-                                                                        onClick={() => handleCreateAlbum(event)}
-                                                                        isLoading={creatingAlbumFor === event.id}
-                                                                        className="text-[9px] font-bold uppercase h-7 px-2"
+                                                            {/* Left Side: Create/Open Album */}
+                                                            <div>
+                                                                {linkedAlbumId ? (
+                                                                    <button
+                                                                        onClick={() => navigate(`/album/${linkedAlbumId}`)}
+                                                                        className="text-[0.7rem] bg-[#f8f8f8] hover:bg-[#ececec] text-[#696969] px-3 py-1.5 rounded-sm uppercase tracking-widest font-bold border border-[#e0e0e0] transition-colors"
                                                                     >
-                                                                        <BookOpen className="w-2.5 h-2.5 mr-1" />
-                                                                        Album
-                                                                    </Button>
-                                                                )
-                                                            )}
+                                                                        Open Album
+                                                                    </button>
+                                                                ) : (
+                                                                    canCreate && (
+                                                                        <button
+                                                                            onClick={() => handleCreateAlbum(event)}
+                                                                            disabled={creatingAlbumFor === event.id}
+                                                                            className="text-[0.7rem] hover:bg-catalog-accent/10 text-[#999999] hover:text-catalog-accent px-3 py-1.5 rounded-sm uppercase tracking-widest font-bold border border-transparent hover:border-catalog-accent/20 transition-all flex items-center gap-1.5"
+                                                                        >
+                                                                            {creatingAlbumFor === event.id ? (
+                                                                                <span>Creating...</span>
+                                                                            ) : (
+                                                                                <>
+                                                                                    <Plus className="w-3 h-3" />
+                                                                                    <span>Create Album</span>
+                                                                                </>
+                                                                            )}
+                                                                        </button>
+                                                                    )
+                                                                )}
+                                                            </div>
+
+                                                            {/* Right Side: Toolbar */}
+                                                            <div className="opacity-60 hover:opacity-100 transition-opacity">
+                                                                <ActionToolbar
+                                                                    onEdit={canCreate ? () => navigate(`/event/${event.id}/edit`) : undefined}
+                                                                    onDelete={canCreate ? () => handleDeleteEvent(event.id) : undefined}
+                                                                    onShare={() => handleShareEvent(event.id)}
+                                                                    onPrint={() => handlePrintEvent(event)}
+                                                                    className="transform scale-90 origin-right"
+                                                                />
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                            </Card>
-                                        </motion.div>
-                                    );
-                                })}
+                                            </motion.div>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
             {sharingEventId && (

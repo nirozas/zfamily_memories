@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Card } from '../components/ui/Card';
-import { Calendar, Plus, BookOpen, Clock, User, PlusCircle, Camera } from 'lucide-react';
-import { AlbumCard } from '../components/catalog/AlbumCard';
+import { Calendar, Plus, User, PlusCircle, Camera, MapPin } from 'lucide-react';
+import '../HomeCarousel.css';
 import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { storageService } from '../services/storage';
+import { WorldMapPreview } from '../components/home/WorldMapPreview';
 import type { Event, Profile } from '../types/supabase';
 
 const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop';
@@ -100,7 +101,7 @@ export function Home() {
                     `)
                     .eq('family_id', familyId)
                     .order('created_at', { ascending: false })
-                    .limit(3);
+
 
                 if (albums) {
                     const formatted = (albums || []).map((album: any) => ({
@@ -196,7 +197,7 @@ export function Home() {
     return (
         <div className="space-y-12 pb-12">
             {/* 1. Hero Section */}
-            <section className="relative h-[65vh] w-full overflow-hidden group">
+            <section className="relative h-[35vh] w-full overflow-hidden group">
                 <div className="absolute inset-0 bg-black/40 z-10" />
                 <img
                     src={heroImageUrl}
@@ -204,10 +205,10 @@ export function Home() {
                     className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
                 />
                 <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-4">
-                    <h1 className="text-5xl md:text-7xl font-sans font-black text-white mb-4 drop-shadow-lg tracking-tight uppercase">
+                    <h1 className="text-4xl md:text-5xl font-sans font-black text-white mb-4 drop-shadow-lg tracking-tight uppercase">
                         The <span className="text-rainbow brightness-125">Family</span> Archive
                     </h1>
-                    <p className="text-xl md:text-2xl text-white/90 font-light max-w-2xl drop-shadow-md">
+                    <p className="text-lg md:text-xl text-white/90 font-light max-w-2xl drop-shadow-md">
                         Preserving our legacy, one story at a time.
                     </p>
                 </div>
@@ -254,7 +255,7 @@ export function Home() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {recentEvents.length > 0 ? (
                             recentEvents.map(event => (
-                                <Link key={event.id} to={`/event/${event.id}/view`} target="_blank" className="block h-full">
+                                <Link key={event.id} to={`/event/${event.id}/view`} className="block h-full">
                                     <Card variant="interactive" className="h-full flex flex-col justify-between group border-l-4 border-pastel-green">
                                         <div className="space-y-3">
                                             <div className="flex items-center gap-2 text-pastel-indigo text-sm font-bold">
@@ -265,7 +266,7 @@ export function Home() {
                                                 {event.title}
                                             </h3>
                                             <p className="text-catalog-text/70 line-clamp-3 text-sm">
-                                                {event.description || 'No description provided.'}
+                                                {event.description?.replace(/<[^>]*>/g, '') || 'No description provided.'}
                                             </p>
                                         </div>
                                     </Card>
@@ -290,39 +291,95 @@ export function Home() {
                 </section>
 
                 {/* 3. Recent Albums */}
-                <section className="space-y-6">
-                    <div className="flex items-center justify-between border-b-2 border-rainbow pb-4">
-                        <h2 className="text-3xl font-sans font-bold text-catalog-text">Latest Chapters</h2>
-                        <Link to="/library" className="text-pastel-indigo hover:text-pastel-indigo/80 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                            Browse Library <BookOpen className="w-4 h-4" />
-                        </Link>
-                    </div>
+                {/* 3. Recent Albums - 3D Carousel */}
+                <div className="home-carousel-wrapper">
+                    <section className="section3">
+                        <div className="container">
+                            <h2 className="title">Latest Chapters</h2>
+                            <div className="subtitle">From the Archives</div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {recentAlbums.length > 0 ? (
-                            recentAlbums.map(album => (
-                                <AlbumCard
-                                    key={album.id}
-                                    {...album}
-                                    onEdit={() => navigate(`/editor/${album.id}`)}
-                                    onDelete={() => {
-                                        if (window.confirm('Delete this album?')) {
-                                            supabase.from('albums').delete().eq('id', album.id).then(() => {
-                                                setRecentAlbums(prev => prev.filter(a => a.id !== album.id));
-                                            });
-                                        }
-                                    }}
-                                    onShare={() => navigate(`/album/${album.id}`)}
-                                // Using navigate for preview/share as common entry points
-                                />
-                            ))
-                        ) : (
-                            <div className="col-span-full py-12 text-center bg-white/30 rounded-lg border border-dashed border-catalog-accent/20">
-                                <p className="text-catalog-text/40 font-serif italic">No albums created yet. Start a new chapter below!</p>
+                            {recentAlbums.length > 0 ? (
+                                <div className="loop-images">
+                                    <div
+                                        className="carousel-track"
+                                        style={{
+                                            '--total': recentAlbums.length,
+                                            '--time': `${Math.max(20, recentAlbums.length * 5)}s`
+                                        } as React.CSSProperties}
+                                    >
+                                        {recentAlbums.map((album, index) => {
+                                            // Determine cover image
+                                            let coverImage = album.cover_url;
+                                            if (!coverImage && album.pages && album.pages.length > 0) {
+                                                const firstImg = album.pages[0].assets?.find((a: any) => a.type === 'image');
+                                                if (firstImg) coverImage = firstImg.url;
+                                            }
+
+                                            return (
+                                                <div
+                                                    key={`${album.id}-${index}`}
+                                                    className="carousel-item"
+                                                    style={{ '--i': index + 1 } as React.CSSProperties}
+                                                    onClick={() => navigate(`/album/${album.id}`)}
+                                                    title={album.title}
+                                                >
+                                                    <div className="carousel-3d-container">
+                                                        <img
+                                                            src={coverImage || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
+                                                            alt={album.title}
+                                                        />
+                                                        <h3 className="carousel-title">{album.title}</h3>
+                                                        <p className="carousel-date">
+                                                            {new Date(album.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                                                        </p>
+                                                        {(album.location || (album.config && album.config.location)) && (
+                                                            <div className="carousel-location" onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                const loc = album.location || album.config.location;
+                                                                navigate(`/map?location=${encodeURIComponent(loc)}`);
+                                                            }}>
+                                                                <MapPin size={10} />
+                                                                {album.location || album.config.location}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="py-12 text-center text-white/50 italic text-2xl">
+                                    Start your first album to see it here...
+                                </div>
+                            )}
+
+                            {/* Features Grid from CSS */}
+                            <div className="features">
+                                <div className="feature" onClick={() => navigate('/library')}>
+                                    <div className="feature-icon">📚</div>
+                                    <h3>Library</h3>
+                                    <p>Browse your complete collection of family memories organized by year.</p>
+                                </div>
+                                <div className="feature" onClick={() => navigate('/events')}>
+                                    <div className="feature-icon">✨</div>
+                                    <h3>Events</h3>
+                                    <p>Interactive chronological view of every significant milestone.</p>
+                                </div>
+                                <div className="feature" onClick={() => setShowCreateAlbumModal(true)}>
+                                    <div className="feature-icon">🎨</div>
+                                    <h3>Create</h3>
+                                    <p>Design beautiful new albums with our professional tools.</p>
+                                </div>
                             </div>
-                        )}
-                    </div>
-                </section>
+                        </div>
+                    </section>
+                </div>
+
+                {/* 3.5 World Map Preview */}
+                {familyId && (
+                    <WorldMapPreview familyId={familyId} />
+                )}
 
                 {/* 4. Family Profiles */}
                 <section className="space-y-6">
@@ -397,38 +454,6 @@ export function Home() {
                     </div>
                 )}
 
-                {/* 4. Discovery Section (Banners) */}
-                <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Browse Albums */}
-                    <Link to="/library" className="group relative h-64 overflow-hidden rounded-lg shadow-md block">
-                        <div className="absolute inset-0 bg-gradient-to-r from-pastel-blue/80 to-pastel-blue/60 mix-blend-multiply z-10" />
-                        <img
-                            src="https://images.unsplash.com/photo-1531333333324-42cb00dc50ba?q=80&w=2070&auto=format&fit=crop"
-                            alt="Photo Albums"
-                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        />
-                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-white p-6">
-                            <BookOpen className="w-12 h-12 mb-4 opacity-90" />
-                            <h3 className="text-3xl font-serif italic mb-2">The Library</h3>
-                            <span className="text-sm font-medium uppercase tracking-widest border-b border-white/40 pb-1 group-hover:border-white transition-colors">Browse Albums</span>
-                        </div>
-                    </Link>
-
-                    {/* View Event Timeline */}
-                    <Link to="/events" className="group relative h-64 overflow-hidden rounded-lg shadow-md block">
-                        <div className="absolute inset-0 bg-gradient-to-l from-pastel-pink/80 to-pastel-pink/60 mix-blend-multiply z-10" />
-                        <img
-                            src="https://images.unsplash.com/photo-1549421263-6064833b071b?q=80&w=2670&auto=format&fit=crop"
-                            alt="Event Timeline"
-                            className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
-                        />
-                        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-white p-6">
-                            <Clock className="w-12 h-12 mb-4 opacity-90" />
-                            <h3 className="text-3xl font-serif italic mb-2">The Timeline</h3>
-                            <span className="text-sm font-medium uppercase tracking-widest border-b border-white/40 pb-1 group-hover:border-white transition-colors">View Events</span>
-                        </div>
-                    </Link>
-                </section>
             </div>
 
             {/* Float Action Button for Create Album */}

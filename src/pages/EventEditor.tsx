@@ -59,7 +59,66 @@ export function EventEditor() {
         })
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // Timeline/History State
+    const [history, setHistory] = useState<Partial<Event>[]>([]);
+    const [redoStack, setRedoStack] = useState<Partial<Event>[]>([]);
+
+    function updateEventData(newData: Partial<Event> | ((prev: Partial<Event>) => Partial<Event>)) {
+        setEventData(prev => {
+            const resolved = typeof newData === 'function' ? newData(prev) : newData;
+            if (prev !== resolved) {
+                setHistory(h => [...h.slice(-19), prev]); // Keep last 20 states
+                setRedoStack([]);
+            }
+            return resolved;
+        });
+    }
+
+    function undo() {
+        setHistory(h => {
+            if (h.length === 0) return h;
+            const previous = h[h.length - 1];
+            setEventData(current => {
+                setRedoStack(r => [...r, current]);
+                return previous;
+            });
+            return h.slice(0, -1);
+        });
+    }
+
+    function redo() {
+        setRedoStack(r => {
+            if (r.length === 0) return r;
+            const next = r[r.length - 1];
+            setEventData(current => {
+                setHistory(h => [...h, current]);
+                return next;
+            });
+            return r.slice(0, -1);
+        });
+    }
+
+    // Keyboard Shortcuts
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            const isMod = e.ctrlKey || e.metaKey;
+
+            if (isMod && e.key === 'z') {
+                e.preventDefault();
+                if (e.shiftKey) redo();
+                else undo();
+            }
+            if (isMod && e.key === 'y') {
+                e.preventDefault();
+                redo();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [history, redoStack]);
+
     function handleDragEnd(event: any) {
         const { active, over } = event;
 
@@ -94,7 +153,9 @@ export function EventEditor() {
                 .eq('id', eventId)
                 .single();
 
-            if (error) throw error;
+            if (error) {
+                throw error;
+            }
             if (data) {
                 const fetchedEvent = data as Event;
                 setEventData({
@@ -159,71 +220,15 @@ export function EventEditor() {
         );
     }
 
-    const [history, setHistory] = useState<Partial<Event>[]>([]);
-    const [redoStack, setRedoStack] = useState<Partial<Event>[]>([]);
-
-    const updateEventData = (newData: Partial<Event> | ((prev: Partial<Event>) => Partial<Event>)) => {
-        setEventData(prev => {
-            const resolved = typeof newData === 'function' ? newData(prev) : newData;
-            if (prev !== resolved) {
-                setHistory(h => [...h.slice(-19), prev]); // Keep last 20 states
-                setRedoStack([]);
-            }
-            return resolved;
-        });
-    };
-
-    const undo = () => {
-        setHistory(h => {
-            if (h.length === 0) return h;
-            const previous = h[h.length - 1];
-            setEventData(current => {
-                setRedoStack(r => [...r, current]);
-                return previous;
-            });
-            return h.slice(0, -1);
-        });
-    };
-
-    const redo = () => {
-        setRedoStack(r => {
-            if (r.length === 0) return r;
-            const next = r[r.length - 1];
-            setEventData(current => {
-                setHistory(h => [...h, current]);
-                return next;
-            });
-            return r.slice(0, -1);
-        });
-    };
-
-    // Keyboard Shortcuts
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-            const isMod = e.ctrlKey || e.metaKey;
-
-            if (isMod && e.key === 'z') {
-                e.preventDefault();
-                if (e.shiftKey) redo();
-                else undo();
-            }
-            if (isMod && e.key === 'y') {
-                e.preventDefault();
-                redo();
-            }
-        };
-
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [history, redoStack]); // Re-bind when history changes to capture latest closures
-
-    // ... (rest of component) ...
+    // ... (rest of component rendering) ...
 
     return (
-        <div className="min-h-screen bg-catalog-bg flex flex-col">
+        <div className="min-h-screen bg-catalog-bg flex flex-col theme-peach theme-rainbow bg-pattern-diverse animate-fade-in font-sans">
+            {/* Top Bar Decorative Rainbow Line */}
+            <div className="h-1 bg-rainbow w-full fixed top-0 z-[60]" />
+
             {/* Top Bar */}
-            <header className="h-16 bg-white border-b border-catalog-accent/20 flex items-center justify-between px-6 sticky top-0 z-50">
+            <header className="h-16 bg-white/90 backdrop-blur-md border-b border-catalog-accent/20 flex items-center justify-between px-6 sticky top-1 z-50 shadow-sm">
                 <div className="flex items-center gap-4">
                     <Link to="/events" className="p-2 hover:bg-catalog-stone/50 rounded-full transition-colors text-catalog-text/60">
                         <ArrowLeft className="w-5 h-5" />
@@ -277,9 +282,10 @@ export function EventEditor() {
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
                         {/* Left: Metadata (Compact) */}
                         <div className="lg:col-span-1 space-y-6">
-                            <Card className="p-6 space-y-6 bg-white/80 backdrop-blur-sm">
-                                <h2 className="text-sm font-bold text-catalog-accent uppercase tracking-widest border-b border-catalog-accent/10 pb-2">
+                            <Card className="p-6 space-y-6 bg-white/95 backdrop-blur-sm border-2 border-catalog-accent/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-catalog-accent/30 transition-all">
+                                <h2 className="text-sm font-black text-catalog-accent uppercase tracking-[0.2em] border-b border-catalog-accent/10 pb-3 mb-2 flex items-center justify-between">
                                     Details
+                                    <Sparkles className="w-3 h-3 text-catalog-accent/40" />
                                 </h2>
                                 <Input
                                     label="Title"
@@ -345,9 +351,9 @@ export function EventEditor() {
 
                         {/* Right: Rich Text Editor (Wider) */}
                         <div className="lg:col-span-3">
-                            <Card className="p-8 min-h-[700px] flex flex-col bg-white shadow-2xl relative overflow-hidden group/editor">
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/editor:opacity-30 transition-opacity">
-                                    <Sparkles className="w-12 h-12 text-catalog-accent" />
+                            <Card className="p-8 min-h-[700px] flex flex-col bg-white shadow-2xl border-2 border-catalog-accent/5 relative overflow-hidden group/editor transition-all hover:shadow-catalog-accent/5">
+                                <div className="absolute top-0 right-0 p-6 opacity-5 group-hover/editor:opacity-20 transition-opacity">
+                                    <Sparkles className="w-16 h-16 text-catalog-accent" />
                                 </div>
                                 <div className="flex items-center justify-between mb-6">
                                     <label className="flex items-center gap-2 text-sm font-bold text-catalog-accent uppercase tracking-widest">

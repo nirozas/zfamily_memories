@@ -1,4 +1,4 @@
-import { Flame, BookOpen, Settings, User, Calendar, Image } from 'lucide-react';
+import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, Image, Clock } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
@@ -10,7 +10,8 @@ export function Sidebar() {
         { icon: Flame, label: 'The Hearth', href: '/', color: 'bg-pastel-red/30' },
         { icon: BookOpen, label: 'The Library', href: '/library', color: 'bg-pastel-orange/30' },
         { icon: Image, label: 'Media', href: '/media', color: 'bg-pastel-yellow/30' },
-        { icon: Calendar, label: 'Events', href: '/events', color: 'bg-pastel-green/30' },
+        { icon: CalendarIcon, label: 'Calendar', href: '/calendar', color: 'bg-pastel-blue/30' },
+        { icon: Clock, label: 'Events', href: '/events', color: 'bg-pastel-green/30' },
         { icon: User, label: 'Profile', href: '/profile', color: 'bg-pastel-purple/30' },
         { icon: Settings, label: 'Settings', href: '/settings', color: 'bg-pastel-pink/30' },
     ];

@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Card } from '../ui/Card';
-import { Calendar, Eye } from 'lucide-react';
+import { Calendar, Eye, MapPin } from 'lucide-react';
 import { ActionToolbar } from '../ui/ActionToolbar';
 
 interface AlbumCardProps {
@@ -10,6 +10,8 @@ interface AlbumCardProps {
     category?: string;
     created_at: string;
     pages?: any[];
+    location?: string;
+    config?: any;
     onEdit?: () => void;
     onDelete?: () => void;
     onShare?: () => void;
@@ -17,7 +19,8 @@ interface AlbumCardProps {
 }
 
 export function AlbumCard(props: AlbumCardProps) {
-    const { id, title, cover_url, category, created_at, pages, onEdit, onDelete, onShare, onPrint } = props;
+    const navigate = useNavigate();
+    const { id, title, cover_url, category, created_at, pages, location, config, onEdit, onDelete, onShare, onPrint } = props;
 
     // Derive cover image: use explicit cover, or first image from first page
     const coverUrl = cover_url || (() => {
@@ -43,9 +46,22 @@ export function AlbumCard(props: AlbumCardProps) {
         }
         return undefined;
     })();
-    const dateStr = new Date(created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+
+    // Date Logic
+    const formattedDate = (() => {
+        if (config?.startDate && config?.endDate) {
+            const start = new Date(config.startDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+            const end = new Date(config.endDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+            return start === end ? start : `${start} - ${end}`;
+        }
+        if (config?.startDate) return new Date(config.startDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+        if (config?.endDate) return new Date(config.endDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+        return new Date(created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    })();
+
     const pageCount = pages?.length || 0;
     const albumCategory = category || 'Memory';
+    const loc = location || config?.location;
 
     return (
         <div className="relative group">
@@ -88,10 +104,25 @@ export function AlbumCard(props: AlbumCardProps) {
                         <div className="flex items-center justify-between text-[11px] text-catalog-text/50 uppercase tracking-wider font-medium">
                             <div className="flex items-center gap-1">
                                 <Calendar className="w-3.5 h-3.5" />
-                                <span>{dateStr}</span>
+                                <span>{formattedDate}</span>
                             </div>
                             <span>{pageCount} pages</span>
                         </div>
+
+                        {/* Location */}
+                        {loc && (
+                            <div
+                                className="flex items-center gap-1.5 text-[10px] text-catalog-text/60 font-bold uppercase tracking-widest mt-2 pt-2 border-t border-catalog-accent/10 hover:text-catalog-accent cursor-pointer transition-colors"
+                                onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    navigate(`/map?location=${encodeURIComponent(loc)}`);
+                                }}
+                            >
+                                <MapPin className="w-3 h-3" />
+                                <span className="truncate">{loc}</span>
+                            </div>
+                        )}
                     </div>
                 </Card>
             </Link>

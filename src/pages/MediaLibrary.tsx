@@ -256,14 +256,23 @@ export function MediaLibrary() {
 
         setIsLoading(true);
         for (const id of Array.from(selectedItems)) {
-            await supabase.from(table as any).update({ tags: newTags } as any).eq('id', id);
+            await (supabase.from(table as any) as any).update({ tags: newTags }).eq('id', id);
         }
         setMedia(prev => prev.map(m => selectedItems.has(m.id) ? { ...m, tags: newTags } : m));
         setIsLoading(false);
     }
 
     async function handleDelete(ids: string[]) {
-        if (!confirm(`Delete ${ids.length} items? This cannot be undone.`)) return;
+        const itemsToDelete = media.filter(m => ids.includes(m.id));
+        const usedItems = itemsToDelete.filter(m => (m.usageCount || 0) > 0);
+
+        let confirmMessage = `Delete ${ids.length} item${ids.length !== 1 ? 's' : ''}?`;
+        if (usedItems.length > 0) {
+            confirmMessage += `\n\nWARNING: ${usedItems.length} item${usedItems.length !== 1 ? 's are' : ' is'} currently used in albums/pages. Deleting them will break those pages!`;
+        }
+        confirmMessage += `\n\nThis cannot be undone.`;
+
+        if (!confirm(confirmMessage)) return;
 
         if (activeTab === 'system' && !isAdmin) {
             alert("Only admins can delete System Assets.");
@@ -272,26 +281,22 @@ export function MediaLibrary() {
 
         setIsLoading(true);
 
-        if (activeTab === 'system') {
-            const itemsToDelete = media.filter(m => ids.includes(m.id));
-            for (const item of itemsToDelete) {
-                try {
-                    const url = new URL(item.url);
-                    const pathParts = url.pathname.split('/');
-                    const fileName = pathParts[pathParts.length - 1];
-                    const folderPath = pathParts.slice(-2, -1)[0]; // Get category folder
-                    const filePath = `${folderPath}/${fileName}`;
+        const { storageService } = await import('../services/storage');
 
-                    // Delete from system-assets bucket
-                    await (supabase.storage.from('system-assets') as any).remove([filePath]);
-                } catch (e) {
-                    console.error('Error deleting storage file:', e);
-                }
+        // Delete from Cloud Storage first (best effort)
+        for (const item of itemsToDelete) {
+            try {
+                // We attempt to delete, but don't block if it fails (e.g. no credentials)
+                await storageService.deleteFile(item.url);
+            } catch (e) {
+                console.warn("Failed to delete from cloud:", e);
             }
         }
 
+        // Delete from DB
         const table = activeTab === 'uploads' ? 'family_media' : 'library_assets';
         await (supabase.from(table as any) as any).delete().in('id', ids);
+
         setSelectedItems(new Set());
         await fetchMedia();
         setIsLoading(false);
@@ -387,7 +392,6 @@ export function MediaLibrary() {
                         <div className="pt-4 pb-2 px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Folders</div>
                         {folders.map(folder => {
                             const folderItems = media.filter(m => (m.folder || '/') === folder);
-                            const allUnused = folderItems.length > 0 && folderItems.every(m => (m.usageCount || 0) === 0);
 
                             return (
                                 <div key={folder} className="group/folder flex items-center">
@@ -404,23 +408,31 @@ export function MediaLibrary() {
                                         <span className="truncate">{folder === '/' ? 'Unsorted' : folder}</span>
                                         <span className="ml-auto text-xs opacity-50 bg-gray-100 px-1.5 rounded-full">{folderItems.length}</span>
                                     </button>
-                                    {/* Delete folder button - only show if all items are unused */}
-                                    {allUnused && folder !== '/' && (
+                                    {/* Delete folder button */}
+                                    {folder !== '/' && !folderItems.some(m => (m.usageCount || 0) > 0) && (
                                         <button
                                             onClick={async (e) => {
                                                 e.stopPropagation();
-                                                if (!confirm(`Delete folder "${folder}" and all ${folderItems.length} unused items inside?`)) return;
-                                                setIsLoading(true);
-                                                await supabase.from('family_media').delete().in('id', folderItems.map(i => i.id));
+                                                if (!confirm(`Delete folder "${folder}" and all ${folderItems.length} items inside?`)) return;
+
+                                                // Use handleDelete to ensure cloud deletion logic is shared
+                                                await handleDelete(folderItems.map(i => i.id));
+
                                                 if (currentFolder === folder) setCurrentFolder('All');
-                                                await fetchMedia();
-                                                setIsLoading(false);
                                             }}
                                             className="opacity-0 group-hover/folder:opacity-100 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                                            title={`Delete folder (${folderItems.length} unused items)`}
+                                            title={`Delete folder "${folder}"`}
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
                                         </button>
+                                    )}
+                                    {folder !== '/' && folderItems.some(m => (m.usageCount || 0) > 0) && (
+                                        <div
+                                            className="opacity-0 group-hover/folder:opacity-50 p-1.5 text-gray-300 cursor-not-allowed"
+                                            title={`Cannot delete: Folder contains items currently in use`}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </div>
                                     )}
                                 </div>
                             );

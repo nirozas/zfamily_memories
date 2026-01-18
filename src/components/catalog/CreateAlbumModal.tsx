@@ -23,6 +23,8 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
     const [locationLat, setLocationLat] = useState<number | undefined>();
     const [locationLng, setLocationLng] = useState<number | undefined>();
     const [events, setEvents] = useState<Event[]>([]);
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
     const [isLoading, setIsLoading] = useState(false);
 
     useEffect(() => {
@@ -52,8 +54,6 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
         }
 
         setIsLoading(true);
-        console.log('Attempting to create album:', { title, category, familyId, userId: user.id });
-
         try {
             const { data, error } = await supabase
                 .from('albums')
@@ -69,6 +69,8 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
                     geotag: (locationLat && locationLng) ? { lat: locationLat, lng: locationLng } : null,
                     config: {
                         theme: 'classic',
+                        startDate,
+                        endDate,
                         size,
                         dimensions: (() => {
                             switch (size) {
@@ -91,7 +93,6 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
             }
 
             if (data) {
-                console.log('Album created successfully:', data);
                 onClose();
                 navigate(`/album/${(data as any).id}/edit`);
             }
@@ -154,6 +155,32 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
                                 <option value="Birthday">Birthday</option>
                                 <option value="Anniversary">Anniversary</option>
                             </select>
+                        </div>
+
+                        {/* Event Dates */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-catalog-accent uppercase tracking-widest flex items-center gap-2">
+                                    <Calendar className="w-3 h-3" /> Start Date
+                                </label>
+                                <input
+                                    type="date"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
+                                    className="w-full px-4 py-3 border border-catalog-accent/20 rounded-sm focus:outline-none focus:ring-2 focus:ring-catalog-accent/50 bg-white text-sm"
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-xs font-bold text-catalog-accent uppercase tracking-widest flex items-center gap-2">
+                                    <Calendar className="w-3 h-3" /> End Date
+                                </label>
+                                <input
+                                    type="date"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="w-full px-4 py-3 border border-catalog-accent/20 rounded-sm focus:outline-none focus:ring-2 focus:ring-catalog-accent/50 bg-white text-sm"
+                                />
+                            </div>
                         </div>
 
                         {/* Event Link */}

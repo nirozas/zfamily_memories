@@ -14,15 +14,16 @@ import {
     ChevronUp,
     Minimize2,
     Maximize2,
-    Copy
+    Copy,
+    Lock,
+    Unlock
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { type Asset } from '../../contexts/AlbumContext';
 import { useState } from 'react';
 
 interface AssetControlPanelProps {
-    editorMode: 'select' | 'mask' | 'pivot';
-    setEditorMode: (mode: 'select' | 'mask' | 'pivot') => void;
+    editorMode: 'select' | 'mask' | 'pivot' | 'studio';
+    setEditorMode: (mode: 'select' | 'mask' | 'pivot' | 'studio') => void;
 }
 
 function CollapsibleSection({ title, children, defaultOpen = true, icon: Icon }: { title: string, children: React.ReactNode, defaultOpen?: boolean, icon?: any }) {
@@ -48,19 +49,9 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
     const { album, selectedAssetId, currentPageIndex, updateAsset, removeAsset, updatePage, syncStyles, updateAssetZIndex, duplicateAsset } = useAlbum();
     const [customDpi, setCustomDpi] = useState<string>('');
 
-    let parentPage = album?.pages[currentPageIndex];
-    let asset = parentPage?.assets.find((a: Asset) => a.id === selectedAssetId);
-
-    if (album && selectedAssetId && !asset) {
-        for (const p of album.pages) {
-            const found = p.assets.find((a: Asset) => a.id === selectedAssetId);
-            if (found) {
-                parentPage = p;
-                asset = found;
-                break;
-            }
-        }
-    }
+    // Improved asset selection logic to ensure consistency across the app
+    const asset = album?.pages.flatMap(p => p.assets).find(a => a.id === selectedAssetId);
+    let parentPage = album?.pages.find(p => p.assets.some(a => a.id === selectedAssetId)) || album?.pages[currentPageIndex];
 
     if (!album || !selectedAssetId || !asset) {
         // Page settings for the current page
@@ -159,6 +150,8 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
     // We already found parentPage and asset above
     if (!parentPage || !asset) return null;
 
+    const isLockedForEditing = album.config.isLocked || asset.isLocked;
+
     const handleLayerChange = (direction: 'front' | 'back') => {
         updateAssetZIndex(parentPage!.id, asset!.id, direction);
     };
@@ -221,6 +214,33 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
             </div>
 
             <div className="p-4 space-y-2">
+                {/* Lock Status Section */}
+                <div className={cn(
+                    "p-3 rounded-lg border transition-all mb-4 flex items-center justify-between gap-3",
+                    asset.isLocked
+                        ? "bg-orange-50 border-orange-200 text-orange-700"
+                        : "bg-catalog-stone/5 border-catalog-accent/5 text-catalog-text/60"
+                )}>
+                    <div className="flex items-center gap-2">
+                        {asset.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                        <div className="flex flex-col">
+                            <span className="text-[10px] font-bold uppercase tracking-widest">{asset.isLocked ? 'Locked' : 'Unlocked'}</span>
+                            <span className="text-[8px] opacity-70">{asset.isLocked ? 'Movements disabled' : 'Click to freeze in place'}</span>
+                        </div>
+                    </div>
+                    <button
+                        onClick={() => updateAsset(parentPage!.id, asset!.id, { isLocked: !asset.isLocked })}
+                        className={cn(
+                            "px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all",
+                            asset.isLocked
+                                ? "bg-orange-600 text-white hover:bg-orange-700 shadow-sm"
+                                : "bg-catalog-accent/10 text-catalog-accent hover:bg-catalog-accent/20"
+                        )}
+                    >
+                        {asset.isLocked ? 'Unlock' : 'Lock'}
+                    </button>
+                </div>
+
                 {editorMode !== 'select' && (
                     <div className="p-3 bg-catalog-accent/5 border border-catalog-accent/20 rounded-lg space-y-2 mb-4">
                         <p className="text-[9px] font-bold text-catalog-accent uppercase tracking-widest text-center">
@@ -236,12 +256,21 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                 )}
 
                 <button
-                    disabled={album.config.isLocked}
+                    disabled={isLockedForEditing}
                     onClick={() => syncStyles(asset)}
-                    className="w-full py-2 bg-catalog-accent/10 border border-catalog-accent/30 text-catalog-accent rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-catalog-accent/20 transition-all flex items-center justify-center gap-2 mb-4 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full py-2 bg-catalog-accent/10 border border-catalog-accent/30 text-catalog-accent rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-catalog-accent/20 transition-all flex items-center justify-center gap-2 mb-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <Layers className="w-3 h-3" /> Sync Style Globally
                 </button>
+
+                {(asset.type === 'image' || asset.type === 'video' || asset.type === 'frame') && asset.url && (
+                    <button
+                        onClick={() => setEditorMode('studio')}
+                        className="w-full py-2.5 bg-catalog-accent text-white rounded-lg text-[10px] font-bold uppercase tracking-[0.2em] shadow-lg shadow-catalog-accent/20 hover:shadow-xl hover:bg-catalog-accent/90 transition-all flex items-center justify-center gap-2 mb-4 animate-in fade-in slide-in-from-top-2"
+                    >
+                        <Droplets className="w-3.5 h-3.5" /> Open Pro Image Studio
+                    </button>
+                )}
 
                 <CollapsibleSection title="Transformation" icon={Box}>
                     <div className="space-y-4">
@@ -251,7 +280,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <label className="text-[9px] text-gray-400 capitalize">Position X</label>
                                 <input
                                     type="number"
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={Math.round(asset.x)}
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { x: parseInt(e.target.value) || 0 })}
                                     className="w-full px-2 py-1 text-xs border rounded font-mono disabled:opacity-50"
@@ -261,7 +290,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <label className="text-[9px] text-gray-400 capitalize">Position Y</label>
                                 <input
                                     type="number"
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={Math.round(asset.y)}
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { y: parseInt(e.target.value) || 0 })}
                                     className="w-full px-2 py-1 text-xs border rounded font-mono disabled:opacity-50"
@@ -271,7 +300,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <label className="text-[9px] text-gray-400 capitalize">Width</label>
                                 <input
                                     type="number"
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={Math.round(asset.width)}
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { width: parseInt(e.target.value) || 0 })}
                                     className="w-full px-2 py-1 text-xs border rounded font-mono disabled:opacity-50"
@@ -281,7 +310,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <label className="text-[9px] text-gray-400 capitalize">Height</label>
                                 <input
                                     type="number"
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={Math.round(asset.height)}
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { height: parseInt(e.target.value) || 0 })}
                                     className="w-full px-2 py-1 text-xs border rounded font-mono disabled:opacity-50"
@@ -291,7 +320,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
 
                         <div className="grid grid-cols-2 gap-2">
                             <button
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => updateAsset(parentPage!.id, asset!.id, { flipX: !asset.flipX })}
                                 className={cn("p-2 text-xs border rounded hover:bg-gray-50 flex items-center justify-center gap-1 disabled:opacity-50", asset.flipX && "bg-catalog-accent/10 border-catalog-accent")}
                                 title="Flip Horizontal"
@@ -299,7 +328,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <span className="scale-x-[-1]">F</span> Flip H
                             </button>
                             <button
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => updateAsset(parentPage!.id, asset!.id, { flipY: !asset.flipY })}
                                 className={cn("p-2 text-xs border rounded hover:bg-gray-50 flex items-center justify-center gap-1 disabled:opacity-50", asset.flipY && "bg-catalog-accent/10 border-catalog-accent")}
                                 title="Flip Vertical"
@@ -314,7 +343,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <span>{asset.opacity ?? 100}%</span>
                             </div>
                             <Slider
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 value={[asset.opacity ?? 100]}
                                 min={0}
                                 max={100}
@@ -328,7 +357,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         </div>
 
                         <button
-                            disabled={album.config.isLocked}
+                            disabled={isLockedForEditing}
                             onClick={() => {
                                 if (parentPage && asset) duplicateAsset(parentPage.id, asset.id);
                             }}
@@ -353,7 +382,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         <div className="flex gap-3">
                             <div className="flex-1">
                                 <Slider
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={[asset.rotation || 0]}
                                     min={0}
                                     max={360}
@@ -364,7 +393,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                             <div className="w-16 relative">
                                 <input
                                     type="number"
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={Math.round(asset.rotation || 0)}
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { rotation: parseInt(e.target.value) || 0 })}
                                     className="w-full pl-2 pr-5 py-1 text-xs border rounded focus:ring-1 focus:ring-catalog-accent outline-none font-mono disabled:opacity-50"
@@ -376,7 +405,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                             {[0, 90, 180, 270].map(deg => (
                                 <button
                                     key={deg}
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     onClick={() => updateAsset(parentPage!.id, asset!.id, { rotation: deg })}
                                     className={cn(
                                         "py-1 text-[9px] border rounded hover:bg-gray-50 transition-colors font-bold disabled:opacity-50",
@@ -395,7 +424,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         {['left', 'center', 'right', 'top', 'middle', 'bottom'].map((align) => (
                             <button
                                 key={align}
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => handleAlign(align as any)}
                                 className="p-1.5 text-[10px] border rounded hover:bg-gray-50 uppercase tracking-tighter font-medium text-catalog-text/70 transition-all hover:border-catalog-accent/30 disabled:opacity-50 disabled:grayscale"
                             >
@@ -416,7 +445,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         <div className="flex-1 space-y-1">
                             <span className="text-[8px] text-gray-500 uppercase font-bold">X: {Math.round((asset.pivot?.x ?? 0.5) * 100)}%</span>
                             <Slider
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 value={[(asset.pivot?.x ?? 0.5) * 100]}
                                 min={0} max={100}
                                 onValueChange={([v]) => updateAsset(parentPage!.id, asset!.id, { pivot: { ...asset.pivot, x: v / 100, y: asset.pivot?.y ?? 0.5 } })}
@@ -425,7 +454,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         <div className="flex-1 space-y-1">
                             <span className="text-[8px] text-gray-500 uppercase font-bold">Y: {Math.round((asset.pivot?.y ?? 0.5) * 100)}%</span>
                             <Slider
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 value={[(asset.pivot?.y ?? 0.5) * 100]}
                                 min={0} max={100}
                                 onValueChange={([v]) => updateAsset(parentPage!.id, asset!.id, { pivot: { ...asset.pivot, y: v / 100, x: asset.pivot?.x ?? 0.5 } })}
@@ -433,7 +462,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         </div>
                     </div>
                     <button
-                        disabled={album.config.isLocked}
+                        disabled={isLockedForEditing}
                         onClick={() => setEditorMode(editorMode === 'pivot' ? 'select' : 'pivot')}
                         className={cn(
                             "w-full mt-2 p-2 text-[10px] border rounded hover:bg-gray-50 flex items-center justify-center gap-2 font-bold transition-all disabled:opacity-50 disabled:grayscale",
@@ -479,7 +508,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 className="flex-1 px-2 py-1 text-xs border rounded outline-none focus:ring-1 focus:ring-catalog-accent"
                             />
                             <button
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => {
                                     const val = parseInt(customDpi);
                                     if (val > 0) applyDpi(val);
@@ -495,7 +524,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         {[300, 600].map(dpi => (
                             <button
                                 key={dpi}
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => applyDpi(dpi)}
                                 className="p-2 text-[9px] border border-catalog-accent/20 rounded hover:bg-catalog-accent hover:text-white transition-all uppercase font-bold disabled:opacity-50"
                             >
@@ -503,7 +532,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                             </button>
                         ))}
                         <button
-                            disabled={album.config.isLocked}
+                            disabled={isLockedForEditing}
                             onClick={() => updateAsset(parentPage!.id, asset!.id, {
                                 width: asset.originalDimensions?.width || asset.width,
                                 height: asset.originalDimensions?.height || asset.height
@@ -513,7 +542,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                             Native Pixels
                         </button>
                         <button
-                            disabled={album.config.isLocked}
+                            disabled={isLockedForEditing}
                             onClick={() => {
                                 const pageWidth = album.config.dimensions.width;
                                 const ratio = asset.aspectRatio || (asset.width / asset.height);
@@ -578,8 +607,97 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                             </div>
                         </div>
 
+                        <div className="space-y-4 pt-4 border-t border-catalog-accent/5">
+                            <label className="text-[10px] font-bold text-catalog-accent uppercase tracking-widest">Frame Optimization</label>
+                            <div className="grid grid-cols-3 gap-1">
+                                <button
+                                    onClick={() => updateAsset(parentPage!.id, asset!.id, { fitMode: 'cover', crop: undefined })}
+                                    className={cn(
+                                        "py-2 text-[9px] border rounded font-bold uppercase transition-all",
+                                        asset.fitMode === 'cover' || !asset.fitMode ? "bg-catalog-accent text-white border-catalog-accent" : "hover:bg-gray-50 text-catalog-text/60"
+                                    )}
+                                >
+                                    Fill (Cover)
+                                </button>
+                                <button
+                                    onClick={() => updateAsset(parentPage!.id, asset!.id, { fitMode: 'fit', crop: undefined })}
+                                    className={cn(
+                                        "py-2 text-[9px] border rounded font-bold uppercase transition-all",
+                                        asset.fitMode === 'fit' ? "bg-catalog-accent text-white border-catalog-accent" : "hover:bg-gray-50 text-catalog-text/60"
+                                    )}
+                                >
+                                    Fit (Contain)
+                                </button>
+                                <button
+                                    onClick={() => updateAsset(parentPage!.id, asset!.id, { fitMode: 'stretch', crop: undefined })}
+                                    className={cn(
+                                        "py-2 text-[9px] border rounded font-bold uppercase transition-all",
+                                        asset.fitMode === 'stretch' ? "bg-catalog-accent text-white border-catalog-accent" : "hover:bg-gray-50 text-catalog-text/60"
+                                    )}
+                                >
+                                    Stretch
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={() => {
+                                    if (asset.aspectRatio) {
+                                        updateAsset(parentPage!.id, asset!.id, {
+                                            height: asset.width / asset.aspectRatio,
+                                            fitMode: 'cover'
+                                        });
+                                    }
+                                }}
+                                className="w-full py-2 text-[9px] border border-catalog-accent/20 rounded text-catalog-accent hover:bg-catalog-accent/5 font-bold uppercase transition-all"
+                            >
+                                Restore Original Ratio
+                            </button>
+
+                            <div className="space-y-4 pt-4 border-t border-catalog-accent/5">
+                                <label className="text-[10px] font-bold text-catalog-accent uppercase tracking-widest">Alignment & Positioning</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        disabled={isLockedForEditing}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, {
+                                            x: (100 - asset.width) / 2
+                                        })}
+                                        className="p-2 text-[9px] border border-catalog-accent/20 rounded hover:bg-catalog-accent hover:text-white transition-all uppercase font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        <Box className="w-3 h-3" /> Center Horiz
+                                    </button>
+                                    <button
+                                        disabled={isLockedForEditing}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, {
+                                            y: (100 - asset.height) / 2
+                                        })}
+                                        className="p-2 text-[9px] border border-catalog-accent/20 rounded hover:bg-catalog-accent hover:text-white transition-all uppercase font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        <Box className="w-3 h-3 rotate-90" /> Center Vert
+                                    </button>
+                                    <button
+                                        disabled={isLockedForEditing}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, {
+                                            x: 0
+                                        })}
+                                        className="p-2 text-[9px] border border-catalog-accent/20 rounded hover:bg-catalog-accent hover:text-white transition-all uppercase font-bold disabled:opacity-50"
+                                    >
+                                        Align Left
+                                    </button>
+                                    <button
+                                        disabled={isLockedForEditing}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, {
+                                            x: 100 - asset.width
+                                        })}
+                                        className="p-2 text-[9px] border border-catalog-accent/20 rounded hover:bg-catalog-accent hover:text-white transition-all uppercase font-bold disabled:opacity-50"
+                                    >
+                                        Align Right
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <button
-                            onClick={() => updateAsset(parentPage!.id, asset!.id, { crop: undefined })}
+                            onClick={() => updateAsset(parentPage!.id, asset!.id, { crop: undefined, fitMode: 'cover' })}
                             className="w-full py-1.5 text-[9px] text-catalog-text/40 border border-dotted rounded hover:border-catalog-accent hover:text-catalog-accent transition-colors uppercase font-bold"
                         >
                             Reset Content Crop
@@ -664,7 +782,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         </div>
 
                         <button
-                            disabled={album.config.isLocked}
+                            disabled={isLockedForEditing}
                             onClick={() => updateAsset(parentPage!.id, asset!.id, { brightness: 100, contrast: 100, saturate: 100, blur: 0, sepia: 0, hue: 0, filter: 'none' })}
                             className="w-full py-1.5 text-[10px] text-catalog-accent border border-catalog-accent/20 rounded hover:bg-catalog-accent hover:text-white transition-colors uppercase tracking-widest font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                         >
@@ -678,7 +796,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                         {['none', 'vintage', 'matte', 'portrait', 'film', 'sketch'].map((f: string) => (
                             <button
                                 key={f}
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => updateAsset(parentPage!.id, asset!.id, { filter: f })}
                                 className={cn(
                                     "p-2 text-[10px] border rounded capitalize hover:bg-gray-50 transition-all disabled:opacity-50 disabled:grayscale",
@@ -751,7 +869,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <Box className="w-3 h-3" /> 16-Pt Precision Grid
                             </button>
                             <button
-                                disabled={album.config.isLocked}
+                                disabled={isLockedForEditing}
                                 onClick={() => updateAsset(parentPage!.id, asset!.id, { clipPoints: undefined })}
                                 className="col-span-2 p-2 text-[10px] border rounded hover:bg-red-50 text-red-500 font-bold uppercase tracking-widest transition-all disabled:opacity-50 disabled:grayscale"
                             >
@@ -768,7 +886,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                             <div className="space-y-1">
                                 <label className="text-[10px] text-catalog-text/40 uppercase">Font Family</label>
                                 <select
-                                    disabled={album.config.isLocked}
+                                    disabled={isLockedForEditing}
                                     value={asset.fontFamily || 'Inter'}
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontFamily: e.target.value })}
                                     className="w-full text-xs border rounded p-1.5 focus:ring-1 focus:ring-catalog-accent outline-none font-medium disabled:opacity-50"
@@ -797,7 +915,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                 <div className="space-y-1">
                                     <label className="text-[10px] text-catalog-text/40 uppercase">Weight</label>
                                     <select
-                                        disabled={album.config.isLocked}
+                                        disabled={isLockedForEditing}
                                         value={asset.fontWeight || 'normal'}
                                         onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontWeight: e.target.value })}
                                         className="w-full text-xs border rounded p-1.5 focus:ring-1 focus:ring-catalog-accent outline-none disabled:opacity-50"
@@ -815,7 +933,7 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                     {['left', 'center', 'right'].map((align) => (
                                         <button
                                             key={align}
-                                            disabled={album.config.isLocked}
+                                            disabled={isLockedForEditing}
                                             onClick={() => updateAsset(parentPage!.id, asset!.id, { textAlign: align as any })}
                                             className={cn(
                                                 "flex-1 p-1 text-xs hover:bg-gray-50 disabled:opacity-50",

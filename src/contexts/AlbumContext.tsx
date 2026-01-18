@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
 export interface Asset {
     id: string;
-    type: 'image' | 'video' | 'ribbon' | 'frame' | 'text' | 'sticker' | 'shape';
+    type: 'image' | 'video' | 'ribbon' | 'frame' | 'text' | 'sticker' | 'shape' | 'location' | 'map';
     url: string;
     x: number;
     y: number;
@@ -76,6 +76,9 @@ export interface Asset {
     isRemovingBackground?: boolean;
     aiEffect?: string;
     aiEffectReference?: string;
+    chromaKeyColor?: string;
+    chromaKeyColors?: string[];
+    chromaKeyTolerance?: number;
 
     // Crop
     crop?: {
@@ -92,6 +95,15 @@ export interface Asset {
     isHidden?: boolean;
     isStamp?: boolean;
     category?: string;
+
+    // Location Data
+    lat?: number;
+    lng?: number;
+    mapConfig?: {
+        center: { lat: number; lng: number };
+        zoom: number;
+        places: { name: string; lat: number; lng: number }[];
+    };
 }
 
 export interface AlbumConfig {
@@ -153,10 +165,10 @@ interface AlbumContextType {
     removePage: (pageId: string) => void;
     updatePage: (pageId: string, updates: Partial<Page>) => void;
     addAsset: (pageId: string, asset: Omit<Asset, 'id'>) => void;
-    updateAsset: (pageId: string, assetId: string, updates: Partial<Asset>) => void;
+    updateAsset: (pageId: string, assetId: string, updates: Partial<Asset>, options?: { skipHistory?: boolean }) => void;
     removeAsset: (pageId: string, assetId: string) => void;
     duplicateAsset: (pageId: string, assetId: string) => void;
-    updateAssetZIndex: (pageId: string, assetId: string, direction: 'front' | 'back') => void;
+    updateAssetZIndex: (pageId: string, assetId: string, direction: 'front' | 'back' | 'forward' | 'backward') => void;
     uploadMedia: (files: File[], category?: string) => Promise<void>;
     addMediaByUrl: (url: string, type: 'image' | 'video', category?: string) => void;
     applyLayout: (pageId: string, template: Page['layoutTemplate']) => void;
@@ -178,8 +190,9 @@ interface AlbumContextType {
     isSaving: boolean;
     isLoading: boolean;
     uploadProgress: Record<string, number>;
-    updatePageAssets: (pageId: string, assets: Asset[]) => void;
+    updatePageAssets: (pageId: string, assets: Asset[], options?: { skipHistory?: boolean }) => void;
     moveAssetToPage: (assetId: string, fromPageId: string, toPageId: string, newX: number, newY: number) => void;
+    commitHistory: () => void;
 }
 
 const AlbumContext = createContext<AlbumContextType | undefined>(undefined);
@@ -213,15 +226,30 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+    const albumRef = useRef<Album | null>(null);
 
-    const setAlbum = useCallback((newAlbum: Album | null | ((prev: Album | null) => Album | null)) => {
+    const setAlbum = useCallback((
+        newAlbum: Album | null | ((prev: Album | null) => Album | null),
+        options?: { skipHistory?: boolean }
+    ) => {
         setAlbumInternal(prev => {
             const resolved = typeof newAlbum === 'function' ? newAlbum(prev) : newAlbum;
-            if (prev && resolved && prev !== resolved) {
-                setHistory(h => [...h.slice(-19), prev]); // Limit to 20 states
+            if (prev && resolved && prev !== resolved && !options?.skipHistory) {
+                setHistory(h => [...h.slice(-49), prev]);
                 setRedoStack([]);
             }
+            albumRef.current = resolved;
             return resolved;
+        });
+    }, []);
+
+    const commitHistory = useCallback(() => {
+        setAlbumInternal(current => {
+            if (current) {
+                setHistory(h => [...h.slice(-49), current]);
+                setRedoStack([]);
+            }
+            return current;
         });
     }, []);
 
@@ -315,18 +343,21 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         setSelectedAssetId(newAsset.id);
     }, [album]);
 
-    const updateAsset = useCallback((pageId: string, assetId: string, updates: Partial<Asset>) => {
+    const updateAsset = useCallback((pageId: string, assetId: string, updates: Partial<Asset>, options?: { skipHistory?: boolean }) => {
         if (!album || album.config.isLocked) return;
-        setAlbum({
-            ...album,
-            pages: album.pages.map(p =>
-                p.id === pageId
-                    ? { ...p, assets: p.assets.map(a => a.id === assetId ? { ...a, ...updates } : a) }
-                    : p
-            ),
-            updatedAt: new Date(),
-        });
-    }, [album]);
+        setAlbum(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                pages: prev.pages.map(p =>
+                    p.id === pageId
+                        ? { ...p, assets: p.assets.map(a => a.id === assetId ? { ...a, ...updates } : a) }
+                        : p
+                ),
+                updatedAt: new Date(),
+            };
+        }, options);
+    }, [album, setAlbum]);
 
     const removeAsset = useCallback((pageId: string, assetId: string) => {
         if (!album || album.config.isLocked) return;
@@ -364,21 +395,53 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         setSelectedAssetId(newAsset.id);
     }, [album]);
 
-    const updateAssetZIndex = useCallback((pageId: string, assetId: string, direction: 'front' | 'back') => {
+    const updateAssetZIndex = useCallback((pageId: string, assetId: string, direction: 'front' | 'back' | 'forward' | 'backward') => {
         if (!album || album.config.isLocked) return;
 
-        const page = album.pages.find(p => p.id === pageId);
-        if (!page) return;
+        setAlbum(prev => {
+            if (!prev) return prev;
+            const page = prev.pages.find(p => p.id === pageId);
+            if (!page) return prev;
 
-        const asset = page.assets.find(a => a.id === assetId);
-        if (!asset) return;
+            const sortedAssets = [...page.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+            const assetIndex = sortedAssets.findIndex(a => a.id === assetId);
+            if (assetIndex === -1) return prev;
 
-        const maxZ = Math.max(...page.assets.map(a => a.zIndex), 0);
-        const minZ = Math.min(...page.assets.map(a => a.zIndex), 0);
+            const asset = sortedAssets[assetIndex];
+            let newZ = asset.zIndex || 0;
 
-        const newZIndex = direction === 'front' ? maxZ + 1 : minZ - 1;
-        updateAsset(pageId, assetId, { zIndex: newZIndex });
-    }, [album, updateAsset]);
+            if (direction === 'front') {
+                newZ = Math.max(...page.assets.map(a => a.zIndex || 0), 0) + 1;
+            } else if (direction === 'back') {
+                const currentMin = Math.min(...page.assets.map(a => a.zIndex || 0), 0);
+                newZ = currentMin - 1;
+                // Preserve visibility: regular assets stay at or above 0
+                if (asset.zIndex >= 0 && newZ < 0) newZ = 0;
+            } else if (direction === 'forward') {
+                if (assetIndex < sortedAssets.length - 1) {
+                    const nextAsset = sortedAssets[assetIndex + 1];
+                    newZ = (nextAsset.zIndex || 0) + 1;
+                }
+            } else if (direction === 'backward') {
+                if (assetIndex > 0) {
+                    const prevAsset = sortedAssets[assetIndex - 1];
+                    newZ = (prevAsset.zIndex || 0) - 1;
+                    // Preserve visibility: regular assets stay at or above 0
+                    if (asset.zIndex >= 0 && newZ < 0) newZ = 0;
+                }
+            }
+
+            return {
+                ...prev,
+                pages: prev.pages.map(p =>
+                    p.id === pageId
+                        ? { ...p, assets: p.assets.map(a => a.id === assetId ? { ...a, zIndex: newZ } : a) }
+                        : p
+                ),
+                updatedAt: new Date(),
+            };
+        });
+    }, [album]);
 
     const uploadMedia = useCallback(async (files: File[], category: string = 'general') => {
         if (!album || album.config.isLocked) return;
@@ -645,7 +708,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         });
     }, [album]);
 
-    const updatePageAssets = useCallback((pageId: string, newAssets: Asset[]) => {
+    const updatePageAssets = useCallback((pageId: string, newAssets: Asset[], options?: { skipHistory?: boolean }) => {
         setAlbum(prev => {
             if (!prev || prev.config.isLocked) return prev;
             return {
@@ -653,7 +716,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                 pages: prev.pages.map(p => p.id === pageId ? { ...p, assets: newAssets } : p),
                 updatedAt: new Date(),
             };
-        });
+        }, options);
     }, [setAlbum]);
 
     const moveAssetToPage = useCallback((assetId: string, fromPageId: string, toPageId: string, newX: number, newY: number) => {
@@ -780,26 +843,28 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                 pageNumber: i + 1,
                 layoutTemplate: p.template_id,
                 backgroundColor: p.background_color,
-                assets: (p.assets as any[] || []).map(a => ({
-                    id: a.id,
-                    type: a.asset_type,
-                    url: a.url,
-                    x: a.config?.x || 0,
-                    y: a.config?.y || 0,
-                    width: a.config?.width || 200,
-                    height: a.config?.height || 150,
-                    rotation: a.config?.rotation || 0,
-                    scale: a.config?.scale || 1,
-                    zIndex: a.z_index || 0,
-                    filter: a.config?.filter,
-                    filterIntensity: a.config?.filterIntensity,
-                    content: a.config?.content,
-                    brightness: a.config?.brightness || 100,
-                    contrast: a.config?.contrast || 100,
-                    saturate: a.config?.saturate || 100,
-                    isRemovingBackground: a.config?.isRemovingBackground,
-                    isStamp: a.config?.isStamp
-                }))
+                backgroundOpacity: p.background_opacity ?? 100,
+                backgroundImage: p.background_image,
+                assets: (p.assets as any[] || []).map(a => {
+                    // Restore original type if we saved it in config, otherwise infer
+                    let restoredType = a.asset_type;
+                    if (a.config?.originalType) {
+                        restoredType = a.config.originalType;
+                    } else if (a.asset_type === 'image' && a.config?.mapConfig) {
+                        restoredType = 'map';
+                    } else if (a.asset_type === 'text' && (a.config?.location || a.config?.isLocation)) {
+                        restoredType = 'location';
+                    }
+
+                    return {
+                        id: a.id,
+                        type: restoredType,
+                        url: a.url,
+                        zIndex: a.z_index || 0,
+                        slotId: a.slot_id || null,
+                        ...(a.config || {})
+                    };
+                })
             }));
 
             if (pages.length === 0) {
@@ -809,28 +874,36 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                         pageNumber: 1,
                         layoutTemplate: 'cover-front',
                         assets: [],
-                        backgroundColor: '#ffffff'
+                        backgroundColor: '#ffffff',
+                        backgroundOpacity: 100,
+                        backgroundImage: undefined
                     },
                     {
                         id: generateId(),
                         pageNumber: 2,
                         layoutTemplate: 'freeform',
                         assets: [],
-                        backgroundColor: '#ffffff'
+                        backgroundColor: '#ffffff',
+                        backgroundOpacity: 100,
+                        backgroundImage: undefined
                     },
                     {
                         id: generateId(),
                         pageNumber: 3,
                         layoutTemplate: 'freeform',
                         assets: [],
-                        backgroundColor: '#ffffff'
+                        backgroundColor: '#ffffff',
+                        backgroundOpacity: 100,
+                        backgroundImage: undefined
                     },
                     {
                         id: generateId(),
                         pageNumber: 4,
                         layoutTemplate: 'cover-back',
                         assets: [],
-                        backgroundColor: '#ffffff'
+                        backgroundColor: '#ffffff',
+                        backgroundOpacity: 100,
+                        backgroundImage: undefined
                     }
                 ];
             }
@@ -868,167 +941,100 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
     }, []);
 
     const saveAlbum = useCallback(async () => {
-        if (!album) return { success: false, error: 'No album to save' };
+        const currentAlbum = albumRef.current;
+        if (!currentAlbum) return { success: false, error: 'No album to save' };
         setIsSaving(true);
         try {
             // 1. Update Album Metadata
             const { error: albumError } = await (supabase.from('albums') as any)
                 .update({
-                    title: album.title,
-                    description: album.description,
-                    category: album.category,
-                    is_published: album.isPublished,
-                    hashtags: album.hashtags || [],
-                    location: album.location,
-                    country: album.country,
-                    geotag: album.geotag,
+                    title: currentAlbum.title,
+                    description: currentAlbum.description,
+                    category: currentAlbum.category,
+                    is_published: currentAlbum.isPublished,
+                    hashtags: currentAlbum.hashtags || [],
+                    location: currentAlbum.location,
+                    country: currentAlbum.country,
+                    geotag: currentAlbum.geotag,
                     config: {
-                        ...album.config,
-                        unplacedMedia: album.unplacedMedia,
-                        geotag: album.geotag, // Double-save for fallback
-                        location: album.location
+                        ...currentAlbum.config,
+                        unplacedMedia: currentAlbum.unplacedMedia,
+                        geotag: currentAlbum.geotag,
+                        location: currentAlbum.location
                     },
                     updated_at: new Date().toISOString()
                 })
-                .eq('id', album.id);
+                .eq('id', currentAlbum.id);
 
             if (albumError) throw albumError;
 
             // 2. Prepare Payloads
-            const pagesPayload = album.pages.map(page => ({
+            const pagesPayload = currentAlbum.pages.map(page => ({
                 id: page.id,
-                album_id: album.id,
+                album_id: currentAlbum.id,
                 page_number: page.pageNumber,
                 template_id: page.layoutTemplate,
                 background_color: page.backgroundColor,
+                background_opacity: page.backgroundOpacity ?? 100,
+                background_image: page.backgroundImage,
                 updated_at: new Date().toISOString()
             }));
 
-            const assetsPayload = album.pages.flatMap(page =>
-                page.assets.map(asset => ({
-                    id: asset.id,
-                    page_id: page.id,
-                    asset_type: asset.type,
-                    url: asset.url,
-                    z_index: asset.zIndex || 0,
-                    slot_id: asset.slotId || null,
-                    config: {
-                        x: asset.x,
-                        y: asset.y,
-                        width: asset.width,
-                        height: asset.height,
-                        rotation: asset.rotation,
-                        scale: asset.scale,
-                        flipX: asset.flipX,
-                        flipY: asset.flipY,
-                        opacity: asset.opacity,
-                        aspectRatio: asset.aspectRatio,
-                        lockAspectRatio: asset.lockAspectRatio,
-                        borderRadius: asset.borderRadius,
-                        borderColor: asset.borderColor,
-                        borderWidth: asset.borderWidth,
-                        filter: asset.filter,
-                        filterIntensity: asset.filterIntensity,
-                        brightness: asset.brightness,
-                        contrast: asset.contrast,
-                        saturate: asset.saturate,
-                        hue: asset.hue,
-                        sepia: asset.sepia,
-                        blur: asset.blur,
-                        exposure: asset.exposure,
-                        highlights: asset.highlights,
-                        shadows: asset.shadows,
-                        warmth: asset.warmth,
-                        sharpness: asset.sharpness,
-                        content: asset.content,
-                        fontFamily: asset.fontFamily,
-                        fontSize: asset.fontSize,
-                        fontWeight: asset.fontWeight,
-                        lineHeight: asset.lineHeight,
-                        letterSpacing: asset.letterSpacing,
-                        textAlign: asset.textAlign,
-                        textColor: asset.textColor,
-                        textBackgroundColor: asset.textBackgroundColor,
-                        textShadow: asset.textShadow,
-                        color: asset.color,
-                        crop: asset.crop,
-                        isLocked: asset.isLocked,
-                        isHidden: asset.isHidden,
-                        isStamp: asset.isStamp,
-                        category: asset.category,
-                        isPlaceholder: asset.isPlaceholder,
-                        fitMode: asset.fitMode,
-                        originalDimensions: asset.originalDimensions,
-                        clipPoints: asset.clipPoints,
-                        isRemovingBackground: asset.isRemovingBackground,
-                    } as any,
-                    updated_at: new Date().toISOString()
-                }))
+            const assetsPayload = currentAlbum.pages.flatMap(page =>
+                page.assets.map(asset => {
+                    // Map legacy/custom types to database enum types
+                    let dbType = asset.type;
+                    if (asset.type === 'map') dbType = 'image'; // Save maps as images to satisfy potential DB enum
+                    if (asset.type === 'location') dbType = 'text'; // Save locations as text
+
+                    return {
+                        id: asset.id,
+                        page_id: page.id,
+                        asset_type: dbType,
+                        url: asset.url || '', // Ensure URL is never null
+                        z_index: asset.zIndex || 0,
+                        slot_id: asset.slotId || null,
+                        config: {
+                            ...asset,
+                            // Explicitly preserve the real type in config for restoration
+                            originalType: asset.type,
+                            mapConfig: asset.type === 'map' ? asset.mapConfig : undefined
+                        } as any,
+                        updated_at: new Date().toISOString()
+                    };
+                })
             );
 
-            // 3. Cleanup Orphans (Pages)
-            const { data: dbPages, error: fetchPagesError } = await supabase
-                .from('pages')
-                .select('id')
-                .eq('album_id', album.id);
+            // 3. Cleanup Orphans & Batch Upsert
+            const currentPageIds = Array.from(new Set(currentAlbum.pages.map(p => p.id)));
+            const currentAssetIds = Array.from(new Set(assetsPayload.map(a => a.id)));
 
-            if (fetchPagesError) throw fetchPagesError;
-
-            const currentPageIds = new Set(album.pages.map(p => p.id));
-            const pagesToDelete = (dbPages as any[])?.filter((p: any) => !currentPageIds.has(p.id)) || [];
+            const { data: dbPages } = await supabase.from('pages').select('id').eq('album_id', currentAlbum.id);
+            const pagesToDelete = (dbPages as any[])?.filter(p => !currentPageIds.includes(p.id)).map(p => p.id) || [];
 
             if (pagesToDelete.length > 0) {
-                const { error: deletePagesError } = await supabase
-                    .from('pages')
-                    .delete()
-                    .in('id', pagesToDelete.map((p: any) => p.id));
-                if (deletePagesError) throw deletePagesError;
+                await supabase.from('pages').delete().in('id', pagesToDelete);
             }
 
-            // 4. Cleanup Orphans (Assets)
-            // Fetch assets for current pages to detect deletions within pages
-            const { data: dbAssets, error: fetchAssetsError } = await supabase
-                .from('assets')
-                .select('id')
-                .in('page_id', Array.from(currentPageIds));
-
-            if (fetchAssetsError) throw fetchAssetsError;
-
-            const currentAssetIds = new Set(assetsPayload.map(a => a.id));
-            const assetsToDelete = (dbAssets as any[])?.filter((a: any) => !currentAssetIds.has(a.id)) || [];
+            const { data: dbAssets } = await supabase.from('assets').select('id').in('page_id', currentPageIds);
+            const assetsToDelete = (dbAssets as any[])?.filter(a => !currentAssetIds.includes(a.id)).map(a => a.id) || [];
 
             if (assetsToDelete.length > 0) {
-                const { error: deleteAssetsError } = await supabase
-                    .from('assets')
-                    .delete()
-                    .in('id', assetsToDelete.map((a: any) => a.id));
-                if (deleteAssetsError) throw deleteAssetsError;
+                await supabase.from('assets').delete().in('id', assetsToDelete);
             }
 
-            // 5. Batch Upsert Pages
             if (pagesPayload.length > 0) {
-                // 5a. First pass: Shift page numbers to temporary range (10000+) to avoid unique constraint violations during reordering
-                const shiftPayload = pagesPayload.map(p => ({
-                    id: p.id,
-                    page_number: (p.page_number || 0) + 10000,
-                    album_id: p.album_id // Ensure album_id is present for the constraint
-                }));
+                // Upsert pages (using a 2-step process to avoid unique constraint violations on page_number)
+                const { error: pagesStep1Error } = await (supabase.from('pages') as any).upsert(pagesPayload.map(p => ({ ...p, page_number: p.page_number + 20000 })));
+                if (pagesStep1Error) throw pagesStep1Error;
 
-                const { error: shiftError } = await (supabase.from('pages') as any)
-                    .upsert(shiftPayload);
-                if (shiftError) throw shiftError;
-
-                // 5b. Second pass: Set correct page numbers and full data
-                const { error: upsertPagesError } = await (supabase.from('pages') as any)
-                    .upsert(pagesPayload);
-                if (upsertPagesError) throw upsertPagesError;
+                const { error: pagesStep2Error } = await (supabase.from('pages') as any).upsert(pagesPayload);
+                if (pagesStep2Error) throw pagesStep2Error;
             }
 
-            // 6. Batch Upsert Assets
             if (assetsPayload.length > 0) {
-                const { error: upsertAssetsError } = await (supabase.from('assets') as any)
-                    .upsert(assetsPayload);
-                if (upsertAssetsError) throw upsertAssetsError;
+                const { error: assetsError } = await (supabase.from('assets') as any).upsert(assetsPayload);
+                if (assetsError) throw assetsError;
             }
 
             return { success: true };
@@ -1038,11 +1044,10 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         } finally {
             setIsSaving(false);
         }
-    }, [album]);
+    }, []);
     const toggleLock = useCallback(async () => {
         if (!album) return;
         const newLockedState = !album.config.isLocked;
-        console.log("Toggling lock to:", newLockedState);
 
         // Optimistic update
         setAlbum(prev => prev ? ({
@@ -1104,7 +1109,8 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         canRedo: redoStack.length > 0,
         updatePageAssets,
         moveAssetToPage,
-        toggleLock
+        toggleLock,
+        commitHistory
     };
 
     return (

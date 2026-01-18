@@ -5,6 +5,8 @@ import { cn } from '../../lib/utils';
 import { type Album, type Page, type Asset } from '../../contexts/AlbumContext';
 import { printService } from '../../services/printService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getTransformedUrl, getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
+import { MapAsset } from '../ui/MapAsset';
 
 interface FlipbookViewerProps {
     pages: Page[];
@@ -41,7 +43,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     }, []);
 
     const bookRef = useRef<any>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    // const audioRef = useRef<HTMLAudioElement | null>(null);
     const pageRefs = useRef<(HTMLElement | null)[]>([]);
 
     const title = album?.title || 'Untitled Album';
@@ -84,28 +86,46 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
         };
     }, [isMobile, dimensions.width, dimensions.height, isFullscreen]);
 
+    // Sound Configuration
+    const FLIP_SOUND_ID = 'flip-sound-element';
+    const FLIP_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3';
+
+    // 1. "Unlock" the audio for the browser - The Professional Implementation
     useEffect(() => {
-        // Pre-load the sound
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
-        // Or user provided: https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3
-        audio.volume = 0.4;
-        audioRef.current = audio;
+        const flipSound = document.getElementById(FLIP_SOUND_ID) as HTMLAudioElement;
+        if (!flipSound) return;
+
+        const unlockAudio = () => {
+            // Play then immediately pause to unlock audio context
+            flipSound.play().catch(() => { });
+            flipSound.pause();
+            flipSound.currentTime = 0;
+
+            document.removeEventListener('click', unlockAudio);
+        };
+
+        document.addEventListener('click', unlockAudio);
+        return () => document.removeEventListener('click', unlockAudio);
     }, []);
 
     const playFlipSound = useCallback(() => {
-        if (audioRef.current) {
-            const sound = audioRef.current.cloneNode() as HTMLAudioElement;
-            sound.volume = 0.5; // Increased volume
-            sound.play().catch((e) => console.log('Audio play failed', e));
+        try {
+            const audio = new Audio(FLIP_SOUND_URL);
+            audio.volume = 1.0;
+            audio.play().catch(e => console.error("Audio playback error:", e));
+        } catch (e) {
+            console.error("Audio creation error:", e);
         }
     }, []);
+
 
     const onFlip = useCallback((e: any) => {
         setCurrentPageIndex(e.data);
     }, []);
 
     const onChangeState = useCallback((e: any) => {
-        if (e.data === 'flipping') {
+        // Trigger sound on start of flip (flipping) or user interaction (user_fold)
+        if (e.data === 'flipping' || e.data === 'user_fold') {
             playFlipSound();
         }
     }, [playFlipSound]);
@@ -140,6 +160,11 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             "bg-[#000000]",
             isFullscreen ? "p-0" : "p-4 md:p-8"
         )}>
+            {/* Hidden Audio Element for reliable playback */}
+            <audio id={FLIP_SOUND_ID} preload="auto" style={{ display: 'none' }}>
+                <source src={FLIP_SOUND_URL} type="audio/mpeg" />
+            </audio>
+
             {/* Header */}
             <header className="flex items-center justify-between h-16 px-6 text-white z-[110] bg-black/50 backdrop-blur-md">
                 <div className="flex items-center gap-4">
@@ -241,16 +266,14 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             </header>
 
             {/* Book Container with Zoom */}
-            <div id="flipbook-container" className="flex-1 flex items-center justify-center p-4 overflow-hidden relative">
+            <div id="flipbook-container" className="flex-1 flex items-center justify-center p-4 overflow-visible relative min-h-0">
                 <div
                     style={{
-                        transform: `scale(${zoom})`,
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        transform: `translate(-50%, -50%) scale(${zoom})`,
                         transformOrigin: 'center center',
-                        width: '100%',
-                        height: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
                     }}
                 >
                     <HTMLFlipBook
@@ -266,16 +289,16 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                         mobileScrollSupport={false} // Prevents glitchy scrolling on touch
                         onFlip={onFlip}
                         onChangeState={onChangeState}
-                        className="shadow-[0_0_100px_rgba(0,0,0,0.8)]" // Depth shadow on black bg
+                        className="shadow-2xl"
                         style={{ margin: '0 auto' }}
                         ref={bookRef}
-                        flippingTime={800} // Slightly slower/smoother flip
+                        flippingTime={1000} // Slower smoother flip
                         useMouseEvents={true}
                         swipeDistance={30}
-                        showPageCorners={true}
+                        showPageCorners={false} // Disable corners if they cause visual artifacts
                         disableFlipByClick={false}
                         drawShadow={true}
-                        maxShadowOpacity={0.5} // Realistic shadow intensity
+                        maxShadowOpacity={0.5}
                         autoSize={false} // Disable auto-resizing of pages
                         clickEventForward={true}
                     >
@@ -287,36 +310,19 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                             // Density: 'hard' for covers, 'soft' for inner pages
                             const density = isCover ? 'hard' : 'soft';
 
-                            // Side Calculation:
-                            // With showCover=true:
-                            // index 0 -> Cover (displayed alone, acts like recto/right)
-                            // index 1 -> Left (Verso)
-                            // index 2 -> Right (Recto)
-                            // index 3 -> Left
-                            // index 4 -> Right
-                            // ...
-
-                            // For inner pages (index > 0):
-                            // odd index -> Left
-                            // even index -> Right
+                            // Side Calculation
                             let side: 'left' | 'right';
                             if (isFrontCover) {
-                                side = 'right'; // Conventionally cover is on the right of specific spine
+                                side = 'right';
                             } else if (isBackCover) {
-                                side = 'left'; // Back cover is on left when closed? No, usually single page view.
-                                // In react-pageflip, standard is Spread.
-                                // Just pass correct side for asset rendering logic.
-                                // If index is even, it's typically Right. If odd, Left.
-                                // BUT index 0 is special.
-                                // Let's stick to: index % 2 !== 0 ? 'left' : 'right'
                                 side = index % 2 !== 0 ? 'left' : 'right';
                             } else {
                                 side = index % 2 !== 0 ? 'left' : 'right';
                             }
 
-                            // Spillover Logic
+                            // Spillover Logic - only if desired
                             let otherPage: Page | undefined;
-                            if (!isCover) {
+                            if (index > 0 && index < pages.length - 1) { // Don't spill on covers
                                 if (side === 'left' && pages[index + 1]) {
                                     otherPage = pages[index + 1];
                                 } else if (side === 'right' && pages[index - 1]) {
@@ -400,7 +406,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
 
@@ -434,6 +440,14 @@ const PageContent = forwardRef<HTMLDivElement, {
                 border: '1px solid rgba(0,0,0,0.05)'
             }}
         >
+            {page.backgroundImage && (
+                <img
+                    src={page.backgroundImage}
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
+                    style={{ opacity: page.backgroundOpacity ?? 1 }}
+                />
+            )}
             {/* Spillover Assets (Only for spreads/soft pages) */}
             {otherPage && density !== 'hard' && [...otherPage.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset) => (
                 <AssetDisplay
@@ -463,17 +477,37 @@ const PageContent = forwardRef<HTMLDivElement, {
                 </div>
             )}
 
+            {/* 3D Page Curve Gradient - Adds depth to the page surface */}
+            {!isCover && density !== 'hard' && (
+                <div className={cn(
+                    "absolute inset-0 pointer-events-none z-[5]",
+                    side === 'left'
+                        ? "bg-gradient-to-r from-black/25 via-white/5 to-transparent"
+                        : "bg-gradient-to-l from-black/25 via-white/5 to-transparent"
+                )} />
+            )}
+
+            {/* Specular Highlight - Thin shine near spine */}
+            {!isCover && density !== 'hard' && (
+                <div className={cn(
+                    "absolute inset-y-0 w-4 pointer-events-none z-[6] mix-blend-overlay",
+                    side === 'left'
+                        ? "right-0 bg-gradient-to-l from-white/40 to-transparent"
+                        : "left-0 bg-gradient-to-r from-white/40 to-transparent"
+                )} />
+            )}
+
             {/* Spine Gradient - Crease Shadow Gutter (hidden on covers) */}
             {!isCover && density !== 'hard' && (
                 <div className={cn(
-                    "absolute inset-y-0 w-16 pointer-events-none transition-opacity duration-500",
-                    side === 'left' ? "right-0 bg-gradient-to-l from-black/20 via-black/5 to-transparent" : "left-0 bg-gradient-to-r from-black/20 via-black/5 to-transparent",
+                    "absolute inset-y-0 w-12 pointer-events-none transition-opacity duration-500",
+                    side === 'left' ? "right-0 bg-gradient-to-l from-black/40 to-transparent" : "left-0 bg-gradient-to-r from-black/40 to-transparent",
                     "opacity-100"
                 )} />
             )}
 
             {/* Subtle "Paper" texture overlay */}
-            <div className="absolute inset-0 pointer-events-none opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/paper.png')]" />
+            <div className="absolute inset-0 pointer-events-none opacity-[0.04] bg-[url('https://www.transparenttextures.com/patterns/paper.png')] mix-blend-multiply" />
         </div>
     );
 });
@@ -498,7 +532,8 @@ function AssetDisplay({ asset, offsetX = 0, dimensions }: { asset: Asset; offset
         transform: `rotate(${asset.rotation || 0}deg) scale(${asset.flipX ? -1 : 1}, ${asset.flipY ? -1 : 1})`,
         transformOrigin: `${(asset.pivot?.x ?? 0.5) * 100}% ${(asset.pivot?.y ?? 0.5) * 100}%`,
         zIndex: asset.zIndex || 0,
-        filter: asset.filter,
+        ...getFilterStyle(asset),
+        ...getClipPathStyle(asset),
         opacity: (asset.opacity ?? 100) / 100,
         willChange: 'transform', // optimizing for movement/flip
         backfaceVisibility: 'hidden', // prevent flickering
@@ -509,7 +544,7 @@ function AssetDisplay({ asset, offsetX = 0, dimensions }: { asset: Asset; offset
         return (
             <div style={{ ...style, overflow: 'hidden' }}>
                 <img
-                    src={asset.url}
+                    src={getTransformedUrl(asset.url, asset)}
                     alt=""
                     className="absolute max-w-none shadow-none"
                     style={{
@@ -557,6 +592,45 @@ function AssetDisplay({ asset, offsetX = 0, dimensions }: { asset: Asset; offset
                 className="pointer-events-none select-none"
             >
                 {asset.content}
+            </div>
+        );
+    }
+
+    if (asset.type === 'location') {
+        return (
+            <div style={{
+                ...style,
+                fontSize: (asset.fontSize || 14),
+                fontFamily: asset.fontFamily || 'Inter',
+                color: asset.textColor || '#6b7280',
+                textAlign: asset.textAlign as any || 'left',
+                fontWeight: asset.fontWeight || 'normal',
+                whiteSpace: 'nowrap',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+            }}
+                className="pointer-events-none select-none"
+            >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '1em', height: '1em', flexShrink: 0, color: '#9333ea' }}>
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <span>{asset.content}</span>
+            </div>
+        );
+    }
+
+    if (asset.type === 'map' && asset.mapConfig) {
+        return (
+            <div style={{ ...style }} className="stPageFlip-ignore">
+                <MapAsset
+                    center={asset.mapConfig.center}
+                    zoom={asset.mapConfig.zoom}
+                    places={asset.mapConfig.places}
+                    interactive={true}
+                    lazyLoad={true}
+                />
             </div>
         );
     }

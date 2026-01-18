@@ -17,6 +17,7 @@ import { EventView } from './pages/EventView';
 import { SharedEventView } from './pages/SharedEventView';
 import { HeritageMap } from './pages/HeritageMap';
 import { MediaLibrary } from './pages/MediaLibrary';
+import { Calendar } from './pages/Calendar';
 
 function App() {
   return (
@@ -61,6 +62,24 @@ function App() {
             }
           />
 
+          {/* Event Editor - Standalone */}
+          <Route
+            path="/event/new"
+            element={
+              <ProtectedRoute>
+                <EventEditor />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/event/:id/edit"
+            element={
+              <ProtectedRoute>
+                <EventEditor />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Protected Routes */}
           <Route
             path="/*"
@@ -72,9 +91,8 @@ function App() {
                     <Route path="/library" element={<Catalog />} />
                     <Route path="/media" element={<MediaLibrary />} />
                     <Route path="/events" element={<Events />} />
+                    <Route path="/calendar" element={<Calendar />} />
                     <Route path="/map" element={<HeritageMap />} />
-                    <Route path="/event/new" element={<EventEditor />} />
-                    <Route path="/event/:id/edit" element={<EventEditor />} />
                     <Route path="/profile" element={<Profile />} />
                     <Route path="/settings" element={<Settings />} />
                   </Routes>

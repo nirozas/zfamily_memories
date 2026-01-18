@@ -1,6 +1,7 @@
-import { Image, Palette, Sparkles, Shapes, Type, Video, StickyNote, Frame } from 'lucide-react';
+import { Image, Palette, Sparkles, Shapes, Type, Video, StickyNote, Frame, MapPin } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useState, useRef } from 'react';
+import { useAlbum } from '../../contexts/AlbumContext';
 
 const tabs = [
     { id: 'templates', label: 'Templates', icon: Shapes },
@@ -24,7 +25,7 @@ const templateLayouts = [
 
 interface EditorSidebarProps {
     onSelectTemplate?: (templateId: string) => void;
-    onAddAsset?: (type: 'image' | 'video' | 'text' | 'ribbon' | 'frame' | 'stamp', url?: string) => void;
+    onAddAsset?: (type: 'image' | 'video' | 'text' | 'ribbon' | 'frame' | 'stamp' | 'location', url?: string) => void;
     onApplyFilter?: (filter: 'cartoon' | 'pencil' | 'watercolor' | 'portrait' | 'auto-touch') => void;
 }
 
@@ -37,14 +38,20 @@ export function EditorSidebar({ onSelectTemplate, onAddAsset, onApplyFilter }: E
 
     const [isUploading, setIsUploading] = useState(false);
 
+    const { album } = useAlbum();
+
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'video' | 'frame' | 'ribbon') => {
         const file = e.target.files?.[0];
-        if (!file) return;
+        if (!file || !album) return;
 
         setIsUploading(true);
         try {
             const { storageService } = await import('../../services/storage');
-            const { url, error } = await storageService.uploadFile(file, 'album-assets');
+            const { url, error } = await storageService.uploadFile(
+                file,
+                'album-assets',
+                `albums/${album.title}/`
+            );
 
             if (error) {
                 alert('Upload failed: ' + error);
@@ -173,6 +180,15 @@ export function EditorSidebar({ onSelectTemplate, onAddAsset, onApplyFilter }: E
                                 className="w-full text-left p-3 border border-catalog-accent/20 rounded-sm hover:bg-catalog-accent/5 transition-colors"
                             >
                                 <span className="text-sm font-sans">Add Body Text</span>
+                            </button>
+                            <button
+                                onClick={() => onAddAsset?.('location')}
+                                className="w-full text-left p-3 border border-catalog-accent/20 rounded-sm hover:bg-catalog-accent/5 transition-colors"
+                            >
+                                <span className="text-sm font-sans flex items-center gap-2">
+                                    <MapPin className="w-4 h-4" />
+                                    Add Address
+                                </span>
                             </button>
                         </div>
                     </div>

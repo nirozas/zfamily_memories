@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { Flame, BookOpen, Settings, User, Calendar, ChevronDown, LogOut, MapPin, Image as ImageIcon } from 'lucide-react';
+import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, ChevronDown, LogOut, MapPin, Image as ImageIcon, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -19,7 +19,8 @@ export function TopHeader() {
 
     const navItems: (NavItem & { color: string })[] = [
         { icon: Flame, label: 'Home', href: '/', color: 'bg-pastel-red/30' },
-        { icon: Calendar, label: 'Events', href: '/events', color: 'bg-pastel-indigo/30' },
+        { icon: CalendarIcon, label: 'Calendar', href: '/calendar', color: 'bg-pastel-blue/30' },
+        { icon: Clock, label: 'Timeline', href: '/events', color: 'bg-pastel-indigo/30' },
         { icon: BookOpen, label: 'Albums', href: '/library', color: 'bg-pastel-orange/30' },
         { icon: ImageIcon, label: 'Media', href: '/media', color: 'bg-pastel-yellow/30' },
         { icon: MapPin, label: 'Traveling Map', href: '/map', color: 'bg-pastel-green/30' },
@@ -43,8 +44,8 @@ export function TopHeader() {
     }, []);
 
     return (
-        <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-catalog-accent/20 h-16">
-            <div className="absolute top-0 left-0 right-0 h-[3px] bg-rainbow shadow-[0_1px_10px_rgba(160,196,255,0.4)]" />
+        <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-b border-catalog-accent/10 h-16 shadow-[0_4px_20px_-5px_rgba(160,196,255,0.2)]">
+            <div className="absolute top-0 left-0 right-0 h-[3px] bg-rainbow" />
             <div className="max-w-wide h-full px-4 sm:px-6 lg:px-8 flex items-center justify-between">
                 {/* Logo & Dropdown Trigger */}
                 <div className="relative" ref={dropdownRef}>
@@ -52,8 +53,9 @@ export function TopHeader() {
                         onClick={() => setIsOpen(!isOpen)}
                         className="flex items-center gap-2 group focus:outline-none"
                     >
-                        <h1 className="text-2xl font-serif italic text-catalog-text transition-colors group-hover:text-catalog-accent">
-                            <span className="text-catalog-accent">Zoabi</span>-Family
+                        <h1 className="text-2xl font-serif italic text-catalog-text transition-all duration-300 group-hover:scale-105">
+                            <span className="text-rainbow font-black not-italic tracking-tighter mr-1 shadow-sm">Zoabi</span>
+                            <span className="text-catalog-text/80">-Family</span>
                         </h1>
                         <ChevronDown className={cn(
                             "w-5 h-5 text-catalog-accent transition-transform duration-300",

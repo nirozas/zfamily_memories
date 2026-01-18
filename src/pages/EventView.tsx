@@ -31,10 +31,16 @@ const EventContent = ({ event }: { event: Event }) => {
                         {new Date(event.event_date).toLocaleDateString(undefined, { dateStyle: 'long' })}
                     </div>
                     {event.location && (
-                        <div className="flex items-center gap-2">
-                            <MapPin className="w-4 h-4 text-catalog-accent" />
-                            {event.location}
-                        </div>
+                        <Link
+                            to={`/map?location=${encodeURIComponent(event.location)}`}
+                            className="flex items-center gap-2 hover:text-catalog-accent transition-colors cursor-pointer group"
+                            title="View on Map"
+                        >
+                            <MapPin className="w-4 h-4 text-catalog-accent group-hover:scale-110 transition-transform" />
+                            <span className="border-b border-transparent group-hover:border-catalog-accent/50">
+                                {event.location}
+                            </span>
+                        </Link>
                     )}
                 </div>
 
@@ -126,7 +132,7 @@ export function EventView() {
 
     return (
         <GlobalLightboxProvider>
-            <div className="min-h-screen bg-white">
+            <div className="min-h-screen bg-white theme-peach theme-rainbow bg-pattern-diverse">
                 {/* Minimal Header */}
                 <header className="h-16 border-b border-catalog-stone/20 flex items-center justify-between px-6 sticky top-0 bg-white/80 backdrop-blur-md z-10">
                     <div className="flex items-center gap-4">

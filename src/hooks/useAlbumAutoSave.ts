@@ -3,7 +3,7 @@ import { useAlbum } from '../contexts/AlbumContext';
 import _ from 'lodash';
 
 export function useAlbumAutoSave() {
-    const { album, saveAlbum, isSaving } = useAlbum();
+    const { album, saveAlbum } = useAlbum();
     const [lastSavedTime, setLastSavedTime] = useState<Date | null>(null);
     const [status, setStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
 
@@ -23,7 +23,7 @@ export function useAlbumAutoSave() {
                 setStatus('unsaved');
                 console.error('[AutoSave] Save failed', result.error);
             }
-        }, 1500), // Reduced slightly for better responsiveness
+        }, 5000), // 5 second debounce to not overwhelm during active editing
         [saveAlbum]
     );
 

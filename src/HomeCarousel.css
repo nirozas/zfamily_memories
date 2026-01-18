@@ -1,0 +1,274 @@
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+.home-carousel-wrapper {
+    /* Isolate the font sizing */
+    font-size: 10px;
+    background-color: #fcfbf9;
+    /* Pastel Cream Background */
+    color: #5d5d5d;
+    font-family: 'Poppins', sans-serif;
+    width: 100%;
+    overflow: hidden;
+    padding: 0;
+}
+
+.home-carousel-wrapper * {
+    box-sizing: border-box;
+}
+
+.home-carousel-wrapper section {
+    position: relative;
+    min-height: 50vh;
+    /* Reduced min-height */
+    width: 100%;
+    background: linear-gradient(to bottom, #fcfbf9 0%, #f4f1ea 100%);
+    overflow: hidden;
+}
+
+.home-carousel-wrapper .loop-images {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    padding: 3rem 0;
+    /* Reduced padding */
+}
+
+.home-carousel-wrapper .carousel-track {
+    --left: -1500px;
+    min-width: 100%;
+    height: 38rem;
+    /* Reduced height by ~15% */
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.home-carousel-wrapper .carousel-item {
+    position: absolute;
+    width: 14rem;
+    /* Compact width */
+    height: 22rem;
+    /* Compact height */
+    left: 100%;
+    display: flex;
+    justify-content: center;
+    perspective: 1000px;
+    transform-style: preserve-3d;
+    animation: scroll-left var(--time) linear infinite;
+    animation-delay: calc(var(--time) / var(--total) * (var(--i) - 1) - var(--time));
+    will-change: left;
+    transition: 0.5s ease-in-out;
+    cursor: pointer;
+    z-index: 1;
+    /* Default Z to ensure layering logic works if we add it */
+    margin-right: 15rem;
+    /* Large positive margin for highly spaced cards */
+}
+
+.home-carousel-wrapper .carousel-3d-container {
+    width: 100%;
+    height: 100%;
+    transform: rotateY(-25deg);
+    /* Subtle 3D angle */
+    transition: 0.4s ease-out;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.home-carousel-wrapper .carousel-3d-container img {
+    width: 100%;
+    height: 18rem;
+    /* Image height */
+    object-fit: cover;
+    background-color: white;
+    border-radius: 0.75rem;
+    box-shadow: -2px 5px 12px rgba(0, 0, 0, 0.08);
+    /* Sophisticated shadow */
+    border: 3px solid white;
+}
+
+.home-carousel-wrapper .carousel-item:hover {
+    z-index: 100;
+}
+
+.home-carousel-wrapper .carousel-item:hover .carousel-3d-container {
+    transform: rotateY(0deg) scale(1.05);
+    /* Gentle active state */
+}
+
+.home-carousel-wrapper .carousel-item:hover img {
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+}
+
+.home-carousel-wrapper .carousel-title {
+    margin-top: 0.75rem;
+    color: #666;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: 0.3px;
+    font-family: 'Poppins', sans-serif;
+    transform: translateZ(20px);
+    background: rgba(255, 255, 255, 0.85);
+    padding: 0.15rem 0.6rem;
+    border-radius: 4px;
+    backdrop-filter: blur(4px);
+    margin-bottom: 0;
+    max-width: 120%;
+    /* Allow title to exceed width slightly */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-carousel-wrapper .carousel-date {
+    display: none;
+    /* Hide date for cleaner look, or style very subtly */
+}
+
+.home-carousel-wrapper .carousel-location {
+    color: #999;
+    font-size: 0.65rem;
+    font-weight: 500;
+    text-align: center;
+    letter-spacing: 0.5px;
+    font-family: 'Poppins', sans-serif;
+    transform: translateZ(20px);
+    background: rgba(255, 255, 255, 0.6);
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    backdrop-filter: blur(4px);
+    margin-top: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.home-carousel-wrapper .carousel-location:hover {
+    color: #FFB7B2;
+    background: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+@keyframes scroll-left {
+    to {
+        left: -120%;
+        /* Use 120% to keep items denser. Start is 100%. Delta = 220% */
+    }
+}
+
+.home-carousel-wrapper .image-motion {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+}
+
+/* Section 3 Styling - Adapted for Pastel Light Theme */
+.home-carousel-wrapper .section3 {
+    --text-primary: #7a7a7a;
+    --text-secondary: #999;
+    --text-white: #4a4a4a;
+    /* Dark text for light bg */
+
+    /* Pastel Accents */
+    --accent-primary: #FFB7B2;
+    /* Melon */
+    --accent-secondary: #FFDAC1;
+    /* Peach */
+    --accent-tertiary: #E2F0CB;
+    /* Mint */
+
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: var(--text-white);
+    padding: 4rem 2rem;
+    /* Reduced padding */
+    background: transparent;
+    /* Handled by section wrapper */
+}
+
+.home-carousel-wrapper .container {
+    width: 100%;
+    max-width: 1200px;
+    margin: auto;
+    text-align: center;
+    position: relative;
+    z-index: 2;
+}
+
+.home-carousel-wrapper .title {
+    font-size: 4rem;
+    /* Slightly smaller */
+    font-weight: 800;
+    margin-bottom: 1.5rem;
+    background: linear-gradient(135deg, #FF9AA2, #C7CEEA);
+    /* Pink to Lavender */
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    line-height: 1.1;
+    letter-spacing: -2px;
+}
+
+.home-carousel-wrapper .subtitle {
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: #aaa;
+    margin-bottom: 2rem;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    display: inline-block;
+}
+
+/* Features Grid */
+.home-carousel-wrapper .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 2rem;
+    margin-top: 3rem;
+}
+
+.home-carousel-wrapper .feature {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.03);
+    border-radius: 20px;
+    padding: 2.5rem 2rem;
+    text-align: center;
+    transition: all 0.4s ease;
+    cursor: pointer;
+}
+
+.home-carousel-wrapper .feature:hover {
+    transform: translateY(-10px);
+    background: white;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.08);
+}
+
+.home-carousel-wrapper .feature h3 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #555;
+    margin-bottom: 1rem;
+}
+
+.home-carousel-wrapper .feature p {
+    font-size: 1rem;
+    color: #888;
+    line-height: 1.6;
+}
+
+.home-carousel-wrapper .feature-icon {
+    font-size: 3rem;
+    margin-bottom: 1.5rem;
+    display: inline-block;
+    filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.1));
+}

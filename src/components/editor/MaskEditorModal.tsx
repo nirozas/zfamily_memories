@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Check, Grid3X3, ImageIcon, Box } from 'lucide-react';
+import { X, Check, Grid3X3, ImageIcon, Box, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Asset } from '../../contexts/AlbumContext';
 
 interface MaskEditorModalProps {
@@ -253,6 +253,39 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
                                         <div className="text-xs font-bold leading-none">Diamond</div>
                                         <div className="text-[9px] opacity-60 mt-1 uppercase tracking-wider font-medium">Geometric Center</div>
                                     </div>
+                                </button>
+                            </div>
+                        </section>
+
+                        <section className="space-y-4 pt-4 border-t border-catalog-accent/5">
+                            <h3 className="text-[10px] font-bold text-catalog-accent uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-catalog-accent" />
+                                Side Crops
+                            </h3>
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={() => setPoints([{ x: 0, y: 0, type: 'linear' as const }, { x: 1, y: 0, type: 'linear' as const }, { x: 1, y: 0.5, type: 'linear' as const }, { x: 0, y: 0.5, type: 'linear' as const }])}
+                                    className="py-3 px-3 bg-catalog-stone/5 border border-catalog-accent/10 rounded-xl flex items-center justify-center gap-2 hover:bg-catalog-accent hover:text-white transition-all text-[10px] font-bold uppercase"
+                                >
+                                    <ChevronUp className="w-4 h-4" /> Top
+                                </button>
+                                <button
+                                    onClick={() => setPoints([{ x: 0, y: 0.5, type: 'linear' as const }, { x: 1, y: 0.5, type: 'linear' as const }, { x: 1, y: 1, type: 'linear' as const }, { x: 0, y: 1, type: 'linear' as const }])}
+                                    className="py-3 px-3 bg-catalog-stone/5 border border-catalog-accent/10 rounded-xl flex items-center justify-center gap-2 hover:bg-catalog-accent hover:text-white transition-all text-[10px] font-bold uppercase"
+                                >
+                                    <ChevronDown className="w-4 h-4" /> Bottom
+                                </button>
+                                <button
+                                    onClick={() => setPoints([{ x: 0, y: 0, type: 'linear' as const }, { x: 0.5, y: 0, type: 'linear' as const }, { x: 0.5, y: 1, type: 'linear' as const }, { x: 0, y: 1, type: 'linear' as const }])}
+                                    className="py-3 px-3 bg-catalog-stone/5 border border-catalog-accent/10 rounded-xl flex items-center justify-center gap-2 hover:bg-catalog-accent hover:text-white transition-all text-[10px] font-bold uppercase"
+                                >
+                                    <ChevronLeft className="w-4 h-4" /> Left
+                                </button>
+                                <button
+                                    onClick={() => setPoints([{ x: 0.5, y: 0, type: 'linear' as const }, { x: 1, y: 0, type: 'linear' as const }, { x: 1, y: 1, type: 'linear' as const }, { x: 0.5, y: 1, type: 'linear' as const }])}
+                                    className="py-3 px-3 bg-catalog-stone/5 border border-catalog-accent/10 rounded-xl flex items-center justify-center gap-2 hover:bg-catalog-accent hover:text-white transition-all text-[10px] font-bold uppercase"
+                                >
+                                    <ChevronRight className="w-4 h-4" /> Right
                                 </button>
                             </div>
                         </section>

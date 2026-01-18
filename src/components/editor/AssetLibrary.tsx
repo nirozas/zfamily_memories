@@ -1,22 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAlbum } from '../../contexts/AlbumContext';
+import { useAlbum, type Asset } from '../../contexts/AlbumContext';
 import { supabase } from '../../lib/supabase';
+import { cn } from '../../lib/utils';
 import {
     Upload,
-    Plus,
     Video,
     Search,
     Palette,
     Sticker,
+    Image as ImageIcon,
+    Bookmark,
+    Plus,
     Loader2,
     ChevronDown,
     ChevronRight,
-    ChevronLeft,
-    Image as ImageIcon,
-    Bookmark
+    ChevronLeft
 } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { type Asset } from '../../contexts/AlbumContext';
+
+// Helper for library thumbnails (not full assets)
+const getThumbnailUrl = (url: string) => {
+    if (!url || !url.includes('cloudinary.com')) return url;
+    const parts = url.split('/upload/');
+    if (parts.length === 2) {
+        return `${parts[0]}/upload/f_auto,q_auto,w_300,c_limit/${parts[1]}`;
+    }
+    return url;
+};
 
 // Helper to get assets by category
 async function fetchLibraryAssets(category: string, familyId?: string) {
@@ -41,7 +50,6 @@ async function fetchLibraryAssets(category: string, familyId?: string) {
             folder: item.folder
         })) || [];
     }
-
     // Fetch from library_assets for system assets
     const { data, error } = await supabase
         .from('library_assets')
@@ -58,7 +66,7 @@ async function fetchLibraryAssets(category: string, familyId?: string) {
 type Tab = 'uploads' | 'backgrounds' | 'stickers' | 'frames' | 'ribbons';
 
 export function AssetLibrary() {
-    const { album, uploadMedia, moveFromLibrary, isSaving, addAsset, currentPageIndex, uploadProgress } = useAlbum();
+    const { album, uploadMedia, moveFromLibrary, isSaving, addAsset, currentPageIndex, uploadProgress, updatePage } = useAlbum();
     const [activeTab, setActiveTab] = useState<Tab>('uploads');
     const [libraryAssets, setLibraryAssets] = useState<any[]>([]);
     const [isLoadingAssets, setIsLoadingAssets] = useState(false);
@@ -152,6 +160,10 @@ export function AssetLibrary() {
             const isBackground = (type as string) === 'backgrounds';
             const isFrame = (type as string) === 'frames';
 
+            if (isFrame) {
+                // Special handling if needed
+            }
+
             // All these decorations and backgrounds are now treated as regular images/assets
             const img = new Image();
             img.src = item.url;
@@ -184,34 +196,34 @@ export function AssetLibrary() {
     return (
         <div className="flex flex-col h-full bg-white border-r border-catalog-accent/10 w-80">
             {/* Tabs */}
-            <div className="flex bg-catalog-stone/10 border-b border-catalog-accent/10 overflow-x-auto">
+            <div className="flex flex-wrap bg-catalog-stone/10 border-b border-catalog-accent/10">
                 <button
                     onClick={() => setActiveTab('uploads')}
-                    className={cn("flex-1 py-2 px-3 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'uploads' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
+                    className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'uploads' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
                 >
                     <ImageIcon className="w-3.5 h-3.5" /> Media
                 </button>
                 <button
                     onClick={() => setActiveTab('backgrounds')}
-                    className={cn("flex-1 py-2 px-3 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'backgrounds' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
+                    className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'backgrounds' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
                 >
                     <Palette className="w-3.5 h-3.5" /> Bgs
                 </button>
                 <button
                     onClick={() => setActiveTab('stickers')}
-                    className={cn("flex-1 py-2 px-3 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'stickers' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
+                    className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'stickers' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
                 >
                     <Sticker className="w-3.5 h-3.5" /> Stickers
                 </button>
                 <button
                     onClick={() => setActiveTab('frames')}
-                    className={cn("flex-1 py-2 px-3 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'frames' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
+                    className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'frames' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
                 >
                     <div className="w-3.5 h-3.5 border-[1.5px] border-current rounded-sm" /> Frames
                 </button>
                 <button
                     onClick={() => setActiveTab('ribbons')}
-                    className={cn("flex-1 py-2 px-3 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'ribbons' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
+                    className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'ribbons' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
                 >
                     <Bookmark className="w-3.5 h-3.5" /> Ribbons
                 </button>
@@ -560,7 +572,7 @@ export function AssetLibrary() {
                                 style={{ backgroundColor: item.url.startsWith('#') ? item.url : undefined }}
                             >
                                 {!item.url.startsWith('#') && (
-                                    <img src={item.url} alt={item.name} className="w-full h-full object-cover" />
+                                    <img src={getThumbnailUrl(item.url)} alt={item.name} className="w-full h-full object-cover" />
                                 )}
                             </div>
                         ))}
@@ -591,6 +603,51 @@ export function AssetLibrary() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+                )}
+
+                {/* LAYOUTS TAB */}
+                {activeTab === 'layouts' && !isLoadingAssets && (
+                    <div className="grid grid-cols-2 gap-2">
+                        {libraryAssets.map((item) => (
+                            <div
+                                key={item.id}
+                                draggable
+                                onDragStart={(e) => {
+                                    e.dataTransfer.setData('layout', JSON.stringify(item));
+                                }}
+                                onClick={() => handleAssetClick(item, 'layouts')}
+                                className="aspect-[4/3] rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-catalog-accent transition-all shadow-sm bg-white border border-gray-100 p-1"
+                            >
+                                <div className="w-full h-full relative group">
+                                    {item.backgroundImage && (
+                                        <img src={item.backgroundImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 rounded" />
+                                    )}
+                                    {item.config && Array.isArray(item.config) && item.config.map((slot: any, i: number) => (
+                                        <div
+                                            key={i}
+                                            className="absolute bg-catalog-accent/20 border border-catalog-accent/40 rounded-[1px]"
+                                            style={{
+                                                left: item.is_spread ? `${(slot.x ?? slot.left ?? 0) / 2}%` : `${(slot.x ?? slot.left ?? 0)}%`,
+                                                top: `${slot.y ?? slot.top ?? 0}%`,
+                                                width: item.is_spread ? `${slot.width / 2}%` : `${slot.width}%`,
+                                                height: `${slot.height}%`,
+                                                zIndex: (slot.z_index ?? 1),
+                                                transform: slot.rotation ? `rotate(${slot.rotation}deg)` : 'none'
+                                            }}
+                                        />
+                                    ))}
+                                    <div className="absolute inset-x-0 bottom-0 py-1 bg-black/40 text-[8px] text-white text-center opacity-100 transition-opacity truncate px-1 rounded-b">
+                                        {item.name}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        {libraryAssets.length === 0 && (
+                            <div className="col-span-2 py-8 text-center border border-dashed border-catalog-accent/10 rounded-lg bg-white/50">
+                                <p className="text-[9px] text-catalog-text/30 font-serif italic">No layouts found in library</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

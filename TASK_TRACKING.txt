@@ -1,0 +1,72 @@
+FAMILY ZOABI ARCHIVE - TASK TRACKING
+Generated: 2026-01-17 12:20 PM
+
+==============================================================================
+ACTIVE TASKS (ROUND 4 - FINAL STUDIO & EDITOR POLISH)
+==============================================================================
+
+[✓] TASK-015: Fix "Pro Image Studio" Opening Reliability
+    Priority: CRITICAL
+    Status: COMPLETED
+    Assigned File: src/pages/AlbumEditor.tsx
+    Changes:
+    - Updated selection logic to use flatMap over all pages.
+    - Ensures assets on both Left and Right pages of a spread can be edited.
+    - Corrected activePage derivation for multi-page spreads.
+    Completed: 2026-01-17 12:18 PM
+
+[✓] TASK-016: Synchronize Cropping/Masking in Preview
+    Priority: HIGH
+    Status: COMPLETED
+    Assigned Files: assetUtils.ts, FlipbookViewer.tsx, EditorCanvas.tsx
+    Changes:
+    - Centralized `getClipPathStyle` logic.
+    - Applied masking to FlipbookViewer components.
+    Completed: 2026-01-17 12:15 PM
+
+[✓] TASK-017: Cloudinary Layouts & Background Persistence
+    Priority: HIGH
+    Status: COMPLETED
+    Assigned Files: AlbumContext.tsx, EditorCanvas.tsx, LayoutsPanel.tsx, AssetLibrary.tsx
+    Changes:
+    - Seeded and fetched `backgroundImage` from Supabase `album_layouts`.
+    - Implemented `backgroundImage` rendering in Editor and Flipbook.
+    - Added "Layouts" tab to Asset Library for drag-and-drop layouts.
+    - Fixed `background_image` persistence in `pages` table during save/load.
+    Completed: 2026-01-17 06:15 PM
+
+[✓] TASK-018: Professional Layouts Integration
+    Priority: HIGH
+    Status: COMPLETED
+    Assigned Files: defaultLayouts.ts, AssetLibrary.tsx, LayoutsPanel.tsx
+    Changes:
+    - Integrated 140+ professional layouts from SQL seed.
+    - Implemented live slot-based preview for layouts in Asset Library.
+    - Added background texture previews to layout library entries.
+    - Enabled automatic fallback to local layouts when database is empty.
+    Completed: 2026-01-17 07:15 PM
+
+==============================================================================
+BUILD STATUS
+==============================================================================
+
+✓ TypeScript compilation: PASSED
+✓ Vite build: PASSED
+✓ All lint: RESOLVED
+
+==============================================================================
+FINAL TESTING CHECKLIST
+==============================================================================
+
+[ ] Select an image on the RIGHT page of a spread -> Click "Open Studio" -> Confirm it opens.
+[ ] In Studio: Add 3 green shades -> Mask Toggle -> Go -> Apply -> Verify in Library.
+[ ] Open Preview (Flipbook) -> Verify that the masking/cropping is clearly visible.
+[ ] Confirm that saving and reloading preserves the "Mask" transparency perfectly.
+
+==============================================================================
+NOTES
+==============================================================================
+
+- Selection bugs were caused by the editor only looking at `currentPageIndex` for the `activePage`, which failed in `Spread View` where the right page has `index + 1`.
+- URL transforms are now strictly cleaned before concatenation to prevent Cloudinary payload overflow.
+==============================================================================
