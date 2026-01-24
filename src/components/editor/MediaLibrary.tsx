@@ -1,9 +1,10 @@
 import React, { useRef } from 'react';
 import { useAlbum } from '../../contexts/AlbumContext';
+import { cn } from '../../lib/utils';
 import { Upload, Plus, Image as ImageIcon, Video, Link as LinkIcon } from 'lucide-react';
 
 export function MediaLibrary() {
-    const { album, uploadMedia, moveFromLibrary, addMediaByUrl, isSaving } = useAlbum();
+    const { album, uploadMedia, moveFromLibrary, addMediaByUrl, isSaving, activeSlot, setActiveSlot, updateAsset } = useAlbum();
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -71,8 +72,31 @@ export function MediaLibrary() {
                             {album.unplacedMedia.map((asset) => (
                                 <div
                                     key={asset.id}
-                                    className="group relative aspect-square rounded-lg overflow-hidden border border-catalog-accent/5 bg-catalog-stone/20 hover:border-catalog-accent/40 transition-all cursor-pointer"
-                                    onClick={() => moveFromLibrary(asset.id, album.pages[0].id)} // Default to current page in future
+                                    draggable="true"
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('asset', JSON.stringify({
+                                            id: asset.id,
+                                            url: asset.url,
+                                            type: asset.type
+                                        }));
+                                    }}
+                                    className={cn(
+                                        "group relative aspect-square rounded-lg overflow-hidden border border-catalog-accent/5 bg-catalog-stone/20 hover:border-catalog-accent/40 transition-all cursor-pointer",
+                                        activeSlot && "ring-2 ring-catalog-accent shadow-[0_0_15px_rgba(194,65,12,0.4)]"
+                                    )}
+                                    onClick={() => {
+                                        if (activeSlot) {
+                                            updateAsset(activeSlot.pageId, `slot-${activeSlot.index}`, {
+                                                url: asset.url,
+                                                type: asset.type,
+                                                isPlaceholder: false,
+                                                fitMode: 'cover'
+                                            });
+                                            setActiveSlot(null);
+                                        } else {
+                                            moveFromLibrary(asset.id, album.pages[0].id);
+                                        }
+                                    }}
                                 >
                                     {asset.type === 'image' ? (
                                         <img src={asset.url} alt="" className="w-full h-full object-cover" />

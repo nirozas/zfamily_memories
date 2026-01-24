@@ -1,9 +1,10 @@
-import { Edit3, Trash2, Share2, Printer } from 'lucide-react';
+import { Edit3, Trash2, Share2, Printer, Copy } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface ActionToolbarProps {
     onEdit?: () => void;
     onDelete?: () => void;
+    onDuplicate?: () => void;
     onShare?: () => void;
     onPrint?: () => void;
     className?: string;
@@ -14,6 +15,7 @@ interface ActionToolbarProps {
 export function ActionToolbar({
     onEdit,
     onDelete,
+    onDuplicate,
     onShare,
     onPrint,
     className,
@@ -43,6 +45,16 @@ export function ActionToolbar({
                 >
                     <Edit3 className="w-4 h-4" />
                     {showLabels && <span className="text-xs font-medium">Edit</span>}
+                </button>
+            )}
+            {onDuplicate && (
+                <button
+                    onClick={(e) => handleAction(e, onDuplicate)}
+                    className={baseIconClass}
+                    title="Duplicate"
+                >
+                    <Copy className="w-4 h-4" />
+                    {showLabels && <span className="text-xs font-medium">Duplicate</span>}
                 </button>
             )}
             {onShare && (

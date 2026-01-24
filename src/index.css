@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:wght@400;600&family=Dancing+Script:wght@400;700&family=Montserrat:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Cormorant+Garamond:wght@400;600&family=Dancing+Script:wght@400;700&family=Montserrat:wght@400;600;700&family=Cinzel:wght@400;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=EB+Garamond:ital,wght@0,400;0,600;1,400&family=Outfit:wght@300;400;600;700&family=Space+Grotesk:wght@300;400;600;700&family=Plus+Jakarta+Sans:ital,wght@0,400;0,600;1,400&display=swap');
 
 @import "tailwindcss";
 
@@ -218,5 +218,18 @@
 
   .animate-slide-down {
     animation: slideDown 0.2s ease-out forwards;
+  }
+
+  /* Theater Mode - Cinematic Video Experience */
+  /* This makes the video pop and the album fade */
+  .theater-active .album-canvas {
+    filter: brightness(0.3) blur(2px);
+    transition: filter 0.5s ease;
+    pointer-events: none; /* Disables page flipping */
+  }
+
+  .layout-frame video {
+    z-index: 999; /* Brings video to the absolute front */
+    box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
   }
 }

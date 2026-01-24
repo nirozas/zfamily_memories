@@ -65,15 +65,15 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
                 const { data: albumsData, error: albumsError } = await supabase
                     .from('albums')
                     .select('id, title, location, country, geotag, config, created_at, cover_image_url, pages(page_number, assets(*))')
-                    .eq('family_id', familyId);
+                    .eq('family_id', String(familyId));  // Explicit string cast to prevent UUID mismatch
 
                 if (albumsError) console.error('Albums fetch error:', albumsError);
 
                 // Fetch Events
                 const { data: eventsData, error: eventsError } = await supabase
                     .from('events')
-                    .select('id, title, location, country, geotag, event_date, cover_image_path')
-                    .eq('family_id', familyId);
+                    .select('id, title, location, country, geotag, latitude, longitude, event_date, cover_image_path')
+                    .eq('family_id', String(familyId));  // Explicit string cast to prevent UUID mismatch
 
                 if (eventsError) console.error('Events fetch error:', eventsError);
 
@@ -188,8 +188,20 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
                             try { tag = JSON.parse(tag); } catch (err) { tag = null; }
                         }
 
-                        const lat = tag?.lat ?? tag?.latitude;
-                        const lng = tag?.lng ?? tag?.lon ?? tag?.longitude;
+                        // Robust Coordinate Extraction
+                        let lat = null, lng = null;
+                        if (Array.isArray(tag) && tag.length === 2) {
+                            [lng, lat] = tag;
+                        } else if (tag && typeof tag === 'object') {
+                            lat = tag.lat ?? tag.latitude;
+                            lng = tag.lng ?? tag.lon ?? tag.longitude;
+                        }
+
+                        // Fallback to root columns
+                        if ((!lat || !lng) && e.latitude && e.longitude) {
+                            lat = e.latitude;
+                            lng = e.longitude;
+                        }
 
                         return {
                             id: e.id,
@@ -260,70 +272,76 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
             if (!map.getStyle()) return;
             map.resize();
 
-            // Clear old markers
-            markersRef.current.forEach(m => m.remove());
-            markersRef.current = [];
+            // Group items by exact coordinates
+            const groupedLocations: Record<string, LocationData[]> = {};
+            locations.forEach(loc => {
+                const key = `${loc.lat},${loc.lng}`;
+                if (!groupedLocations[key]) groupedLocations[key] = [];
+                groupedLocations[key].push(loc);
+            });
 
-            if (locations.length > 0) {
-                locations.forEach(loc => {
+            if (Object.keys(groupedLocations).length > 0) {
+                Object.entries(groupedLocations).forEach(([key, locsAtPlace]) => {
+                    const [lat, lng] = key.split(',').map(Number);
                     const el = document.createElement('div');
-                    // Smaller marker with pastel color
-                    el.className = 'w-3 h-3 rounded-full shadow-md cursor-pointer hover:scale-150 transition-transform bg-white border-2 border-white box-content';
-                    el.style.backgroundColor = getCountryColor(loc.country);
+                    const count = locsAtPlace.length;
 
-                    // Create Rich Popup Content
+                    // Marker style
+                    el.className = 'custom-world-marker w-6 h-6 rounded-full shadow-lg cursor-pointer transform hover:scale-125 transition-all bg-white border-2 border-white flex items-center justify-center';
+                    el.style.backgroundColor = getCountryColor(locsAtPlace[0].country);
+                    el.innerHTML = count > 1 ? `<span class="text-[9px] font-black text-white drop-shadow-sm">${count}</span>` : '';
+
+                    // Create Rich Popup Content with multiple "windows"
                     const popupContent = document.createElement('div');
-                    popupContent.className = 'min-w-[200px] overflow-hidden rounded-md font-sans';
-                    popupContent.innerHTML = `
-                        <div class="relative h-24 bg-gray-100 flex items-center justify-center overflow-hidden">
-                             ${loc.coverImage
-                            ? `<img src="${loc.coverImage}" class="w-full h-full object-cover" />`
-                            : `<div class="text-catalog-accent/20"><svg class="w-8 h-8" fill="currentColor" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>`
+                    popupContent.className = 'min-w-[280px] max-h-[350px] overflow-y-auto font-sans p-1 scrollbar-thin';
+
+                    let innerItems = locsAtPlace.map(loc => `
+                        <div class="group/win relative rounded-xl overflow-hidden mb-3 border border-catalog-accent/5 hover:border-catalog-accent/30 shadow-sm transition-all cursor-pointer bg-white" onclick="window.location.href='${loc.link}'">
+                            <div class="relative h-20 bg-gray-50 flex items-center justify-center overflow-hidden">
+                                 ${loc.coverImage
+                            ? `<img src="${loc.coverImage}" class="w-full h-full object-cover transition-transform duration-500 group-hover/win:scale-110" />`
+                            : `<div class="text-catalog-accent/10"><svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></svg></div>`
                         }
-                             <div class="absolute top-2 left-2 bg-black/50 backdrop-blur-sm text-white text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
-                                ${loc.type}
-                             </div>
-                        </div>
-                        <div class="p-3 bg-white">
-                            <h4 class="font-bold text-gray-800 text-sm mb-1 leading-tight line-clamp-1">${loc.title}</h4>
-                            <div class="flex items-center gap-1 text-[10px] text-gray-500 mb-2">
-                                <span>${loc.location}</span>
+                                 <div class="absolute top-2 left-2 bg-black/40 backdrop-blur-sm text-white text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase tracking-widest shadow-sm">
+                                    ${loc.type === 'album' ? 'Archive' : 'Story'}
+                                 </div>
                             </div>
-                            <button id="btn-${loc.id}" class="w-full py-1.5 bg-catalog-accent text-white text-xs font-bold uppercase tracking-widest rounded hover:bg-catalog-accent/90 transition-colors">
-                                View ${loc.type === 'album' ? 'Album' : 'Event'}
-                            </button>
+                            <div class="p-3">
+                                <h4 class="font-bold text-gray-800 text-[11px] mb-0.5 leading-tight line-clamp-1 group-hover/win:text-catalog-accent transition-colors">${loc.title}</h4>
+                                <div class="flex items-center justify-between text-[8px] text-gray-400">
+                                    <span class="truncate pr-2">${loc.location}</span>
+                                    ${loc.date ? `<span class="whitespace-nowrap font-bold text-catalog-accent/60">${new Date(loc.date).getFullYear()}</span>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+
+                    popupContent.innerHTML = `
+                        <div class="px-2 py-3 border-b border-gray-100 mb-3 sticky top-0 bg-white/95 backdrop-blur-md z-10 flex items-baseline justify-between">
+                            <h3 class="text-[9px] font-black text-catalog-accent uppercase tracking-widest">${locsAtPlace[0].location || 'Destinations'}</h3>
+                            <span class="text-[8px] text-gray-400 font-medium">${count} chapters</span>
+                        </div>
+                        <div class="px-1">
+                            ${innerItems}
                         </div>
                     `;
 
-                    // Add Click Listener to the Button inside popup
-                    // Simple onclick in HTML string doesn't work well with React router navigate
-                    // So we attach it after adding to DOM logic, or usage of global event delegation?
-                    // Safer: bind click on the popup instance open? MapLibre popups are tricky with React events.
-                    // We can use a vanilla onclick that calls a global function, 
-                    // OR we can add event listener to the button once popup is added.
-
                     const popup = new maplibregl.Popup({
-                        offset: 15,
-                        closeButton: true,
-                        className: 'custom-map-popup-window',
-                        maxWidth: '240px'
-                    })
-                        .setDOMContent(popupContent);
-
-                    // Add event listener for the button when popup opens
-                    popup.on('open', () => {
-                        const btn = popupContent.querySelector(`#btn-${loc.id}`);
-                        if (btn) {
-                            btn.addEventListener('click', () => {
-                                navigate(loc.link || '#');
-                            });
-                        }
-                    });
+                        offset: 12,
+                        closeButton: false,
+                        className: 'custom-world-popup',
+                        maxWidth: '300px'
+                    }).setDOMContent(popupContent);
 
                     const marker = new maplibregl.Marker({ element: el })
-                        .setLngLat([loc.lng, loc.lat])
-                        .setPopup(popup) // Binds click to toggle popup
+                        .setLngLat([lng, lat])
                         .addTo(map);
+
+                    el.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        popup.addTo(map);
+                        map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 4) });
+                    });
 
                     markersRef.current.push(marker);
                 });
@@ -332,9 +350,16 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
 
         if (map.loaded()) {
             setupMap();
+            // Fix "Invisible Map": Force resize check after render
+            setTimeout(() => {
+                map.resize();
+            }, 200);
         } else {
             map.once('load', () => {
-                setTimeout(setupMap, 150);
+                setTimeout(() => {
+                    setupMap();
+                    map.resize();
+                }, 150);
             });
         }
 

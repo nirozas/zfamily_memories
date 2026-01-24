@@ -128,15 +128,16 @@ export const DynamicLayoutRenderer: React.FC<DynamicLayoutRendererProps> = ({
                         left: `${frame.left}%`,
                         width: `${frame.width}%`,
                         height: `${frame.height}%`,
-                        zIndex: frame.z_index,
-                        backgroundColor: 'rgba(241, 245, 249, 0.8)',
-                        border: '1px dashed rgba(203, 213, 225, 1)',
+                        zIndex: 10, // Force visibility even if empty
+                        backgroundColor: 'rgba(241, 245, 249, 0.4)', // Slightly more transparent
+                        border: '1px dashed rgba(203, 213, 225, 1)', // Force 1px dashed border
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
                         overflow: 'hidden',
-                        transform: frame.rotation ? `rotate(${frame.rotation}deg)` : 'none'
+                        transform: frame.rotation ? `rotate(${frame.rotation}deg)` : 'none',
+                        transformOrigin: 'top left' // Standardize transform origin
                     }}
                     onDragOver={(e) => {
                         e.preventDefault();

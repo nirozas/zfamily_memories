@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef, useCallback, forwardRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import HTMLFlipBook from 'react-pageflip';
 import { ChevronLeft, ChevronRight, X, Maximize2, Minimize2, Download, FileText, Globe } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { type Album, type Page, type Asset } from '../../contexts/AlbumContext';
+import { type Album, type Page } from '../../contexts/AlbumContext';
 import { printService } from '../../services/printService';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getTransformedUrl, getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
-import { MapAsset } from '../ui/MapAsset';
+import { VideoPortal } from './VideoPortal';
+import { AlbumPage } from './AlbumPage';
+import { supabase } from '../../lib/supabase';
 
 interface FlipbookViewerProps {
     pages: Page[];
@@ -15,7 +16,6 @@ interface FlipbookViewerProps {
 }
 
 export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
-    // const [isFlipping, setIsFlipping] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showExportMenu, setShowExportMenu] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
@@ -23,18 +23,24 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
     const [zoom, setZoom] = useState(1);
+    const [selectedVideo, setSelectedVideo] = useState<{ url: string, rotation?: number } | null>(null);
+    const [isTheaterMode, setIsTheaterMode] = useState(false);
+    const [layouts, setLayouts] = useState<Record<string, any>>({});
+    const [flippingTime, setFlippingTime] = useState(1000);
 
-    // Check if we have odd or even pages to determine back cover handling
-    // If we want a dedicated back cover single page, total pages should be even?
-    // With showCover: true:
-    // Page 0: Cover (Right)
-    // Page 1: Left - Page 2: Right
-    // ...
-    // If last page is even index (e.g. 0, ... 4), it's a cover? No, typical logic:
-    // If showCover is true, the first item is single.
-    // If the total count is even, the last item is single (Back Cover).
-    // If total count is odd, the last item is 'Left' side of a spread with empty right?
-    // User requested: "Back Cover" layout. Usually implies distinct back cover.
+    useEffect(() => {
+        const fetchLayouts = async () => {
+            const { data, error } = await supabase.from('album_layouts').select('*');
+            if (!error && data) {
+                const layoutMap = data.reduce((acc: any, layout: any) => ({
+                    ...acc,
+                    [layout.name]: layout.config
+                }), {});
+                setLayouts(layoutMap);
+            }
+        };
+        fetchLayouts();
+    }, []);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 1024);
@@ -43,13 +49,11 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     }, []);
 
     const bookRef = useRef<any>(null);
-    // const audioRef = useRef<HTMLAudioElement | null>(null);
     const pageRefs = useRef<(HTMLElement | null)[]>([]);
 
     const title = album?.title || 'Untitled Album';
     const dimensions = album?.config?.dimensions || { width: 1000, height: 700 };
 
-    // Auto-fit initial zoom and recalculate on resize
     useEffect(() => {
         const calculateFitZoom = () => {
             const container = document.getElementById('flipbook-container');
@@ -57,50 +61,35 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
 
             const { width: containerW, height: containerH } = container.getBoundingClientRect();
 
-            // For spread view on desktop, we show 2 pages side by side
-            // For mobile, we show single pages
-            // With showCover and desktop, it usually takes width * 2 space centered.
             const bookW = isMobile ? dimensions.width : dimensions.width * 2;
             const bookH = dimensions.height;
 
-            // Calculate zoom to fit both dimensions, with some padding
-            const zoomW = (containerW - 100) / bookW;
-            const zoomH = (containerH - 100) / bookH;
+            const zoomW = (containerW - 80) / bookW;
+            const zoomH = (containerH - 120) / bookH;
 
-            // Use the smaller zoom to ensure everything fits
-            // Limit between 0.2 (20%) and 1.5 (150%) for reasonable viewing
-            const initialZoom = Math.max(0.2, Math.min(zoomW, zoomH, 1.5));
-
+            const initialZoom = Math.max(0.2, Math.min(zoomW, zoomH, 1.2));
             setZoom(initialZoom);
         };
 
-        // Initial calculation with small delay to ensure container is rendered
-        const timer = setTimeout(calculateFitZoom, 200);
-
-        // Recalculate on window resize
+        const timer = setTimeout(calculateFitZoom, 300);
         window.addEventListener('resize', calculateFitZoom);
-
         return () => {
             clearTimeout(timer);
             window.removeEventListener('resize', calculateFitZoom);
         };
     }, [isMobile, dimensions.width, dimensions.height, isFullscreen]);
 
-    // Sound Configuration
     const FLIP_SOUND_ID = 'flip-sound-element';
     const FLIP_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3';
 
-    // 1. "Unlock" the audio for the browser - The Professional Implementation
     useEffect(() => {
         const flipSound = document.getElementById(FLIP_SOUND_ID) as HTMLAudioElement;
         if (!flipSound) return;
 
         const unlockAudio = () => {
-            // Play then immediately pause to unlock audio context
             flipSound.play().catch(() => { });
             flipSound.pause();
             flipSound.currentTime = 0;
-
             document.removeEventListener('click', unlockAudio);
         };
 
@@ -110,73 +99,92 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
 
     const playFlipSound = useCallback(() => {
         try {
-            const audio = new Audio(FLIP_SOUND_URL);
-            audio.volume = 1.0;
-            audio.play().catch(e => console.error("Audio playback error:", e));
+            const flipSound = document.getElementById(FLIP_SOUND_ID) as HTMLAudioElement;
+            if (flipSound && flipSound.readyState >= 2) {
+                flipSound.currentTime = 0;
+                flipSound.play().catch(e => console.warn("Flip sound playback failed:", e));
+            } else {
+                const audio = new Audio('/sounds/flip.mp3');
+                audio.volume = 1.0;
+                audio.play().catch(e => console.warn("Flip sound playback failed:", e));
+            }
         } catch (e) {
-            console.error("Audio creation error:", e);
+            console.warn("Flip sound initialization failed:", e);
         }
     }, []);
-
 
     const onFlip = useCallback((e: any) => {
-        setCurrentPageIndex(e.data);
-    }, []);
+        const nextIndex = e.data;
+        setCurrentPageIndex(nextIndex);
+        if (nextIndex === 0 || nextIndex >= pages.length - 2) {
+            setFlippingTime(1500);
+        } else {
+            setFlippingTime(800);
+        }
+    }, [pages.length]);
 
     const onChangeState = useCallback((e: any) => {
-        // Trigger sound on start of flip (flipping) or user interaction (user_fold)
         if (e.data === 'flipping' || e.data === 'user_fold') {
-            playFlipSound();
-        }
-    }, [playFlipSound]);
+            const isCover = currentPageIndex === 0 || currentPageIndex >= pages.length - 1;
+            if (isCover) {
+                setTimeout(() => playFlipSound(), 100);
+            } else {
+                playFlipSound();
+            }
 
-    const goToNext = () => {
-        if (bookRef.current) {
-            bookRef.current.pageFlip().flipNext();
+            const audioElements = document.querySelectorAll('audio, video');
+            audioElements.forEach(el => {
+                if (el.id !== FLIP_SOUND_ID) (el as HTMLMediaElement).pause();
+            });
         }
-    };
+    }, [playFlipSound, currentPageIndex, pages.length]);
 
-    const goToPrev = () => {
-        if (bookRef.current) {
-            bookRef.current.pageFlip().flipPrev();
-        }
-    };
+    const goToNext = () => bookRef.current?.pageFlip()?.flipNext();
+    const goToPrev = () => bookRef.current?.pageFlip()?.flipPrev();
 
-    // Keyboard navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'ArrowRight') goToNext();
             if (e.key === 'ArrowLeft') goToPrev();
-            if (e.key === 'Escape') onClose();
+            if (e.key === 'Escape') {
+                // 2. Fix Fullscreen Escape: If video is playing, ONLY close video.
+                // If not, close the whole viewer.
+                if (selectedVideo) {
+                    setSelectedVideo(null);
+                    setIsTheaterMode(false);
+                } else {
+                    onClose();
+                }
+            }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose]);
+    }, [onClose, selectedVideo]);
+
+    const handleSetSelectedVideo = useCallback((url: string, rotation?: number) => {
+        setSelectedVideo({ url, rotation });
+    }, []);
 
     return (
         <div className={cn(
             "fixed inset-0 z-[100] flex flex-col transition-all duration-500",
-            // Use black background for the stage as requested
             "bg-[#000000]",
-            isFullscreen ? "p-0" : "p-4 md:p-8"
+            isFullscreen ? "p-0" : "p-4 md:p-8",
+            "flipbook-viewer",
+            isTheaterMode && "theater-active"
         )}>
-            {/* Hidden Audio Element for reliable playback */}
             <audio id={FLIP_SOUND_ID} preload="auto" style={{ display: 'none' }}>
+                <source src="/sounds/flip.mp3" type="audio/mpeg" />
                 <source src={FLIP_SOUND_URL} type="audio/mpeg" />
             </audio>
 
-            {/* Header */}
             <header className="flex items-center justify-between h-16 px-6 text-white z-[110] bg-black/50 backdrop-blur-md">
                 <div className="flex items-center gap-4">
-                    <button
-                        onClick={onClose}
-                        className="p-2 hover:bg-white/10 rounded-full transition-colors"
-                    >
+                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
                         <X className="w-6 h-6" />
                     </button>
                     <div>
                         <h2 className="font-serif text-xl tracking-tight leading-none mb-1 text-gray-100">{title}</h2>
-                        {/* Calculate spread info approximately */}
                         <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-sans">
                             Page {currentPageIndex + 1} of {pages.length}
                         </p>
@@ -265,8 +273,10 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 </div>
             </header>
 
-            {/* Book Container with Zoom */}
-            <div id="flipbook-container" className="flex-1 flex items-center justify-center p-4 overflow-visible relative min-h-0">
+            <div id="flipbook-container" className={cn(
+                "flex-1 flex items-center justify-center p-4 overflow-visible relative min-h-0",
+                isTheaterMode && "album-canvas pointer-events-none opacity-50"
+            )}>
                 <div
                     style={{
                         position: 'absolute',
@@ -274,6 +284,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                         top: '50%',
                         transform: `translate(-50%, -50%) scale(${zoom})`,
                         transformOrigin: 'center center',
+                        pointerEvents: isTheaterMode ? 'none' : 'auto',
                     }}
                 >
                     <HTMLFlipBook
@@ -284,101 +295,64 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                         maxWidth={dimensions.width}
                         minHeight={dimensions.height}
                         maxHeight={dimensions.height}
-                        showCover={true} // Key: First and last page are treated as covers
-                        usePortrait={isMobile} // Force spread view on desktop, single on mobile
-                        mobileScrollSupport={false} // Prevents glitchy scrolling on touch
+                        showCover={true}
+                        usePortrait={isMobile}
+                        mobileScrollSupport={false}
                         onFlip={onFlip}
                         onChangeState={onChangeState}
                         className="shadow-2xl"
                         style={{ margin: '0 auto' }}
                         ref={bookRef}
-                        flippingTime={1000} // Slower smoother flip
-                        useMouseEvents={true}
+                        flippingTime={flippingTime}
+                        useMouseEvents={!isTheaterMode}
                         swipeDistance={30}
-                        showPageCorners={false} // Disable corners if they cause visual artifacts
-                        disableFlipByClick={false}
+                        showPageCorners={false}
+                        disableFlipByClick={isTheaterMode}
                         drawShadow={true}
-                        maxShadowOpacity={0.5}
-                        autoSize={false} // Disable auto-resizing of pages
-                        clickEventForward={true}
+                        maxShadowOpacity={0.6}
+                        autoSize={false}
+                        clickEventForward={!selectedVideo && !isTheaterMode}
                     >
                         {pages.map((page, index) => {
                             const isFrontCover = index === 0;
                             const isBackCover = index === pages.length - 1;
                             const isCover = isFrontCover || isBackCover;
-
-                            // Density: 'hard' for covers, 'soft' for inner pages
                             const density = isCover ? 'hard' : 'soft';
-
-                            // Side Calculation
-                            let side: 'left' | 'right';
-                            if (isFrontCover) {
-                                side = 'right';
-                            } else if (isBackCover) {
-                                side = index % 2 !== 0 ? 'left' : 'right';
-                            } else {
-                                side = index % 2 !== 0 ? 'left' : 'right';
-                            }
-
-                            // Spillover Logic - only if desired
-                            let otherPage: Page | undefined;
-                            if (index > 0 && index < pages.length - 1) { // Don't spill on covers
-                                if (side === 'left' && pages[index + 1]) {
-                                    otherPage = pages[index + 1];
-                                } else if (side === 'right' && pages[index - 1]) {
-                                    otherPage = pages[index - 1];
-                                }
-                            }
+                            const side = isFrontCover ? 'right' : (index % 2 !== 0 ? 'left' : 'right');
 
                             return (
-                                <PageContent
+                                <div
                                     key={page.id}
-                                    page={page}
-                                    otherPage={otherPage}
-                                    side={side}
-                                    dimensions={dimensions}
-                                    density={density}
-                                    isCover={isCover}
-                                    ref={(el: HTMLDivElement | null) => { pageRefs.current[index] = el; }}
-                                />
+                                    ref={(el) => { pageRefs.current[index] = el; }}
+                                    className="page-wrapper"
+                                    data-density={density}
+                                >
+                                    <AlbumPage
+                                        page={page}
+                                        dimensions={dimensions}
+                                        side={side}
+                                        density={density}
+                                        isCover={isCover}
+                                        onVideoClick={handleSetSelectedVideo}
+                                    />
+                                </div>
                             );
                         })}
                     </HTMLFlipBook>
                 </div>
             </div>
 
-            {/* Compact Footer Navigation & Zoom */}
-            <div className="h-14 flex items-center justify-between px-6 text-white/60 bg-black/20 backdrop-blur-sm border-t border-white/5">
+            <footer className="h-14 flex items-center justify-between px-6 text-white/60 bg-black/20 backdrop-blur-sm border-t border-white/5">
                 <div className="flex items-center gap-4">
-                    <button
-                        onClick={goToPrev}
-                        className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-all hover:scale-110 active:scale-95"
-                    >
+                    <button onClick={goToPrev} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-all hover:scale-110 active:scale-95">
                         <ChevronLeft className="w-5 h-5 text-gray-200" />
                     </button>
-
                     <div className="flex items-center bg-white/5 rounded-full px-4 py-1.5 gap-3 border border-white/5">
-                        <button
-                            onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}
-                            className="text-lg font-bold hover:text-white transition-colors w-6"
-                        >
-                            -
-                        </button>
-                        <span className="text-sm font-bold tracking-wider min-w-[50px] text-center text-white">
-                            {Math.round(zoom * 100)}%
-                        </span>
-                        <button
-                            onClick={() => setZoom(z => Math.min(2.5, z + 0.1))}
-                            className="text-lg font-bold hover:text-white transition-colors w-6"
-                        >
-                            +
-                        </button>
+                        <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="text-lg font-bold hover:text-white transition-colors w-6">-</button>
+                        <span className="text-sm font-bold tracking-wider min-w-[50px] text-center text-white">{Math.round(zoom * 100)}%</span>
+                        <button onClick={() => setZoom(z => Math.min(2.5, z + 0.1))} className="text-lg font-bold hover:text-white transition-colors w-6">+</button>
                     </div>
-
-                    <button
-                        onClick={goToNext}
-                        className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-all hover:scale-110 active:scale-95"
-                    >
+                    <button onClick={goToNext} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-all hover:scale-110 active:scale-95">
                         <ChevronRight className="w-5 h-5 text-gray-200" />
                     </button>
                 </div>
@@ -393,249 +367,29 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                             const bookH = dimensions.height;
                             const zoomW = (containerW - 100) / bookW;
                             const zoomH = (containerH - 100) / bookH;
-                            const fitZoom = Math.max(0.2, Math.min(zoomW, zoomH, 1.5));
-                            setZoom(fitZoom);
+                            setZoom(Math.max(0.2, Math.min(zoomW, zoomH, 1.5)));
                         }}
                         className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest bg-white/5 hover:bg-white/10 rounded-full transition-colors text-gray-300"
                     >
                         Fit to Screen
                     </button>
-
                     <div className="hidden md:block text-[9px] font-medium tracking-[0.2em] uppercase opacity-40 text-gray-400">
                         Arrows to Flip • +/- to Zoom
                     </div>
                 </div>
-            </div>
-        </div >
-    );
-}
+            </footer>
 
-const PageContent = forwardRef<HTMLDivElement, {
-    page: Page;
-    otherPage?: Page;
-    side: 'left' | 'right';
-    dimensions?: any;
-    density?: 'hard' | 'soft';
-    isCover?: boolean;
-}>(({ page, otherPage, side, dimensions, density, isCover }, ref) => {
-
-    const pageWidth = dimensions?.width || 1000;
-    const pageHeight = dimensions?.height || 700;
-
-    return (
-        <div
-            ref={ref}
-            data-density={density}
-            className={cn(
-                "relative overflow-hidden select-none w-full h-full",
-                "bg-[#fdfdfd]",
-                // Only show inner crease shadow if NOT hard cover
-                density !== 'hard' && "shadow-[inset_3px_0_20px_-7px_rgba(0,0,0,0.2)]"
-            )}
-            style={{
-                width: `${pageWidth}px`,
-                height: `${pageHeight}px`,
-                backgroundColor: page.backgroundColor || '#fdfdfd',
-                backgroundImage: page.layoutTemplate.includes('cover') ? 'linear-gradient(to bottom, rgba(0,0,0,0.05), transparent)' : undefined,
-                border: '1px solid rgba(0,0,0,0.05)'
-            }}
-        >
-            {page.backgroundImage && (
-                <img
-                    src={page.backgroundImage}
-                    alt=""
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
-                    style={{ opacity: page.backgroundOpacity ?? 1 }}
-                />
-            )}
-            {/* Spillover Assets (Only for spreads/soft pages) */}
-            {otherPage && density !== 'hard' && [...otherPage.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset) => (
-                <AssetDisplay
-                    key={`${asset.id}-spill`}
-                    asset={asset}
-                    offsetX={side === 'left' ? 100 : -100}
-                    dimensions={{ width: pageWidth, height: pageHeight }}
-                />
-            ))}
-
-            {/* Primary Assets */}
-            {[...page.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset) => (
-                <AssetDisplay
-                    key={asset.id}
-                    asset={asset}
-                    dimensions={{ width: pageWidth, height: pageHeight }}
-                />
-            ))}
-
-            {/* Page Number - Hide on covers */}
-            {!isCover && (
-                <div className={cn(
-                    "absolute bottom-6 text-[10px] font-sans tracking-[0.3em] uppercase opacity-30",
-                    side === 'left' ? "left-8" : "right-8"
-                )}>
-                    {page.pageNumber}
-                </div>
-            )}
-
-            {/* 3D Page Curve Gradient - Adds depth to the page surface */}
-            {!isCover && density !== 'hard' && (
-                <div className={cn(
-                    "absolute inset-0 pointer-events-none z-[5]",
-                    side === 'left'
-                        ? "bg-gradient-to-r from-black/25 via-white/5 to-transparent"
-                        : "bg-gradient-to-l from-black/25 via-white/5 to-transparent"
-                )} />
-            )}
-
-            {/* Specular Highlight - Thin shine near spine */}
-            {!isCover && density !== 'hard' && (
-                <div className={cn(
-                    "absolute inset-y-0 w-4 pointer-events-none z-[6] mix-blend-overlay",
-                    side === 'left'
-                        ? "right-0 bg-gradient-to-l from-white/40 to-transparent"
-                        : "left-0 bg-gradient-to-r from-white/40 to-transparent"
-                )} />
-            )}
-
-            {/* Spine Gradient - Crease Shadow Gutter (hidden on covers) */}
-            {!isCover && density !== 'hard' && (
-                <div className={cn(
-                    "absolute inset-y-0 w-12 pointer-events-none transition-opacity duration-500",
-                    side === 'left' ? "right-0 bg-gradient-to-l from-black/40 to-transparent" : "left-0 bg-gradient-to-r from-black/40 to-transparent",
-                    "opacity-100"
-                )} />
-            )}
-
-            {/* Subtle "Paper" texture overlay */}
-            <div className="absolute inset-0 pointer-events-none opacity-[0.04] bg-[url('https://www.transparenttextures.com/patterns/paper.png')] mix-blend-multiply" />
+            <VideoPortal
+                videoUrl={selectedVideo?.url || null}
+                rotation={selectedVideo?.rotation}
+                onClose={() => {
+                    setSelectedVideo(null);
+                    setIsTheaterMode(false);
+                }}
+                onPlay={() => setIsTheaterMode(true)}
+            />
         </div>
     );
-});
-
-PageContent.displayName = 'PageContent';
-
-function AssetDisplay({ asset, offsetX = 0, dimensions }: { asset: Asset; offsetX?: number; dimensions: { width: number; height: number } }) {
-    const videoRef = useRef<HTMLVideoElement>(null);
-
-    // Calculate exact pixels to avoid percentage rounding jitter during 3D transforms
-    const leftPx = ((asset.x + offsetX) / 100) * dimensions.width;
-    const topPx = (asset.y / 100) * dimensions.height;
-    const widthPx = (asset.width / 100) * dimensions.width;
-    const heightPx = (asset.height / 100) * dimensions.height;
-
-    const style: React.CSSProperties = {
-        position: 'absolute',
-        left: `${leftPx}px`,
-        top: `${topPx}px`,
-        width: `${widthPx}px`,
-        height: `${heightPx}px`,
-        transform: `rotate(${asset.rotation || 0}deg) scale(${asset.flipX ? -1 : 1}, ${asset.flipY ? -1 : 1})`,
-        transformOrigin: `${(asset.pivot?.x ?? 0.5) * 100}% ${(asset.pivot?.y ?? 0.5) * 100}%`,
-        zIndex: asset.zIndex || 0,
-        ...getFilterStyle(asset),
-        ...getClipPathStyle(asset),
-        opacity: (asset.opacity ?? 100) / 100,
-        willChange: 'transform', // optimizing for movement/flip
-        backfaceVisibility: 'hidden', // prevent flickering
-    };
-
-    if (asset.type === 'image' || asset.type === 'frame') {
-        const crop = asset.crop;
-        return (
-            <div style={{ ...style, overflow: 'hidden' }}>
-                <img
-                    src={getTransformedUrl(asset.url, asset)}
-                    alt=""
-                    className="absolute max-w-none shadow-none"
-                    style={{
-                        width: crop ? `${(1 / (crop.width || 1)) * 100}%` : '100%',
-                        height: crop ? `${(1 / (crop.height || 1)) * 100}%` : '100%',
-                        left: crop ? `-${(crop.x || 0) * (crop.width ? 1 / crop.width : 1) * 100}%` : '0',
-                        top: crop ? `-${(crop.y || 0) * (crop.height ? 1 / crop.height : 1) * 100}%` : '0',
-                        objectFit: crop ? 'fill' : (asset.fitMode === 'fit' ? 'contain' : ((asset.fitMode as any) === 'stretch' ? 'fill' : 'cover')),
-                        display: 'block'
-                    }}
-                    draggable={false}
-                />
-            </div>
-        );
-    }
-
-    if (asset.type === 'video') {
-        return (
-            <video
-                ref={videoRef}
-                src={asset.url}
-                style={{ ...style, transform: `${style.transform} translateZ(0)` }}
-                playsInline
-                className="object-cover pointer-events-auto cursor-pointer stPageFlip-ignore"
-                controls
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onTouchStart={(e) => e.stopPropagation()}
-            />
-        );
-    }
-
-    if (asset.type === 'text') {
-        return (
-            <div style={{
-                ...style,
-                fontSize: (asset.fontSize || 16),
-                fontFamily: asset.fontFamily,
-                color: asset.textColor,
-                textAlign: asset.textAlign as any,
-                fontWeight: asset.fontWeight,
-                lineHeight: asset.lineHeight,
-                whiteSpace: 'pre-wrap',
-            }}
-                className="pointer-events-none select-none"
-            >
-                {asset.content}
-            </div>
-        );
-    }
-
-    if (asset.type === 'location') {
-        return (
-            <div style={{
-                ...style,
-                fontSize: (asset.fontSize || 14),
-                fontFamily: asset.fontFamily || 'Inter',
-                color: asset.textColor || '#6b7280',
-                textAlign: asset.textAlign as any || 'left',
-                fontWeight: asset.fontWeight || 'normal',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-            }}
-                className="pointer-events-none select-none"
-            >
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '1em', height: '1em', flexShrink: 0, color: '#9333ea' }}>
-                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                    <circle cx="12" cy="10" r="3"></circle>
-                </svg>
-                <span>{asset.content}</span>
-            </div>
-        );
-    }
-
-    if (asset.type === 'map' && asset.mapConfig) {
-        return (
-            <div style={{ ...style }} className="stPageFlip-ignore">
-                <MapAsset
-                    center={asset.mapConfig.center}
-                    zoom={asset.mapConfig.zoom}
-                    places={asset.mapConfig.places}
-                    interactive={true}
-                    lazyLoad={true}
-                />
-            </div>
-        );
-    }
-
-    return null;
 }
 
 const Button = ({ variant, size, onClick, className, children, ...props }: any) => (

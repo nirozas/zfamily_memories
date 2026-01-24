@@ -1,0 +1,7 @@
+[2026-01-23] | [FamilyZoabi] | Fixed drag-and-drop logic with coordinate normalization and boundary checks in Album Studio | [Completed]
+[2026-01-23] | [FamilyZoabi] | Enhanced video functionality with standard requestFullscreen API and persistent controls | [Completed]
+[2026-01-23] | [FamilyZoabi] | Optimized Performance with React.memo and requestAnimationFrame in Editor and Viewer | [Completed]
+[2026-01-23] | [FamilyZoabi] | Refined DynamicLayoutRenderer with percentage units and visible placeholders | [Completed]
+[2026-01-23] | [FamilyZoabi] | Re-attached page flip sound to onFlip event in FlipbookViewer | [Completed]
+[2026-01-23] | [FamilyZoabi] | Fixed Fullscreen and Audio conflict in FlipbookViewer.tsx (Refactored video fullscreen, added readystate checks, and stopped event propagation) | [Completed]
+[2026-01-23] | [FamilyZoabi] | Fixed video behavior: Disabled loop, prevented snap-back with onPlay propagation stop, and targeted fullscreen to specific video elements | [Completed]

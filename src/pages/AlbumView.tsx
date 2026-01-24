@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
-import { type Album } from '../contexts/AlbumContext';
+import { type Album, type Page } from '../contexts/AlbumContext';
 import { useAuth } from '../contexts/AuthContext';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Share2, Edit3, ArrowLeft } from 'lucide-react';
@@ -24,7 +24,7 @@ export function AlbumView() {
             if (!id) return;
             setLoading(true);
             try {
-                // Fetch Album
+                // 1. Fetch Album Metadata
                 const { data: albumData, error: albumError } = await supabase
                     .from('albums')
                     .select('*')
@@ -33,16 +33,40 @@ export function AlbumView() {
 
                 if (albumError || !albumData) throw new Error('Album not found');
 
-                // Fetch Pages
-                const { data: pagesData, error: pagesError } = await supabase
-                    .from('pages')
-                    .select('*, assets(*)')
+                // 2. Try Primary Unified Schema (album_pages)
+                const { data: albumPagesData, error: albumPagesError } = await (supabase.from('album_pages') as any)
+                    .select('*')
                     .eq('album_id', id)
                     .order('page_number', { ascending: true });
 
-                if (pagesError) throw new Error('Failed to load pages: ' + pagesError.message);
+                let pages: Page[] = [];
+                const { normalizePageData } = await import('../lib/normalization');
+                const DEFAULT_CONFIG = {
+                    dimensions: { width: 1000, height: 700, unit: 'px', bleed: 25, gutter: 40 },
+                    useSpreadView: true,
+                    gridSettings: { size: 20, snap: true, visible: false }
+                };
 
-                // Transform to Album type
+                if (!albumPagesError && albumPagesData && albumPagesData.length > 0) {
+                    pages = albumPagesData.map(normalizePageData);
+                } else {
+                    // FALLBACK TO LEGACY SCHEMA
+                    const { data: legacyPages, error: legacyError } = await supabase
+                        .from('pages')
+                        .select('*, assets(*)')
+                        .eq('album_id', id)
+                        .order('page_number', { ascending: true });
+
+                    if (!legacyError && legacyPages && legacyPages.length > 0) {
+                        pages = legacyPages.map(normalizePageData);
+                    }
+                }
+
+                if (pages.length === 0) {
+                    throw new Error('This album has no pages yet. Please edit it in the Studio first.');
+                }
+
+                // 3. Construct Album Object
                 const data = albumData as any;
                 const fullAlbum: Album = {
                     id: data.id,
@@ -55,29 +79,12 @@ export function AlbumView() {
                     updatedAt: new Date(data.updated_at),
                     isPublished: data.is_published,
                     hashtags: data.hashtags || [],
-                    config: data.config || {},
+                    config: {
+                        ...DEFAULT_CONFIG,
+                        ...(data.config || {})
+                    },
                     unplacedMedia: data.config?.unplacedMedia || [],
-                    pages: (pagesData as any[]).map(p => ({
-                        id: p.id,
-                        pageNumber: p.page_number,
-                        layoutTemplate: p.template_id,
-                        backgroundColor: p.background_color,
-                        assets: (p.assets as any[] || []).map(a => ({
-                            id: a.id,
-                            type: a.asset_type,
-                            url: a.url,
-                            x: a.config?.x || 0,
-                            y: a.config?.y || 0,
-                            width: a.config?.width || 200,
-                            height: a.config?.height || 150,
-                            rotation: a.config?.rotation || 0,
-                            scale: a.config?.scale || 1,
-                            zIndex: a.z_index || 0,
-                            brightness: a.config?.brightness || 100,
-                            contrast: a.config?.contrast || 100,
-                            saturate: a.config?.saturate || 100,
-                        }))
-                    }))
+                    pages: pages
                 };
 
                 setAlbum(fullAlbum);
@@ -90,7 +97,20 @@ export function AlbumView() {
         };
 
         fetchAlbum();
+
+        // Real-Time Subscription for the Current Album
+        const subscription = supabase
+            .channel(`album:${id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'album_pages', filter: `album_id=eq.${id}` }, () => {
+                fetchAlbum();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(subscription);
+        };
     }, [id]);
+
 
     if (loading) {
         return (
@@ -154,7 +174,7 @@ export function AlbumView() {
                 </div>
             </div>
 
-            {/* Viewer - No longer wrapped in constrained div as it is fixed/full-screen */}
+            {/* Viewer */}
             <FlipbookViewer
                 pages={album.pages}
                 album={album}

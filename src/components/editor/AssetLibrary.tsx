@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAlbum, type Asset } from '../../contexts/AlbumContext';
+import { useAlbum } from '../../contexts/AlbumContext';
 import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 import {
@@ -13,15 +13,22 @@ import {
     Plus,
     Loader2,
     ChevronDown,
-    ChevronRight,
-    ChevronLeft
+    ChevronLeft,
+    Maximize2,
+    Grid as GridIcon,
+    LayoutGrid
 } from 'lucide-react';
 
 // Helper for library thumbnails (not full assets)
-const getThumbnailUrl = (url: string) => {
+const getThumbnailUrl = (url: string, type: 'image' | 'video' = 'image') => {
     if (!url || !url.includes('cloudinary.com')) return url;
     const parts = url.split('/upload/');
     if (parts.length === 2) {
+        if (type === 'video') {
+            // Get a frame as thumbnail for videos
+            const videoPath = parts[1].replace(/\.[^/.]+$/, ".jpg");
+            return `${parts[0]}/upload/f_auto,q_auto,w_300,c_limit,so_auto/${videoPath}`;
+        }
         return `${parts[0]}/upload/f_auto,q_auto,w_300,c_limit/${parts[1]}`;
     }
     return url;
@@ -29,38 +36,48 @@ const getThumbnailUrl = (url: string) => {
 
 // Helper to get assets by category
 async function fetchLibraryAssets(category: string, familyId?: string) {
-    if (category === 'uploads' && familyId) {
-        // Fetch from family_media for user uploads
-        const { data, error } = await supabase
-            .from('family_media')
-            .select('*')
-            .eq('family_id', familyId)
-            .order('created_at', { ascending: false });
+    let assets: any[] = [];
 
-        if (error) {
-            console.error('Error fetching uploads:', error);
-            return [];
-        }
-        return (data as any[])?.map(item => ({
-            id: item.id,
-            url: item.url,
-            type: item.type, // Include the type from DB
-            category: 'uploads',
-            name: item.filename || 'Uploaded Asset',
-            folder: item.folder
-        })) || [];
-    }
-    // Fetch from library_assets for system assets
-    const { data, error } = await supabase
+    // 1. Fetch from library_assets for system assets
+    const { data: systemData, error: systemError } = await supabase
         .from('library_assets')
         .select('*')
         .eq('category', category);
 
-    if (error) {
-        console.error('Error fetching assets:', error);
-        return [];
+    if (!systemError && systemData) {
+        assets = [...systemData];
     }
-    return data || [];
+
+    // 2. If it's the 'uploads' category (Legacy behavior) or if we want family-specific assets of this category
+    if (familyId) {
+        let query = supabase.from('family_media').select('*').eq('family_id', familyId);
+
+        if (category !== 'uploads') {
+            query = query.eq('category', category);
+        }
+
+        const { data: familyData, error: familyError } = await query.order('created_at', { ascending: false });
+
+        if (!familyError && familyData) {
+            const familyAssets = (familyData as any[]).map(item => ({
+                id: item.id,
+                url: item.url,
+                type: item.type,
+                category: item.category || 'uploads',
+                name: item.filename || 'Uploaded Asset',
+                folder: item.folder,
+                created_at: item.created_at,
+                is_family: true
+            }));
+
+            if (category === 'uploads') {
+                return familyAssets; // Uploads tab shows only user uploads
+            } else {
+                assets = [...familyAssets, ...assets];
+            }
+        }
+    }
+    return assets;
 }
 
 type Tab = 'uploads' | 'backgrounds' | 'stickers' | 'frames' | 'ribbons' | 'layouts';
@@ -71,31 +88,27 @@ export function AssetLibrary() {
     const [libraryAssets, setLibraryAssets] = useState<any[]>([]);
     const [isLoadingAssets, setIsLoadingAssets] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
-    const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-        curated: false,
-        archive: false
-    });
-
-    // Filters
     const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video'>('all');
+    const [sortBy, setSortBy] = useState<'name' | 'uploaded'>('uploaded');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [searchQuery, setSearchQuery] = useState('');
+
     const [viewMode, setViewMode] = useState<'grid' | 'folders'>('folders');
     const [currentFolder, setCurrentFolder] = useState<string | null>(null);
+    const [gridCols, setGridCols] = useState<2 | 3 | 4>(3);
+    const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const toggleSection = (section: string) => {
-        setCollapsedSections(prev => ({
-            ...prev,
-            [section]: !prev[section]
-        }));
-    };
 
-    // Fetch assets when tab changes
+    // Fetch assets when tab changes or an upload finishes
     useEffect(() => {
         const loadAssets = async () => {
+            const curAlbum = album;
+            if (!curAlbum) return;
             setIsLoadingAssets(true);
             const categoryMap: Record<string, string> = {
-                'uploads': 'uploads', // Now handled explicitly
+                'uploads': 'uploads',
                 'backgrounds': 'background',
                 'stickers': 'sticker',
                 'frames': 'frame',
@@ -104,21 +117,53 @@ export function AssetLibrary() {
             const category = categoryMap[activeTab];
 
             if (category) {
-                // Pass familyId for uploads
-                const assets = await fetchLibraryAssets(category, album?.family_id);
-                setLibraryAssets(assets);
+                const assets = await fetchLibraryAssets(category, curAlbum.family_id);
+
+                // Merge in-memory unplaced media to ensure instant feedback even before DB sync completes
+                let mergedAssets = [...assets];
+                if (category === 'uploads' && curAlbum.unplacedMedia && curAlbum.unplacedMedia.length > 0) {
+                    const dbUrls = new Set(assets.map(a => a.url));
+                    const localAssets = curAlbum.unplacedMedia
+                        .filter(m => !dbUrls.has(m.url))
+                        .map(m => ({
+                            id: m.id,
+                            url: m.url,
+                            type: m.type,
+                            category: 'uploads',
+                            name: (m as any).name || (m.url.split('/').pop()?.split('?')[0].split('_').pop()) || 'Recently Uploaded',
+                            folder: (m as any).folder || curAlbum.title,
+                            created_at: (m as any).createdAt || new Date().toISOString(),
+                            is_family: true
+                        }));
+                    mergedAssets = [...localAssets, ...mergedAssets];
+                }
+
+                setLibraryAssets(mergedAssets);
             }
             setIsLoadingAssets(false);
         };
         loadAssets();
-    }, [activeTab, album?.family_id]);
+    }, [activeTab, album?.family_id, isSaving, album?.unplacedMedia?.length]);
 
     if (!album) return null;
     const currentPage = album.pages[currentPageIndex];
 
+    // Compute which assets are already used in the album to show indicators
+    const usedAssetUrls = new Set<string>();
+    album.pages.forEach(p => p.assets.forEach(a => {
+        if (a.url) usedAssetUrls.add(a.url);
+    }));
+
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files.length > 0) {
-            await uploadMedia(Array.from(e.target.files));
+            const categoryMap: Record<string, string> = {
+                'uploads': 'general',
+                'backgrounds': 'background',
+                'stickers': 'sticker',
+                'frames': 'frame',
+                'ribbons': 'ribbon'
+            };
+            await uploadMedia(Array.from(e.target.files), categoryMap[activeTab]);
             e.target.value = '';
         }
     };
@@ -151,45 +196,82 @@ export function AssetLibrary() {
     };
 
     const handleAssetClick = (item: any, type: Tab) => {
-        if (!currentPage) return;
+        if (!currentPage || !album) return;
 
-        if (type === 'uploads') {
-            moveFromLibrary(item.id, currentPage.id);
-        } else {
-            // Stickers / Frames / Ribbons / Backgrounds
-            const isBackground = (type as string) === 'backgrounds';
-            const isFrame = (type as string) === 'frames';
+        // Helper to add asset with correct proportions
+        const addWithProportions = (assetType: any, url: string, natW: number, natH: number) => {
+            const ratio = natW / natH;
+            const albumW = album.config.dimensions.width || 1000;
+            const albumH = album.config.dimensions.height || 700;
 
-            if (isFrame) {
-                // Special handling if needed
+            const isBackground = type === 'backgrounds';
+            const isFrame = type === 'frames';
+
+            // Calculate width/height in page % units (0-100)
+            let w = (isBackground || isFrame) ? 100 : (natW / albumW) * 100;
+            let h = (isBackground || isFrame) ? (100 / (albumW / albumH)) * ratio : (natH / albumH) * 100;
+
+            if (isBackground) {
+                w = 100;
+                h = 100;
             }
 
-            // All these decorations and backgrounds are now treated as regular images/assets
+            const maxUnit = 60;
+            if (!isBackground && !isFrame && (w > maxUnit || h > maxUnit)) {
+                const scale = Math.min(maxUnit / w, maxUnit / h);
+                w *= scale;
+                h *= scale;
+            }
+            if (!isBackground && !isFrame) h = w / ratio; // maintain ratio
+
+            addAsset(currentPage.id, {
+                type: assetType,
+                url: url,
+                x: (isBackground || isFrame) ? 0 : (100 - w) / 2,
+                y: (isBackground || isFrame) ? 0 : (100 - h) / 2,
+                width: w,
+                height: h,
+                originalDimensions: { width: natW, height: natH },
+                rotation: 0,
+                zIndex: isFrame ? 50 : (isBackground ? 0 : currentPage.assets.length + 1),
+                isStamp: type !== 'uploads',
+                category: type,
+                fitMode: isBackground ? 'cover' : 'fit',
+                aspectRatio: ratio,
+                isLocked: false,
+                lockAspectRatio: true,
+                pivot: { x: 0.5, y: 0.5 }
+            } as any);
+        };
+
+        // Check if item is in unplacedMedia to move it instead of copy
+        const isInUnplaced = album.unplacedMedia.some(a => a.id === item.id);
+
+        if (type === 'uploads' && isInUnplaced) {
+            moveFromLibrary(item.id, currentPage.id);
+            return;
+        }
+
+        // Special handling for backgrounds/layouts if they need direct update instead of new asset?
+        // For now we add them as background assets.
+
+        if (item.type === 'video') {
+            const video = document.createElement('video');
+            video.src = item.url;
+            video.onloadedmetadata = () => {
+                const w = video.videoWidth || 1280;
+                const h = video.videoHeight || 720;
+                addWithProportions('video', item.url, w, h);
+            };
+            // Fallback for metadata fail
+            video.onerror = () => addWithProportions('video', item.url, 1280, 720);
+        } else {
             const img = new Image();
             img.src = item.url;
             img.onload = () => {
-                const ratio = img.naturalWidth / img.naturalHeight;
-                // If it's a background or frame, start it at 100% width but still freely movable
-                const w = (isBackground || isFrame) ? 100 : 30;
-                const h = w / ratio;
-
-                addAsset(currentPage.id, {
-                    type: isFrame ? 'frame' : 'image',
-                    url: item.url,
-                    x: (isBackground || isFrame) ? 0 : 35,
-                    y: (isBackground || isFrame) ? 0 : 35,
-                    width: w,
-                    height: h,
-                    originalDimensions: { width: img.naturalWidth, height: img.naturalHeight },
-                    rotation: 0,
-                    zIndex: isFrame ? 50 : (isBackground ? 0 : 30),
-                    isStamp: true,
-                    category: type,
-                    fitMode: 'fit',
-                    aspectRatio: ratio,
-                    isLocked: false
-                });
+                addWithProportions(type === 'frames' ? 'frame' : 'image', item.url, img.naturalWidth, img.naturalHeight);
             };
+            img.onerror = () => addWithProportions(type === 'frames' ? 'frame' : 'image', item.url, 800, 600);
         }
     };
 
@@ -198,7 +280,7 @@ export function AssetLibrary() {
             {/* Tabs */}
             <div className="flex flex-wrap bg-catalog-stone/10 border-b border-catalog-accent/10">
                 <button
-                    onClick={() => setActiveTab('uploads')}
+                    onClick={() => { setActiveTab('uploads'); setCurrentFolder(null); }}
                     className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[9px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'uploads' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-catalog-text/50 hover:bg-white/50")}
                 >
                     <ImageIcon className="w-3.5 h-3.5" /> Media
@@ -244,36 +326,56 @@ export function AssetLibrary() {
                     </div>
                 )}
 
-                {/* Search (except uploads) */}
-                {activeTab !== 'uploads' && (
-                    <div className="relative mb-4">
+                {/* Global Controls: Search & Sort */}
+                <div className="mb-4 space-y-2">
+                    <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-catalog-text/30" />
                         <input
                             type="text"
-                            placeholder={`Search ${activeTab}...`}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder={`Search ${activeTab === 'uploads' ? 'media' : activeTab}...`}
                             className="w-full pl-10 pr-4 py-2 bg-white border border-catalog-accent/10 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-catalog-accent/20"
                         />
                     </div>
-                )}
+                </div>
 
-                {/* Loading State */}
-                {isLoadingAssets && activeTab !== 'uploads' && (
-                    <div className="flex items-center justify-center p-8 text-catalog-text/40">
-                        <Loader2 className="w-6 h-6 animate-spin" />
-                    </div>
-                )}
+                {/* Grid Size Controls */}
+                <div className="flex items-center justify-end gap-1 mb-3 px-1">
+                    <button
+                        onClick={() => setGridCols(4)}
+                        className={cn("p-1 rounded transition-colors", gridCols === 4 ? "bg-catalog-accent/10 text-catalog-accent" : "text-gray-400 hover:bg-gray-100")}
+                        title="Small items"
+                    >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        onClick={() => setGridCols(3)}
+                        className={cn("p-1 rounded transition-colors", gridCols === 3 ? "bg-catalog-accent/10 text-catalog-accent" : "text-gray-400 hover:bg-gray-100")}
+                        title="Medium items"
+                    >
+                        <GridIcon className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                        onClick={() => setGridCols(2)}
+                        className={cn("p-1 rounded transition-colors", gridCols === 2 ? "bg-catalog-accent/10 text-catalog-accent" : "text-gray-400 hover:bg-gray-100")}
+                        title="Large items"
+                    >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                </div>
 
                 {/* UPLOADS TAB */}
                 {activeTab === 'uploads' && (
                     <div className="space-y-4">
-                        {/* Upload & Controls */}
-                        <div className="flex items-center gap-2">
+                        {/* Upload & Basic Filters */}
+                        <div className="flex items-center gap-2 px-1">
                             <div
                                 onClick={() => fileInputRef.current?.click()}
-                                className="flex-1 border border-dashed border-catalog-accent/30 rounded-lg p-3 text-center cursor-pointer hover:bg-catalog-accent/5 transition-all group bg-white"
+                                className="flex-1 border border-dashed border-catalog-accent/30 rounded-lg p-3 text-center cursor-pointer hover:bg-catalog-accent/5 transition-all group bg-white shadow-sm"
                             >
                                 <Upload className="w-4 h-4 text-catalog-accent/60 mx-auto mb-1 group-hover:text-catalog-accent" />
-                                <p className="text-[9px] text-catalog-accent font-bold uppercase tracking-tight">Upload</p>
+                                <p className="text-[9px] text-catalog-accent font-bold uppercase tracking-tight">Upload new</p>
                                 <input
                                     ref={fileInputRef}
                                     type="file"
@@ -283,106 +385,195 @@ export function AssetLibrary() {
                                     onChange={handleFileChange}
                                 />
                             </div>
-                        </div>
 
-                        {/* Filters */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex bg-gray-100 rounded-md p-0.5">
-                                <button
-                                    onClick={() => setMediaFilter('all')}
-                                    className={cn("px-2 py-1 text-[9px] font-bold uppercase rounded-sm transition-all", mediaFilter === 'all' ? "bg-white shadow text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
-                                >All</button>
-                                <button
-                                    onClick={() => setMediaFilter('image')}
-                                    className={cn("px-2 py-1 text-[9px] font-bold uppercase rounded-sm transition-all", mediaFilter === 'image' ? "bg-white shadow text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
-                                >Img</button>
-                                <button
-                                    onClick={() => setMediaFilter('video')}
-                                    className={cn("px-2 py-1 text-[9px] font-bold uppercase rounded-sm transition-all", mediaFilter === 'video' ? "bg-white shadow text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
-                                >Vid</button>
+                            <div className="flex-1 space-y-1.5">
+                                <div className="flex bg-gray-100/50 p-0.5 rounded-md border border-catalog-accent/5">
+                                    <button
+                                        onClick={() => setMediaFilter('all')}
+                                        className={cn("flex-1 py-1 text-[8px] font-bold uppercase rounded transition-all", mediaFilter === 'all' ? "bg-white shadow-sm text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
+                                    >All</button>
+                                    <button
+                                        onClick={() => setMediaFilter('image')}
+                                        className={cn("flex-1 py-1 text-[8px] font-bold uppercase rounded transition-all", mediaFilter === 'image' ? "bg-white shadow-sm text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
+                                    >Img</button>
+                                    <button
+                                        onClick={() => setMediaFilter('video')}
+                                        className={cn("flex-1 py-1 text-[8px] font-bold uppercase rounded transition-all", mediaFilter === 'video' ? "bg-white shadow-sm text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
+                                    >Vid</button>
+                                </div>
+                                <div className="flex gap-1">
+                                    <select
+                                        value={dateFilter}
+                                        onChange={(e) => setDateFilter(e.target.value as any)}
+                                        className="flex-1 bg-white border border-catalog-accent/10 rounded px-1.5 py-1 text-[8px] font-bold text-catalog-text/70 focus:outline-none"
+                                    >
+                                        <option value="all">All Time</option>
+                                        <option value="today">Today</option>
+                                        <option value="week">This Week</option>
+                                        <option value="month">This Month</option>
+                                        <option value="year">This Year</option>
+                                    </select>
+                                    <select
+                                        value={sortBy === 'uploaded' ? (sortOrder === 'desc' ? 'newest' : 'oldest') : 'name'}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === 'name') {
+                                                setSortBy('name');
+                                                setSortOrder('asc');
+                                            } else if (val === 'newest') {
+                                                setSortBy('uploaded');
+                                                setSortOrder('desc');
+                                            } else if (val === 'oldest') {
+                                                setSortBy('uploaded');
+                                                setSortOrder('asc');
+                                            }
+                                        }}
+                                        className="flex-1 bg-white border border-catalog-accent/10 rounded px-1.5 py-1 text-[8px] font-bold text-catalog-text/70 focus:outline-none"
+                                    >
+                                        <option value="newest">Newest</option>
+                                        <option value="oldest">Oldest</option>
+                                        <option value="name">Name</option>
+                                    </select>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <button
+                                        onClick={() => {
+                                            if (currentFolder) setCurrentFolder(null);
+                                            else setViewMode(v => v === 'grid' ? 'folders' : 'grid');
+                                        }}
+                                        className="text-[8px] font-bold uppercase text-catalog-accent/60 hover:text-catalog-accent flex items-center gap-1 transition-colors"
+                                    >
+                                        {currentFolder ? <><ChevronLeft className="w-2 h-2" /> Back</> : (viewMode === 'grid' ? "Folder view" : "List view")}
+                                    </button>
+                                    <span className="text-[8px] font-bold text-catalog-text/30 uppercase tracking-tighter">Media Library</span>
+                                </div>
                             </div>
-
-                            <button
-                                onClick={() => {
-                                    if (viewMode === 'folders' && currentFolder) {
-                                        setCurrentFolder(null); // Go back up
-                                    } else {
-                                        setViewMode(v => v === 'grid' ? 'folders' : 'grid');
-                                        setCurrentFolder(null);
-                                    }
-                                }}
-                                className="text-[9px] font-bold uppercase text-catalog-accent flex items-center gap-1 hover:bg-catalog-accent/5 px-2 py-1 rounded transition-colors"
-                            >
-                                {viewMode === 'folders' && currentFolder ? <><ChevronLeft className="w-3 h-3" /> Back</> : (viewMode === 'grid' ? 'Show Folders' : 'Show All')}
-                            </button>
                         </div>
 
-                        {/* Recent Unplaced Section (Generic Uploads) */}
-                        {viewMode === 'grid' && (
-                            <div className="space-y-2">
-                                <button
-                                    onClick={() => toggleSection('curated')}
-                                    className="flex items-center justify-between w-full px-1 py-1 hover:bg-catalog-accent/5 rounded transition-colors group cursor-pointer"
-                                >
-                                    <h4 className="text-[10px] font-bold text-catalog-accent uppercase tracking-widest">Unplaced Media</h4>
-                                    {collapsedSections.curated ? <ChevronRight className="w-3 h-3 text-catalog-accent/40" /> : <ChevronDown className="w-3 h-3 text-catalog-accent/40" />}
-                                </button>
+                        {/* Heritage Archive Section */}
+                        <div className="space-y-3 px-1">
+                            {currentFolder && (
+                                <div className="flex items-center gap-1.5 opacity-70">
+                                    <Bookmark className="w-3.5 h-3.5 text-catalog-accent" />
+                                    <span className="text-[10px] font-bold text-catalog-text uppercase tracking-widest">{currentFolder}</span>
+                                </div>
+                            )}
 
-                                {!collapsedSections.curated && (
-                                    <>
-                                        {album.unplacedMedia.length > 0 ? (
-                                            <div className="grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                                                {album.unplacedMedia
-                                                    .filter((asset: Asset) => mediaFilter === 'all' || asset.type === mediaFilter)
-                                                    .map((asset: Asset) => (
+                            {isLoadingAssets ? (
+                                <div className="flex flex-col items-center justify-center py-12 gap-3 opacity-20">
+                                    <Loader2 className="w-8 h-8 animate-spin" />
+                                    <span className="text-[9px] font-bold uppercase tracking-widest">Loading Media...</span>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Folders Selection */}
+                                    {viewMode === 'folders' && !currentFolder && (
+                                        <div className="grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-300">
+                                            {(() => {
+                                                const folderSet = new Set<string>();
+                                                libraryAssets.forEach(a => {
+                                                    folderSet.add(a.folder || 'Unsorted');
+                                                });
+                                                return Array.from(folderSet).map(folder => (
+                                                    <div
+                                                        key={folder}
+                                                        onClick={() => {
+                                                            setCurrentFolder(folder);
+                                                            setViewMode('folders');
+                                                        }}
+                                                        className="flex flex-col items-center gap-2 p-3 bg-white border border-catalog-accent/10 rounded-xl hover:bg-catalog-accent/5 hover:border-catalog-accent/30 hover:scale-[1.02] transition-all cursor-pointer group shadow-sm relative overflow-hidden"
+                                                    >
+                                                        <div className="w-14 h-11 bg-catalog-stone/10 rounded-lg flex items-center justify-center group-hover:bg-catalog-accent/10 transition-colors relative border border-catalog-accent/5">
+                                                            <div className="absolute -top-1 left-2 w-5 h-2 bg-catalog-accent/30 rounded-t-sm" />
+                                                            <ImageIcon className="w-5 h-5 text-catalog-accent/40" />
+                                                        </div>
+                                                        <span className="text-[9px] font-bold text-catalog-text/70 uppercase tracking-tighter truncate w-full text-center px-1">{folder}</span>
+                                                        <div className="absolute top-1 right-1 bg-catalog-accent/10 text-catalog-accent text-[7px] font-bold px-1 rounded-full border border-catalog-accent/5">
+                                                            {libraryAssets.filter(a => a.category === 'uploads' && (a.folder || 'Unsorted') === folder).length}
+                                                        </div>
+                                                    </div>
+                                                ));
+                                            })()}
+                                        </div>
+                                    )}
+
+                                    {/* Assets Display */}
+                                    {(viewMode === 'grid' || currentFolder) && (
+                                        <div className={cn("grid gap-2 animate-in fade-in slide-in-from-top-1 duration-300", gridCols === 2 ? "grid-cols-2" : (gridCols === 3 ? "grid-cols-3" : "grid-cols-4"))}>
+                                            {libraryAssets
+                                                .filter(a => viewMode === 'grid' ? true : (a.folder || 'Unsorted') === currentFolder)
+                                                .filter(a => mediaFilter === 'all' || (mediaFilter === 'image' ? (!a.type || a.type === 'image') : a.type === 'video'))
+                                                .filter(a => {
+                                                    if (dateFilter === 'all') return true;
+                                                    const now = new Date();
+                                                    const created = new Date(a.created_at || 0);
+                                                    const diff = now.getTime() - created.getTime();
+                                                    const day = 24 * 60 * 60 * 1000;
+
+                                                    if (dateFilter === 'today') return diff < day;
+                                                    if (dateFilter === 'week') return diff < (7 * day);
+                                                    if (dateFilter === 'month') return diff < (30 * day);
+                                                    if (dateFilter === 'year') return diff < (365 * day);
+                                                    return true;
+                                                })
+                                                .filter(a => {
+                                                    if (!searchQuery) return true;
+                                                    const query = searchQuery.toLowerCase();
+                                                    return (a.name || '').toLowerCase().includes(query) || a.tags?.some((t: string) => t.toLowerCase().includes(query));
+                                                })
+                                                .sort((a, b) => {
+                                                    const multiplier = sortOrder === 'asc' ? 1 : -1;
+                                                    if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '') * multiplier;
+                                                    const da = new Date(a.created_at || 0).getTime();
+                                                    const db = new Date(b.created_at || 0).getTime();
+                                                    return (da - db) * multiplier;
+                                                })
+                                                .map((item) => (
+                                                    <div
+                                                        key={item.id}
+                                                        onClick={() => handleAssetClick(item, 'uploads')}
+                                                        className="group flex flex-col gap-1 cursor-pointer"
+                                                    >
                                                         <div
-                                                            key={asset.id}
                                                             draggable
                                                             onDragStart={(e) => {
-                                                                e.dataTransfer.setData('asset', JSON.stringify({
-                                                                    url: asset.url,
-                                                                    type: asset.type,
-                                                                    aspectRatio: asset.aspectRatio,
-                                                                    originalDimensions: asset.originalDimensions
-                                                                }));
+                                                                e.dataTransfer.setData('asset', JSON.stringify({ url: item.url, type: item.type || 'image' }));
                                                             }}
-                                                            onClick={() => handleAssetClick(asset, 'uploads')}
-                                                            className="group relative aspect-square rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md transition-all cursor-pointer border border-transparent hover:border-catalog-accent/30"
-                                                        >
-                                                            {asset.type === 'image' ? (
-                                                                <img src={asset.url} alt="" className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                <video
-                                                                    src={asset.url}
-                                                                    className="w-full h-full object-cover"
-                                                                    muted
-                                                                    playsInline
-                                                                    onMouseOver={(e) => e.currentTarget.play()}
-                                                                    onMouseOut={(e) => {
-                                                                        e.currentTarget.pause();
-                                                                        e.currentTarget.currentTime = 0;
-                                                                    }}
-                                                                />
+                                                            className={cn(
+                                                                "relative aspect-square rounded-lg overflow-hidden bg-white shadow-sm group-hover:shadow-md transition-all border",
+                                                                usedAssetUrls.has(item.url) ? "border-red-500 ring-1 ring-red-500/50" : "border-catalog-accent/5 group-hover:border-catalog-accent/30"
                                                             )}
-                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                                                <Plus className="w-6 h-6 text-white" />
+                                                        >
+                                                            {item.type === 'video' ? (
+                                                                <div className="w-full h-full relative">
+                                                                    <img src={getThumbnailUrl(item.url, 'video')} alt="" className="w-full h-full object-cover" />
+                                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/30 transition-colors">
+                                                                        <Video className="w-5 h-5 text-white drop-shadow-md" />
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <img src={getThumbnailUrl(item.url)} alt="" className="w-full h-full object-cover" />
+                                                            )}
+                                                            <div className="absolute inset-0 bg-catalog-accent/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                                <Plus className="w-5 h-5 text-white" />
                                                             </div>
-                                                            {asset.type === 'video' && <div className="absolute bottom-1 right-1 bg-black/50 text-white p-0.5 rounded"><Video className="w-3 h-3" /></div>}
+                                                            {item.type === 'video' && <div className="absolute bottom-1 right-1 bg-black/50 text-white p-0.5 rounded-sm"><Video className="w-2.5 h-2.5" /></div>}
+                                                            {usedAssetUrls.has(item.url) && <div className="absolute top-1 right-1 bg-red-500 text-white text-[6px] font-bold px-1 rounded-sm shadow-sm uppercase">Used</div>}
                                                         </div>
-                                                    ))}
-                                            </div>
-                                        ) : (
-                                            <div className="py-8 text-center border border-dashed border-catalog-accent/10 rounded-lg bg-white/50">
-                                                <p className="text-[9px] text-catalog-text/30 font-serif italic">No unplaced media found</p>
-                                            </div>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-                        )}
+                                                        <span className="text-[8px] font-bold text-catalog-text/50 truncate px-0.5 text-center group-hover:text-catalog-accent transition-colors">
+                                                            {item.name || (item.url.split('/').pop()?.split('?')[0].split('_').pop()) || 'Media'}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </div>
 
+                        {/* Upload Status (during upload) */}
                         {isSaving && (
-                            <div className="space-y-3 p-3 bg-white border border-catalog-accent/10 rounded-lg animate-in fade-in slide-in-from-top-1">
+                            <div className="space-y-3 p-3 bg-white border border-catalog-accent/10 rounded-lg animate-in fade-in slide-in-from-top-1 px-1">
                                 <div className="flex items-center justify-between mb-1">
                                     <span className="text-[10px] font-bold text-catalog-accent uppercase tracking-widest">Upload Status</span>
                                     <div className="w-3 h-3 border-2 border-catalog-accent border-t-transparent rounded-full animate-spin" />
@@ -401,256 +592,163 @@ export function AssetLibrary() {
                                         </div>
                                     </div>
                                 ))}
-                                {Object.keys(uploadProgress).length === 0 && (
-                                    <div className="flex items-center gap-2">
-                                        <Loader2 className="w-3 h-3 animate-spin text-catalog-accent" />
-                                        <span className="text-[9px] text-catalog-text/50 font-medium">Processing files...</span>
-                                    </div>
-                                )}
                             </div>
                         )}
-
-                        {/* Heritage Gallery Section (Folders / Grid) */}
-                        <div className="space-y-2">
-                            <button
-                                onClick={() => toggleSection('archive')}
-                                className="flex items-center justify-between w-full px-1 py-1 hover:bg-catalog-accent/5 rounded transition-colors group cursor-pointer"
-                            >
-                                <h4 className="text-[10px] font-bold text-catalog-accent uppercase tracking-widest">
-                                    {currentFolder ? currentFolder : 'Heritage Archive'}
-                                </h4>
-                                {collapsedSections.archive ? <ChevronRight className="w-3 h-3 text-catalog-accent/40" /> : <ChevronDown className="w-3 h-3 text-catalog-accent/40" />}
-                            </button>
-
-                            {!collapsedSections.archive && (
-                                <>
-                                    {isLoadingAssets ? (
-                                        <div className="flex items-center justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-catalog-accent/20" /></div>
-                                    ) : (
-                                        <>
-                                            {/* Folder View */}
-                                            {viewMode === 'folders' && !currentFolder && (
-                                                <div className="grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1">
-                                                    {/* Compute folders on the fly */}
-                                                    {(() => {
-                                                        const folders = Array.from(new Set(libraryAssets.filter(a => a.category === 'uploads').map(a => a.folder || 'Unsorted')));
-                                                        return folders.map(folder => (
-                                                            <div
-                                                                key={folder}
-                                                                onClick={() => setCurrentFolder(folder)}
-                                                                className="flex flex-col items-center gap-2 p-3 bg-white border border-catalog-accent/10 rounded-xl hover:bg-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer group shadow-sm"
-                                                            >
-                                                                <div className="w-12 h-10 bg-catalog-accent/5 rounded-lg flex items-center justify-center group-hover:bg-catalog-accent/10 transition-colors">
-                                                                    <div className="relative">
-                                                                        <Bookmark className="w-5 h-5 text-catalog-accent" />
-                                                                        <div className="absolute -top-1 -right-1 w-2 h-2 bg-catalog-accent rounded-full animate-pulse" />
-                                                                    </div>
-                                                                </div>
-                                                                <span className="text-[10px] font-bold text-catalog-text/70 uppercase tracking-tighter truncate w-full text-center">{folder}</span>
-                                                                <span className="text-[8px] text-catalog-accent/40 font-mono">
-                                                                    {libraryAssets.filter(a => a.category === 'uploads' && (a.folder || 'Unsorted') === folder).length} items
-                                                                </span>
-                                                            </div>
-                                                        ));
-                                                    })()}
-                                                </div>
-                                            )}
-
-                                            {/* Asset Grid (All OR Inside Folder) */}
-                                            {(viewMode === 'grid' || currentFolder) && (
-                                                <div className="grid grid-cols-3 gap-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
-                                                    {libraryAssets
-                                                        .filter(a => a.category === 'uploads')
-                                                        .filter(a => viewMode === 'grid' ? true : (a.folder || 'Unsorted') === currentFolder)
-                                                        .filter(a => mediaFilter === 'all' || (mediaFilter === 'image' ? (!a.type || a.type === 'image') : a.type === 'video'))
-                                                        .map((item) => (
-                                                            <div
-                                                                key={item.id}
-                                                                draggable
-                                                                onDragStart={(e) => {
-                                                                    e.dataTransfer.setData('asset', JSON.stringify({
-                                                                        url: item.url,
-                                                                        type: item.type || 'image' // Use actual type
-                                                                    }));
-                                                                }}
-
-                                                                onClick={() => {
-                                                                    if (item.type === 'video') {
-                                                                        addAsset(currentPage.id, {
-                                                                            type: 'video',
-                                                                            url: item.url,
-                                                                            x: 25, y: 25, width: 50, height: 35,
-                                                                            rotation: 0,
-                                                                            zIndex: currentPage.assets.length + 1,
-                                                                            pivot: { x: 0.5, y: 0.5 }
-                                                                        } as any);
-                                                                    } else {
-                                                                        const img = new Image();
-                                                                        img.src = item.url;
-                                                                        img.onload = () => {
-                                                                            // Use 100 as base for percentages
-                                                                            const refWidth = 100;
-                                                                            const refHeight = 100;
-
-                                                                            let w = 60; // Default width 60%
-                                                                            const ratio = img.naturalWidth / img.naturalHeight;
-                                                                            let h = w / ratio;
-
-                                                                            // If height is too large, scale down
-                                                                            if (h > 60) {
-                                                                                h = 60;
-                                                                                w = h * ratio;
-                                                                            }
-
-                                                                            const x = (refWidth - w) / 2;
-                                                                            const y = (refHeight - h) / 2;
-
-                                                                            addAsset(currentPage.id, {
-                                                                                type: 'image',
-                                                                                url: item.url,
-                                                                                x, y,
-                                                                                width: w,
-                                                                                height: h,
-                                                                                originalDimensions: { width: img.naturalWidth, height: img.naturalHeight },
-                                                                                rotation: 0,
-                                                                                zIndex: currentPage.assets.length + 1,
-                                                                                pivot: { x: 0.5, y: 0.5 }
-                                                                            } as any);
-                                                                        };
-                                                                    }
-                                                                }}
-                                                                className="aspect-square rounded-md overflow-hidden bg-white border border-gray-100 hover:ring-2 hover:ring-catalog-accent transition-all cursor-pointer group relative"
-                                                            >
-                                                                {item.type === 'video' ? (
-                                                                    <video
-                                                                        src={item.url}
-                                                                        className="w-full h-full object-cover"
-                                                                        muted
-                                                                        playsInline
-                                                                        onMouseOver={(e) => e.currentTarget.play()}
-                                                                        onMouseOut={(e) => {
-                                                                            e.currentTarget.pause();
-                                                                            e.currentTarget.currentTime = 0;
-                                                                        }}
-                                                                    />
-                                                                ) : (
-                                                                    <img src={item.url} alt="" className="w-full h-full object-cover" />
-                                                                )}
-                                                                <div className="absolute inset-0 bg-catalog-accent/20 opacity-0 group-hover:opacity-100 flex items-center justify-center">
-                                                                    <Plus className="w-4 h-4 text-white" />
-                                                                </div>
-                                                                {item.type === 'video' && <div className="absolute bottom-1 right-1 bg-black/50 text-white p-0.5 rounded"><Video className="w-3 h-3" /></div>}
-                                                            </div>
-                                                        ))}
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
-                                </>
-                            )}
-                        </div>
                     </div>
                 )}
 
                 {/* BACKGROUNDS TAB */}
-                {activeTab === 'backgrounds' && !isLoadingAssets && (
+                {activeTab === 'backgrounds' && (
                     <div className="grid grid-cols-2 gap-2">
-                        {libraryAssets.map((item) => (
-                            <div
-                                key={item.id}
-                                draggable
-                                onDragStart={(e) => {
-                                    e.dataTransfer.setData('asset', JSON.stringify({
-                                        url: item.url,
-                                        type: 'image', // Backgrounds are images but treated specially in drop
-                                        category: 'backgrounds',
-                                        name: item.name
-                                    }));
-                                }}
-                                onClick={() => handleAssetClick(item, 'backgrounds')}
-                                className="aspect-[4/3] rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-catalog-accent transition-all shadow-sm bg-white"
-                                style={{ backgroundColor: item.url.startsWith('#') ? item.url : undefined }}
+                        <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className="col-span-2 border border-dashed border-catalog-accent/30 rounded-lg p-4 text-center cursor-pointer hover:bg-catalog-accent/5 transition-all mb-2 bg-white"
+                        >
+                            <Upload className="w-5 h-5 text-catalog-accent/60 mx-auto mb-1" />
+                            <p className="text-[10px] text-catalog-accent font-bold uppercase tracking-tight">Upload Background</p>
+                            <input ref={fileInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleFileChange} />
+                        </div>
+                        <div className="col-span-2 flex items-center gap-2 mb-2">
+                            <select
+                                value={sortBy}
+                                onChange={(e) => setSortBy(e.target.value as any)}
+                                className="flex-1 bg-white border border-catalog-accent/10 rounded px-2 py-1 text-[9px] font-bold text-catalog-text/70 focus:outline-none"
                             >
-                                {!item.url.startsWith('#') && (
-                                    <img src={getThumbnailUrl(item.url)} alt={item.name} className="w-full h-full object-cover" />
-                                )}
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* STICKERS / FRAMES / RIBBONS TAB */}
-                {(activeTab === 'stickers' || activeTab === 'frames' || activeTab === 'ribbons') && !isLoadingAssets && (
-                    <div className="grid grid-cols-3 gap-2">
-                        {libraryAssets.map((item) => (
-                            <div
-                                key={item.id}
-                                draggable
-                                onDragStart={(e) => {
-                                    e.dataTransfer.setData('asset', JSON.stringify({
-                                        url: item.url,
-                                        type: activeTab === 'frames' ? 'frame' : 'image',
-                                        category: activeTab,
-                                        name: item.name
-                                    }));
-                                }}
-                                onClick={() => handleAssetClick(item, activeTab)}
-                                className="aspect-square rounded-lg p-2 bg-white border border-gray-100 hover:border-catalog-accent/30 cursor-pointer flex items-center justify-center transition-all relative group"
-                            >
-                                <img src={item.url} alt={item.name} className="w-full h-full object-contain" />
-                                <div className="absolute inset-x-0 bottom-0 py-1 bg-black/40 text-[8px] text-white text-center opacity-0 group-hover:opacity-100 transition-opacity truncate px-1">
-                                    {item.name}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                {/* LAYOUTS TAB */}
-                {activeTab === 'layouts' && !isLoadingAssets && (
-                    <div className="grid grid-cols-2 gap-2">
-                        {libraryAssets.map((item) => (
-                            <div
-                                key={item.id}
-                                draggable
-                                onDragStart={(e) => {
-                                    e.dataTransfer.setData('layout', JSON.stringify(item));
-                                }}
-                                onClick={() => handleAssetClick(item, 'layouts')}
-                                className="aspect-[4/3] rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-catalog-accent transition-all shadow-sm bg-white border border-gray-100 p-1"
-                            >
-                                <div className="w-full h-full relative group">
-                                    {item.backgroundImage && (
-                                        <img src={item.backgroundImage} alt="" className="absolute inset-0 w-full h-full object-cover opacity-20 rounded" />
-                                    )}
-                                    {item.config && Array.isArray(item.config) && item.config.map((slot: any, i: number) => (
-                                        <div
-                                            key={i}
-                                            className="absolute bg-catalog-accent/20 border border-catalog-accent/40 rounded-[1px]"
-                                            style={{
-                                                left: item.is_spread ? `${(slot.x ?? slot.left ?? 0) / 2}%` : `${(slot.x ?? slot.left ?? 0)}%`,
-                                                top: `${slot.y ?? slot.top ?? 0}%`,
-                                                width: item.is_spread ? `${slot.width / 2}%` : `${slot.width}%`,
-                                                height: `${slot.height}%`,
-                                                zIndex: (slot.z_index ?? 1),
-                                                transform: slot.rotation ? `rotate(${slot.rotation}deg)` : 'none'
-                                            }}
-                                        />
-                                    ))}
-                                    <div className="absolute inset-x-0 bottom-0 py-1 bg-black/40 text-[8px] text-white text-center opacity-100 transition-opacity truncate px-1 rounded-b">
-                                        {item.name}
+                                <option value="uploaded">Newest</option>
+                                <option value="name">Name</option>
+                            </select>
+                            <button onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')} className="p-1 border border-catalog-accent/10 rounded bg-white">
+                                <ChevronDown className={cn("w-3 h-3", sortOrder === 'asc' && "rotate-180")} />
+                            </button>
+                        </div>
+                        {libraryAssets
+                            .filter(a => {
+                                if (!searchQuery) return true;
+                                const q = searchQuery.toLowerCase();
+                                return (a.name || '').toLowerCase().includes(q) || a.tags?.some((t: string) => t.toLowerCase().includes(q.replace('#', '')));
+                            })
+                            .sort((a, b) => {
+                                const multiplier = sortOrder === 'asc' ? 1 : -1;
+                                if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '') * multiplier;
+                                return (new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()) * multiplier;
+                            })
+                            .map((item) => (
+                                <div
+                                    key={item.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('asset', JSON.stringify({
+                                            url: item.url,
+                                            type: 'image',
+                                            category: 'backgrounds',
+                                            name: item.name
+                                        }));
+                                    }}
+                                    onClick={() => handleAssetClick(item, 'backgrounds')}
+                                    className="aspect-[4/3] rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-catalog-accent transition-all shadow-sm bg-white relative group border border-gray-100"
+                                >
+                                    <img src={getThumbnailUrl(item.url)} alt="" className="w-full h-full object-cover" />
+                                    <div className="absolute inset-0 bg-catalog-accent/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                        <Plus className="w-6 h-6 text-white" />
                                     </div>
                                 </div>
-                            </div>
-                        ))}
-                        {libraryAssets.length === 0 && (
-                            <div className="col-span-2 py-8 text-center border border-dashed border-catalog-accent/10 rounded-lg bg-white/50">
-                                <p className="text-[9px] text-catalog-text/30 font-serif italic">No layouts found in library</p>
-                            </div>
-                        )}
+                            ))}
+                    </div>
+                )}
+
+                {/* STICKERS TAB */}
+                {activeTab === 'stickers' && (
+                    <div className="grid grid-cols-3 gap-2">
+                        {libraryAssets
+                            .filter(a => {
+                                if (!searchQuery) return true;
+                                const q = searchQuery.toLowerCase();
+                                return (a.name || '').toLowerCase().includes(q);
+                            })
+                            .map((item) => (
+                                <div
+                                    key={item.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('asset', JSON.stringify({
+                                            url: item.url,
+                                            type: 'image',
+                                            category: 'stickers',
+                                            name: item.name
+                                        }));
+                                    }}
+                                    onClick={() => handleAssetClick(item, 'stickers')}
+                                    className="aspect-square p-2 bg-white rounded-lg border border-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer flex items-center justify-center group"
+                                >
+                                    <img src={item.url} alt="" className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform" />
+                                </div>
+                            ))}
+                    </div>
+                )}
+
+                {/* FRAMES TAB */}
+                {activeTab === 'frames' && (
+                    <div className="grid grid-cols-2 gap-3">
+                        {libraryAssets
+                            .filter(a => {
+                                if (!searchQuery) return true;
+                                const q = searchQuery.toLowerCase();
+                                return (a.name || '').toLowerCase().includes(q);
+                            })
+                            .map((item) => (
+                                <div
+                                    key={item.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('asset', JSON.stringify({
+                                            url: item.url,
+                                            type: 'frame',
+                                            category: 'frames',
+                                            name: item.name
+                                        }));
+                                    }}
+                                    onClick={() => handleAssetClick(item, 'frames')}
+                                    className="aspect-square bg-white rounded-lg border border-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer flex items-center justify-center p-1 group shadow-sm overflow-hidden"
+                                >
+                                    <div className="relative w-full h-full group-hover:scale-105 transition-transform duration-300">
+                                        <img src={item.url} alt="" className="w-full h-full object-contain" />
+                                    </div>
+                                </div>
+                            ))}
+                    </div>
+                )}
+
+                {/* RIBBONS TAB */}
+                {activeTab === 'ribbons' && (
+                    <div className="grid grid-cols-1 gap-2">
+                        {libraryAssets
+                            .filter(a => {
+                                if (!searchQuery) return true;
+                                const q = searchQuery.toLowerCase();
+                                return (a.name || '').toLowerCase().includes(q);
+                            })
+                            .map((item) => (
+                                <div
+                                    key={item.id}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData('asset', JSON.stringify({
+                                            url: item.url,
+                                            type: 'image',
+                                            category: 'ribbons',
+                                            name: item.name
+                                        }));
+                                    }}
+                                    onClick={() => handleAssetClick(item, 'ribbons')}
+                                    className="aspect-[4/1] bg-white rounded-lg border border-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer flex items-center justify-center p-2 group shadow-sm"
+                                >
+                                    <img src={item.url} alt="" className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform" />
+                                </div>
+                            ))}
                     </div>
                 )}
             </div>
         </div>
     );
 }
+

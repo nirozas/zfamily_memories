@@ -55,6 +55,8 @@ function SortablePageThumbnail({ page, index, isSelected, isSpreadView, spread, 
             ref={setNodeRef}
             style={style}
             className="flex flex-col gap-1 items-center group relative"
+            {...attributes}
+            {...listeners}
         >
             <div
                 className={cn(
@@ -67,8 +69,6 @@ function SortablePageThumbnail({ page, index, isSelected, isSpreadView, spread, 
                         key={spreadPage.id}
                         onClick={(e) => {
                             e.stopPropagation();
-                            // Select the specific page index
-                            // index is the start of the spread, idx is 0 or 1
                             onPageSelect(index + idx);
                         }}
                         className={cn(
@@ -87,25 +87,9 @@ function SortablePageThumbnail({ page, index, isSelected, isSpreadView, spread, 
                             {spreadPage.pageNumber}
                         </div>
 
-                        {/* Mini Preview */}
-                        {spreadPage.assets.slice(0, 3).map((asset, i) => (
-                            <div
-                                key={asset.id}
-                                className="absolute w-5 h-5 bg-catalog-accent/10 rounded-xs"
-                                style={{
-                                    left: `${20 + i * 15}%`,
-                                    top: `${30 + i * 10}%`,
-                                }}
-                            />
-                        ))}
-
-                        {/* Drag Handle for regular pages */}
-                        {!isCover && !album?.config.isLocked && (
-                            <div
-                                className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab active:cursor-grabbing p-1"
-                                {...attributes}
-                                {...listeners}
-                            >
+                        {/* Drag Handle Indicator (Visual Only Now) */}
+                        {!isCover && !album?.config.isLocked && idx === 0 && (
+                            <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity p-1">
                                 <GripVertical className="w-3 h-3 text-catalog-accent/30" />
                             </div>
                         )}

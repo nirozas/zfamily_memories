@@ -1,10 +1,11 @@
-import { Image, Palette, Sparkles, Shapes, Type, Video, StickyNote, Frame, MapPin } from 'lucide-react';
+import { Image, Palette, Sparkles, Type, Video, StickyNote, Frame, MapPin, Grid } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useState, useRef } from 'react';
 import { useAlbum } from '../../contexts/AlbumContext';
+import { LayoutSelector } from './LayoutSelector';
 
 const tabs = [
-    { id: 'templates', label: 'Templates', icon: Shapes },
+    { id: 'templates', label: 'Layouts', icon: Grid },
     { id: 'media', label: 'Media', icon: Image },
     { id: 'text', label: 'Text', icon: Type },
     { id: 'decorations', label: 'Decor', icon: Palette },
@@ -14,22 +15,14 @@ const tabs = [
 
 type TabId = typeof tabs[number]['id'];
 
-const templateLayouts = [
-    { id: '1-image', label: '1 Image', slots: 1 },
-    { id: '2-image', label: '2 Images', slots: 2 },
-    { id: '3-image', label: '3 Images', slots: 3 },
-    { id: '4-image', label: '4 Images', slots: 4 },
-    { id: '6-image', label: '6 Images', slots: 6 },
-    { id: 'freeform', label: 'Freeform', slots: 0 },
-];
+
 
 interface EditorSidebarProps {
-    onSelectTemplate?: (templateId: string) => void;
     onAddAsset?: (type: 'image' | 'video' | 'text' | 'ribbon' | 'frame' | 'stamp' | 'location', url?: string) => void;
     onApplyFilter?: (filter: 'cartoon' | 'pencil' | 'watercolor' | 'portrait' | 'auto-touch') => void;
 }
 
-export function EditorSidebar({ onSelectTemplate, onAddAsset, onApplyFilter }: EditorSidebarProps) {
+export function EditorSidebar({ onAddAsset, onApplyFilter }: EditorSidebarProps) {
     const [activeTab, setActiveTab] = useState<TabId>('templates');
     const imageInputRef = useRef<HTMLInputElement>(null);
     const videoInputRef = useRef<HTMLInputElement>(null);
@@ -93,21 +86,11 @@ export function EditorSidebar({ onSelectTemplate, onAddAsset, onApplyFilter }: E
 
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto p-4">
-                {activeTab === 'templates' && (
-                    <div className="space-y-4">
-                        <h3 className="text-sm font-semibold text-catalog-text uppercase tracking-wide">Page Layouts</h3>
-                        <div className="grid grid-cols-2 gap-2">
-                            {templateLayouts.map((layout) => (
-                                <button
-                                    key={layout.id}
-                                    onClick={() => onSelectTemplate?.(layout.id)}
-                                    className="aspect-[4/3] border border-catalog-accent/30 rounded-sm hover:border-catalog-accent hover:bg-catalog-accent/5 transition-colors flex flex-col items-center justify-center gap-1 p-2"
-                                >
-                                    <div className="text-lg font-bold text-catalog-accent">{layout.slots || '∞'}</div>
-                                    <span className="text-xs text-catalog-text/70">{layout.label}</span>
-                                </button>
-                            ))}
-                        </div>
+                {activeTab === 'templates' && album && (
+                    <div className="h-full flex flex-col -m-4">
+                        <LayoutSelector
+                            pageId={album.pages[useAlbum().currentPageIndex]?.id || album.pages[0]?.id}
+                        />
                     </div>
                 )}
 

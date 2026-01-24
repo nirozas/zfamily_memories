@@ -1,6 +1,6 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Card } from '../ui/Card';
-import { Calendar, Eye, MapPin } from 'lucide-react';
+import { Calendar, MapPin, Eye, BookOpen } from 'lucide-react';
 import { ActionToolbar } from '../ui/ActionToolbar';
 
 interface AlbumCardProps {
@@ -14,127 +14,165 @@ interface AlbumCardProps {
     config?: any;
     onEdit?: () => void;
     onDelete?: () => void;
+    onDuplicate?: () => void;
     onShare?: () => void;
     onPrint?: () => void;
 }
 
+/**
+ * AlbumCard - Premium 'Wow' Edition
+ * 
+ * Logic: Linked to page_number: 1 via cover_image_url
+ * Rendering: Cover image as the background of the album box.
+ */
 export function AlbumCard(props: AlbumCardProps) {
-    const navigate = useNavigate();
-    const { id, title, cover_url, category, created_at, pages, location, config, onEdit, onDelete, onShare, onPrint } = props;
+    const { id, title, cover_url, category, created_at, pages, location, config, onEdit, onDelete, onDuplicate, onShare, onPrint } = props;
 
-    // Derive cover image: use explicit cover, or first image from first page
-    const coverUrl = cover_url || (() => {
-        if (!pages || pages.length === 0) return undefined;
-
-        // Priority 1: Check for explicit front cover page
-        const frontCoverPage = pages.find(p => p.layoutTemplate === 'cover-front');
-        if (frontCoverPage) {
-            const coverImage = frontCoverPage.assets?.find((a: any) => (a.asset_type === 'image' || a.type === 'image') && a.url);
-            if (coverImage) return coverImage.url;
-        }
-
-        // Priority 2: Use first image from the first page (common fallback)
-        const firstPage = pages[0];
-        const firstImage = firstPage.assets?.find((a: any) => (a.asset_type === 'image' || a.type === 'image') && a.url);
-        if (firstImage) return firstImage.url;
-
-        // Priority 3: Try second page if first is empty (e.g. empty cover page)
-        if (pages.length > 1) {
-            const secondPage = pages[1];
-            const secondImage = secondPage.assets?.find((a: any) => (a.asset_type === 'image' || a.type === 'image') && a.url);
-            return secondImage?.url;
-        }
-        return undefined;
-    })();
-
-    // Date Logic
-    const formattedDate = (() => {
-        if (config?.startDate && config?.endDate) {
-            const start = new Date(config.startDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-            const end = new Date(config.endDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-            return start === end ? start : `${start} - ${end}`;
-        }
-        if (config?.startDate) return new Date(config.startDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-        if (config?.endDate) return new Date(config.endDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-        return new Date(created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
-    })();
 
     const pageCount = pages?.length || 0;
     const albumCategory = category || 'Memory';
     const loc = location || config?.location;
 
+    // 1. First Page (Front Page) Derivation Fallback
+    const displayCover = cover_url || (() => {
+        if (!pages || pages.length === 0) return null;
+        const findImageInPage = (page: any) => {
+            // Check nested layout boxes
+            if (page.layout_json) {
+                const boxes = Array.isArray(page.layout_json) ? page.layout_json : [];
+                const box = boxes.find((b: any) => b.content?.url && (b.content.type === 'image' || b.content.type === 'video'));
+                if (box) return box.content.url;
+            }
+            // Check flat assets
+            if (page.assets) {
+                const assets = Array.isArray(page.assets) ? page.assets : [];
+                const asset = assets.find((a: any) => a.url && (a.asset_type === 'image' || a.type === 'image'));
+                if (asset) return asset.url;
+            }
+            return null;
+        };
+
+        // Priority 1: Page 1 (Front Cover)
+        const frontPage = pages.find(p => p.page_number === 1 || p.pageNumber === 1);
+        if (frontPage) {
+            const img = findImageInPage(frontPage);
+            if (img) return img;
+        }
+
+        // Priority 2: Page 0 (Legacy Support)
+        const legacyPage = pages.find(p => p.page_number === 0 || p.pageNumber === 0);
+        if (legacyPage) {
+            const img = findImageInPage(legacyPage);
+            if (img) return img;
+        }
+
+        // Priority 3: First available content
+        for (const p of pages) {
+            const img = findImageInPage(p);
+            if (img) return img;
+        }
+        return null;
+    })();
+
+    // Date Logic
+    const formattedDate = (() => {
+        if (config?.startDate) return new Date(config.startDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+        return new Date(created_at).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    })();
+
     return (
-        <div className="relative group">
-            <Link to={`/album/${id}`}>
-                <Card variant="interactive" className="overflow-hidden p-0 h-full">
-                    {/* Cover Image */}
-                    <div className="relative aspect-[4/3] bg-gradient-to-br from-catalog-accent/20 to-catalog-accent/5 overflow-hidden">
-                        {coverUrl ? (
-                            <img
-                                src={coverUrl}
-                                alt={title}
-                                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                            />
+        <div className="relative group h-[420px] transition-all duration-500 hover:-translate-y-2">
+            <Link to={`/album/${id}`} className="block h-full">
+                <Card className="relative h-full overflow-hidden p-0 border-none shadow-2xl bg-zinc-900 rounded-2xl group/card">
+
+                    {/* 1. First Page (Front Page) Rendering */}
+                    <div className="absolute inset-0 z-0">
+                        {displayCover ? (
+                            <>
+                                <img
+                                    src={displayCover}
+                                    alt={title}
+                                    className="w-full h-full object-cover transition-transform duration-1000 group-hover/card:scale-110"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent z-10" />
+                                <div className="absolute inset-0 bg-gradient-to-br from-catalog-accent/20 to-transparent mix-blend-overlay z-10" />
+                            </>
                         ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                                <span className="text-6xl opacity-30">📖</span>
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
+                                <BookOpen className="w-16 h-16 text-white/10 mb-4" />
+                                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/20">Empty Archive</span>
                             </div>
                         )}
-
-                        {/* Event Badge */}
-                        {albumCategory && (
-                            <span className="absolute top-3 left-3 px-2 py-1 bg-white/90 text-[10px] font-bold text-catalog-accent rounded-sm uppercase tracking-widest shadow-sm">
-                                {albumCategory}
-                            </span>
-                        )}
-
-                        {/* Hover Overlay */}
-                        <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <div className="flex items-center gap-2 text-white bg-black/40 px-4 py-2 rounded-full backdrop-blur-sm">
-                                <Eye className="w-4 h-4" />
-                                <span className="text-xs font-medium">View Album</span>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* Info */}
-                    <div className="p-4 space-y-3">
-                        <h3 className="font-serif text-lg leading-tight group-hover:text-catalog-accent transition-colors truncate">{title}</h3>
+                    {/* Content Layer */}
+                    <div className="relative z-20 h-full flex flex-col justify-end p-6 text-white">
 
-                        <div className="flex items-center justify-between text-[11px] text-catalog-text/50 uppercase tracking-wider font-medium">
-                            <div className="flex items-center gap-1">
-                                <Calendar className="w-3.5 h-3.5" />
-                                <span>{formattedDate}</span>
-                            </div>
-                            <span>{pageCount} pages</span>
+                        {/* Top Badge */}
+                        <div className="absolute top-6 left-6 flex items-center gap-2">
+                            <span className="px-3 py-1 bg-catalog-accent/90 backdrop-blur-md text-[9px] font-bold text-white rounded-full uppercase tracking-widest shadow-lg">
+                                {albumCategory}
+                            </span>
                         </div>
 
-                        {/* Location */}
-                        {loc && (
-                            <div
-                                className="flex items-center gap-1.5 text-[10px] text-catalog-text/60 font-bold uppercase tracking-widest mt-2 pt-2 border-t border-catalog-accent/10 hover:text-catalog-accent cursor-pointer transition-colors"
-                                onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    navigate(`/map?location=${encodeURIComponent(loc)}`);
-                                }}
-                            >
-                                <MapPin className="w-3 h-3" />
-                                <span className="truncate">{loc}</span>
+                        {/* Visual View Hint */}
+                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity duration-500 pointer-events-none">
+                            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xl px-6 py-3 rounded-full border border-white/20 shadow-2xl transform scale-90 group-hover/card:scale-100 transition-transform">
+                                <Eye className="w-5 h-5 text-white" />
+                                <span className="text-xs font-bold uppercase tracking-widest">Open Library</span>
                             </div>
-                        )}
+                        </div>
+
+                        {/* Info Section - Now with specific requested order */}
+                        <div className="space-y-4 transform transition-transform duration-500 group-hover/card:translate-y-[-10px]">
+                            <div className="space-y-2">
+                                {/* Position 1: Title */}
+                                <h3 className="font-serif text-3xl leading-tight group-hover/card:text-catalog-accent transition-colors">
+                                    {title}
+                                </h3>
+
+                                {/* Position 2: Number of Pages (under the title) */}
+                                <div className="flex items-center gap-4 text-[11px] text-white/80 uppercase tracking-[0.2em] font-bold">
+                                    <div className="flex items-center gap-1.5">
+                                        <Calendar className="w-3.5 h-3.5 text-catalog-accent" />
+                                        <span>{formattedDate}</span>
+                                    </div>
+                                    <div className="w-1 h-1 bg-white/30 rounded-full" />
+                                    <span>{pageCount} Pages</span>
+                                </div>
+
+                                {/* Position 3: Location (under the number of pages) */}
+                                {loc && (
+                                    <div className="pb-2"> {/* Added padding to create space before the ActionToolbar */}
+                                        <button
+                                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg border border-white/10 text-[10px] uppercase tracking-widest hover:bg-white/20 transition-all cursor-pointer group/loc max-w-full"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                window.open(`/map?location=${encodeURIComponent(loc)}`, '_blank');
+                                            }}
+                                        >
+                                            <MapPin className="w-3 h-3 text-catalog-accent group-hover/loc:scale-125 transition-transform" />
+                                            <span className="truncate">{loc}</span>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </Card>
             </Link>
 
-            {/* Quick Actions Toolbar */}
-            <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0 z-20">
+            {/* Position 4: Always Visible Premium Footer Actions (at the bottom) */}
+            <div className="absolute bottom-4 right-4 z-30 transition-transform duration-500">
                 <ActionToolbar
                     onEdit={onEdit}
                     onDelete={onDelete}
+                    onDuplicate={onDuplicate}
                     onShare={onShare}
                     onPrint={onPrint}
-                    className="bg-white/90 backdrop-blur-sm shadow-xl rounded-full px-2 py-1 border border-catalog-accent/10"
+                    variant="dark"
+                    className="bg-black/40 backdrop-blur-2xl px-4 py-2 rounded-full border border-white/10 shadow-2xl flex gap-3 interactive-toolbar"
                 />
             </div>
         </div>

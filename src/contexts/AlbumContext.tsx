@@ -95,6 +95,7 @@ export interface Asset {
     isHidden?: boolean;
     isStamp?: boolean;
     category?: string;
+    folder?: string;
 
     // Location Data
     lat?: number;
@@ -104,6 +105,7 @@ export interface Asset {
         zoom: number;
         places: { name: string; lat: number; lng: number }[];
     };
+    createdAt?: Date;
 }
 
 export interface AlbumConfig {
@@ -124,16 +126,92 @@ export interface AlbumConfig {
     isLocked?: boolean;
 }
 
+// ============================================================================
+// UNIFIED SCHEMA - Critical for Studio/Preview/View Consistency
+// ============================================================================
+
+/**
+ * LayoutBox - Universal layout element definition
+ * MUST be used identically in Studio, Preview, and View modes
+ */
+export interface LayoutBox {
+    id: string;
+    role: 'slot' | 'text' | 'decoration';
+
+    // Position (percentage-based, relative to page container)
+    left: number;    // 0-100
+    top: number;     // 0-100
+    width: number;   // 0-100
+    height: number;  // 0-100
+
+    // Z-Index Hierarchy: Background(0) < Images(10) < Text(50) < Overlays(100)
+    zIndex: number;
+    z?: number; // Alias for compatibility
+
+    // Content (for slots and text)
+    content?: {
+        type: 'image' | 'video' | 'text' | 'map' | 'location';
+        url?: string;
+
+        // Transform data (pixel-perfect across modes)
+        zoom: number;        // 1.0 = 100%, must be preserved exactly
+        x: number;           // 0-100 (focal point X percentage)
+        y: number;           // 0-100 (focal point Y percentage)
+        rotation: number;    // degrees, must be preserved exactly
+
+        // Text-specific
+        text?: string;
+        fontSize?: number;
+        fontFamily?: string;
+        color?: string;
+        textAlign?: 'left' | 'center' | 'right' | 'justify';
+        fontWeight?: string | number;
+        lineHeight?: number;
+
+        // Additional config (preserved as-is)
+        config?: Record<string, any>;
+    };
+
+    // Legacy field aliases for backward compatibility
+    x?: number;
+    y?: number;
+}
+
+/**
+ * PageStyles - Universal page styling
+ * MUST be consistent across all rendering modes
+ */
+export interface PageStyles {
+    backgroundColor: string;
+    backgroundOpacity: number;
+    backgroundImage?: string;
+    backgroundBlendMode?: string;
+}
+
 export interface Page {
     id: string;
     pageNumber: number;
-    layoutTemplate: string;
-    assets: Asset[];
+    layoutTemplate?: string;
+    layoutConfig?: LayoutBox[]; // MANDATORY: Never null, minimum []
+    assets: Asset[]; // Legacy support, being phased out
     backgroundColor: string;
     backgroundOpacity?: number;
     backgroundImage?: string;
     name?: string;
+    isSpreadLayout?: boolean;
+
+    // New unified fields
+    pageStyles?: PageStyles;
+    textLayers?: LayoutBox[]; // Separate text elements for easier editing
 }
+
+export interface AlbumPageData extends Page {
+    // Ensuring unified fields are present
+    layout_config: LayoutBox[];
+    page_styles: PageStyles;
+    text_layers: LayoutBox[];
+}
+
 
 export interface Album {
     id: string;
@@ -171,12 +249,13 @@ interface AlbumContextType {
     updateAssetZIndex: (pageId: string, assetId: string, direction: 'front' | 'back' | 'forward' | 'backward') => void;
     uploadMedia: (files: File[], category?: string) => Promise<void>;
     addMediaByUrl: (url: string, type: 'image' | 'video', category?: string) => void;
-    applyLayout: (pageId: string, template: Page['layoutTemplate']) => void;
+    applyLayout: (pageId: string, layout: any) => void;
     moveFromLibrary: (assetId: string, pageId: string) => void;
     duplicatePage: (pageId: string) => void;
     movePage: (pageId: string, direction: 'left' | 'right') => void;
     reorderPages: (fromIndex: number, toIndex: number) => void;
     saveAlbum: () => Promise<{ success: boolean; error?: string }>;
+    saveAlbumPage: (pageId: string) => Promise<{ success: boolean; error?: string }>;
     toggleLock: () => Promise<void>;
     fetchAlbum: (albumId: string) => Promise<{ success: boolean; error?: string }>;
     updateConfig: (updates: Partial<AlbumConfig>) => void;
@@ -187,18 +266,26 @@ interface AlbumContextType {
     redo: () => void;
     canUndo: boolean;
     canRedo: boolean;
+    saveStatus: 'idle' | 'saving' | 'saved' | 'error';
     isSaving: boolean;
     isLoading: boolean;
     uploadProgress: Record<string, number>;
     updatePageAssets: (pageId: string, assets: Asset[], options?: { skipHistory?: boolean }) => void;
     moveAssetToPage: (assetId: string, fromPageId: string, toPageId: string, newX: number, newY: number) => void;
     commitHistory: () => void;
+    showLayoutOutlines: boolean;
+    toggleLayoutOutlines: () => void;
+    activeSlot: { pageId: string; index: number } | null;
+    setActiveSlot: (slot: { pageId: string; index: number } | null) => void;
 }
 
 const AlbumContext = createContext<AlbumContextType | undefined>(undefined);
 
 function generateId() {
-    return crypto.randomUUID();
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }
 
 const DEFAULT_CONFIG: AlbumConfig = {
@@ -223,9 +310,11 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
     const [redoStack, setRedoStack] = useState<Album[]>([]);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
     const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-    const [isSaving, setIsSaving] = useState(false);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [isLoading, setIsLoading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
+    const [showLayoutOutlines, setShowLayoutOutlines] = useState(true);
+    const [activeSlot, setActiveSlot] = useState<{ pageId: string; index: number } | null>(null);
     const albumRef = useRef<Album | null>(null);
 
     const setAlbum = useCallback((
@@ -449,7 +538,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         const { supabase } = await import('../lib/supabase');
         const { mediaService } = await import('../services/mediaService');
 
-        setIsSaving(true);
+        setSaveStatus('saving');
         try {
             const uploadedAssets: Asset[] = [];
             for (const file of files) {
@@ -460,7 +549,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                 try {
                     if (file.type.startsWith('image/') && file.size > 2 * 1024 * 1024) {
                         fileToUpload = await mediaService.compressImage(file);
-                    } else if (file.type.startsWith('video/') && file.size > 5 * 1024 * 1024) {
+                    } else if (file.type.startsWith('video/') && file.size > 20 * 1024 * 1024) {
                         fileToUpload = await mediaService.compressVideo(file, (p) => {
                             setUploadProgress(prev => ({
                                 ...prev,
@@ -498,19 +587,34 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                         img.src = url;
                         await new Promise((resolve) => {
                             img.onload = () => {
-                                // For the standard image (unplaced)
                                 originalDimensions = { width: img.width, height: img.height };
                                 aspectRatio = img.width / img.height;
-
-                                // Initial placement size: scale down while preserving ratio
-                                const maxDim = 600;
+                                const maxUnit = 40;
                                 if (img.width > img.height) {
-                                    dimensions = { width: maxDim, height: maxDim / aspectRatio };
+                                    dimensions = { width: maxUnit, height: maxUnit / aspectRatio };
                                 } else {
-                                    dimensions = { width: maxDim * aspectRatio, height: maxDim };
+                                    dimensions = { width: maxUnit * aspectRatio, height: maxUnit };
                                 }
                                 resolve(null);
                             };
+                        });
+                    } else if (fileToUpload.type.startsWith('video/')) {
+                        const video = document.createElement('video');
+                        video.src = url;
+                        video.preload = 'metadata';
+                        await new Promise((resolve) => {
+                            video.onloadedmetadata = () => {
+                                originalDimensions = { width: video.videoWidth, height: video.videoHeight };
+                                aspectRatio = (video.videoWidth / video.videoHeight) || (16 / 9);
+                                const maxUnit = 40;
+                                if (video.videoWidth > video.videoHeight) {
+                                    dimensions = { width: maxUnit, height: maxUnit / aspectRatio };
+                                } else {
+                                    dimensions = { width: maxUnit * aspectRatio, height: maxUnit };
+                                }
+                                resolve(null);
+                            };
+                            video.onerror = () => resolve(null);
                         });
                     }
 
@@ -527,6 +631,8 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                         rotation: 0,
                         zIndex: 1,
                         pivot: { x: 0.5, y: 0.5 }, // Default to center
+                        createdAt: new Date(),
+                        folder: album.title
                     });
 
                     if (album.family_id) {
@@ -563,7 +669,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         } catch (error) {
             console.error('Bulk upload failed:', error);
         } finally {
-            setIsSaving(false);
+            setSaveStatus('idle');
         }
     }, [album]);
 
@@ -576,10 +682,12 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             url,
             x: 0,
             y: 0,
-            width: 400,
-            height: 300,
+            width: 40,
+            height: 30,
+            lockAspectRatio: true,
             rotation: 0,
             zIndex: 1,
+            createdAt: new Date()
         };
         setAlbum(prev => prev ? {
             ...prev,
@@ -608,25 +716,20 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         const asset = album.unplacedMedia.find(a => a.id === assetId);
         if (!asset) return;
 
+        const centerX = (100 - (asset.width || 30)) / 2;
+        const centerY = (100 - (asset.height || 30)) / 2;
+
         setAlbum({
             ...album,
             unplacedMedia: album.unplacedMedia.filter(a => a.id !== assetId),
             pages: album.pages.map(p => p.id === pageId ? {
                 ...p,
-                assets: [...p.assets, { ...asset, x: 50, y: 50 }]
+                assets: [...p.assets, { ...asset, x: centerX, y: centerY }]
             } : p),
             updatedAt: new Date(),
         });
     }, [album]);
 
-    const applyLayout = useCallback((pageId: string, template: Page['layoutTemplate']) => {
-        if (!album || album.config.isLocked) return;
-        setAlbum({
-            ...album,
-            pages: album.pages.map(p => p.id === pageId ? { ...p, layoutTemplate: template } : p),
-            updatedAt: new Date(),
-        });
-    }, [album]);
 
     const duplicatePage = useCallback((pageId: string) => {
         if (!album || album.config.isLocked) return;
@@ -679,25 +782,63 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
 
     const reorderPages = useCallback((fromIndex: number, toIndex: number) => {
         if (!album || album.config.isLocked) return;
+        if (fromIndex === toIndex) return;
 
         // Prevent moving covers
         if (fromIndex === 0 || fromIndex === album.pages.length - 1) return;
 
-        // Prevent moving into cover slots
-        let safeToIndex = toIndex;
-        if (safeToIndex <= 0) safeToIndex = 1;
-        if (safeToIndex >= album.pages.length - 1) safeToIndex = album.pages.length - 2;
+        setAlbum(prev => {
+            if (!prev) return prev;
+            let pages = [...prev.pages];
+            const isSpreadView = prev.config.useSpreadView;
 
-        const pages = [...album.pages];
-        const [movedPage] = pages.splice(fromIndex, 1);
-        pages.splice(safeToIndex, 0, movedPage);
+            if (isSpreadView) {
+                // Spreads always start at odd indices (1, 3, 5...) after the front cover (0)
+                const fromStart = fromIndex % 2 === 1 ? fromIndex : fromIndex - 1;
+                const toStart = toIndex % 2 === 1 ? toIndex : toIndex - 1;
 
-        setAlbum({
-            ...album,
-            pages: pages.map((p, i) => ({ ...p, pageNumber: i + 1 })),
-            updatedAt: new Date(),
+                if (fromStart === toStart) return prev;
+
+                const itemsToMove = pages.slice(fromStart, fromStart + 2);
+                pages = pages.filter(p => !itemsToMove.some(m => m.id === p.id));
+
+                let insertIndex = pages.findIndex(p => p.id === prev.pages[toStart].id);
+
+                // If moving forward, we want to place it AFTER the target spread
+                // Since the target spread consists of 2 pages, we add 2 to the insert point
+                if (toStart > fromStart) {
+                    insertIndex += 2;
+                }
+
+                // Boundary check: cannot insert before front cover (0) or after back cover
+                if (insertIndex <= 0) insertIndex = 1;
+                if (insertIndex > pages.length - 1) insertIndex = pages.length - 1;
+
+                pages.splice(insertIndex, 0, ...itemsToMove);
+            } else {
+                const pageToMove = pages[fromIndex];
+                const targetPage = pages[toIndex];
+
+                pages = pages.filter(p => p.id !== pageToMove.id);
+
+                let insertIndex = pages.findIndex(p => p.id === targetPage.id);
+
+                // If moving forward, insert after target
+                if (toIndex > fromIndex) insertIndex += 1;
+
+                if (insertIndex <= 0) insertIndex = 1;
+                if (insertIndex > pages.length - 1) insertIndex = pages.length - 1;
+
+                pages.splice(insertIndex, 0, pageToMove);
+            }
+
+            return {
+                ...prev,
+                pages: pages.map((p, i) => ({ ...p, pageNumber: i + 1 })),
+                updatedAt: new Date(),
+            };
         });
-    }, [album]);
+    }, [album, setAlbum]);
 
     const updateConfig = useCallback((updates: Partial<AlbumConfig>) => {
         if (!album || album.config.isLocked) return;
@@ -814,6 +955,94 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         }
     }, [album]);
 
+    const applyLayout = useCallback((pageId: string, layout: any) => {
+        if (!album || album.config.isLocked) return;
+
+        setAlbum(prev => {
+            if (!prev) return null;
+            const pages = [...prev.pages];
+            const pageIndex = pages.findIndex(p => p.id === pageId);
+            if (pageIndex === -1) return prev;
+
+            const page = pages[pageIndex];
+            const isSpreadView = prev.config.useSpreadView;
+            const isLandscapeLayout = layout.target_ratio === 'landscape';
+
+            let updatedAssets = [...page.assets];
+
+            // Handle Spread logic: if landscape layout applied to spread, merge assets
+            if (isSpreadView && isLandscapeLayout) {
+                const spreadPages = getSpread(pageIndex);
+                if (spreadPages.length > 1) {
+                    const leftPage = spreadPages[0];
+                    const rightPage = spreadPages[1];
+
+                    // Merge media from both pages
+                    const allMedia = [...leftPage.assets, ...rightPage.assets].filter(a => a.type === 'image' || a.type === 'video');
+                    const otherAssets = [...leftPage.assets, ...rightPage.assets].filter(a => a.type !== 'image' && a.type !== 'video');
+
+                    updatedAssets = allMedia.map((asset, idx) => ({
+                        ...asset,
+                        slotId: idx < layout.image_count ? idx : undefined,
+                        x: 0, y: 0, width: 100, height: 100
+                    }));
+                    updatedAssets.push(...otherAssets.map(a => ({ ...a, slotId: undefined })));
+
+                    return {
+                        ...prev,
+                        pages: prev.pages.map(p => {
+                            if (p.id === leftPage.id) {
+                                return {
+                                    ...p,
+                                    layoutTemplate: layout.name,
+                                    layoutConfig: typeof layout.config === 'string' ? JSON.parse(layout.config) : layout.config,
+                                    assets: updatedAssets,
+                                    isSpreadLayout: true
+                                };
+                            }
+                            if (p.id === rightPage.id) {
+                                return { ...p, assets: [], layoutTemplate: 'freeform', layoutConfig: undefined, isSpreadLayout: false };
+                            }
+                            return p;
+                        }),
+                        updatedAt: new Date()
+                    };
+                }
+            }
+
+            // Standard single page logic
+            const mediaAssets = page.assets.filter(a => a.type === 'image' || a.type === 'video');
+            updatedAssets = page.assets.map(asset => {
+                const mediaIndex = mediaAssets.findIndex(ma => ma.id === asset.id);
+                if (mediaIndex !== -1 && mediaIndex < layout.image_count) {
+                    return {
+                        ...asset,
+                        slotId: mediaIndex,
+                        x: 0, y: 0, width: 100, height: 100
+                    };
+                }
+                const { slotId, ...rest } = asset;
+                return rest as any;
+            });
+
+            return {
+                ...prev,
+                pages: prev.pages.map(p => p.id === pageId ? {
+                    ...p,
+                    layoutTemplate: layout.name,
+                    layoutConfig: typeof layout.config === 'string' ? JSON.parse(layout.config) : layout.config,
+                    assets: updatedAssets,
+                    isSpreadLayout: false
+                } : p),
+                updatedAt: new Date()
+            };
+        });
+    }, [album, getSpread]);
+
+    const toggleLayoutOutlines = useCallback(() => {
+        setShowLayoutOutlines(prev => !prev);
+    }, []);
+
     const fetchAlbum = useCallback(async (albumId: string) => {
         setIsLoading(true);
         try {
@@ -826,46 +1055,57 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
 
             if (albumError) throw albumError;
 
-            const { data: pagesData, error: pagesError } = await supabase
-                .from('pages')
-                .select(`*, assets(*)`)
+            // 2. Try Primary Unified Schema (album_pages)
+            const { data: albumPagesData, error: albumPagesError } = await (supabase.from('album_pages') as any)
+                .select('*')
                 .eq('album_id', albumId)
                 .order('page_number', { ascending: true });
 
-            if (pagesError) throw pagesError;
+            let pages: Page[] = [];
 
-            const data = albumData as any;
-            // Sort by page_number and normalize to 1-based index (Self-healing for potential gaps or temporary shifts)
-            const sortedPages = (pagesData as any[] || []).sort((a, b) => a.page_number - b.page_number);
+            if (!albumPagesError && albumPagesData && albumPagesData.length > 0) {
+                const { normalizePageData } = await import('../lib/normalization');
+                pages = albumPagesData.map(normalizePageData);
+            } else {
 
-            let pages = sortedPages.map((p, i) => ({
-                id: p.id,
-                pageNumber: i + 1,
-                layoutTemplate: p.template_id,
-                backgroundColor: p.background_color,
-                backgroundOpacity: p.background_opacity ?? 100,
-                backgroundImage: p.background_image,
-                assets: (p.assets as any[] || []).map(a => {
-                    // Restore original type if we saved it in config, otherwise infer
-                    let restoredType = a.asset_type;
-                    if (a.config?.originalType) {
-                        restoredType = a.config.originalType;
-                    } else if (a.asset_type === 'image' && a.config?.mapConfig) {
-                        restoredType = 'map';
-                    } else if (a.asset_type === 'text' && (a.config?.location || a.config?.isLocation)) {
-                        restoredType = 'location';
-                    }
+                // --- FALLBACK TO LEGACY SCHEMA ---
+                const { data: pagesData, error: pagesError } = await supabase
+                    .from('pages')
+                    .select(`*, assets(*)`)
+                    .eq('album_id', albumId)
+                    .order('page_number', { ascending: true });
 
-                    return {
-                        id: a.id,
-                        type: restoredType,
-                        url: a.url,
-                        zIndex: a.z_index || 0,
-                        slotId: a.slot_id || null,
-                        ...(a.config || {})
-                    };
-                })
-            }));
+                if (pagesError) throw pagesError;
+
+                const sortedPages = (pagesData as any[] || []).sort((a, b) => a.page_number - b.page_number);
+                pages = sortedPages.map((p, i) => ({
+                    id: p.id,
+                    pageNumber: i + 1,
+                    layoutTemplate: p.template_id,
+                    backgroundColor: p.background_color,
+                    backgroundOpacity: p.background_opacity ?? 100,
+                    backgroundImage: p.background_image,
+                    assets: (p.assets as any[] || []).map(a => {
+                        let restoredType = a.asset_type;
+                        if (a.config?.originalType) {
+                            restoredType = a.config.originalType;
+                        } else if (a.asset_type === 'image' && a.config?.mapConfig) {
+                            restoredType = 'map';
+                        } else if (a.asset_type === 'text' && (a.config?.location || a.config?.isLocation)) {
+                            restoredType = 'location';
+                        }
+
+                        return {
+                            id: a.id,
+                            type: restoredType,
+                            url: a.url,
+                            zIndex: a.z_index || 0,
+                            slotId: a.slot_id || null,
+                            ...(a.config || {})
+                        };
+                    })
+                }));
+            }
 
             if (pages.length === 0) {
                 pages = [
@@ -908,6 +1148,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                 ];
             }
 
+            const data = albumData as any;
             const fullAlbum: Album = {
                 id: data.id,
                 family_id: data.family_id,
@@ -933,118 +1174,329 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             setAlbum(fullAlbum);
             return { success: true };
         } catch (error: any) {
-            console.error('[fetchAlbum] Error:', error);
-            return { success: false, error: error.message };
+            console.error('[fetchAlbum] Fatal Hydration Failure:', error);
+            return { success: false, error: 'Failed to parse archive components. Data may be corrupted.' };
         } finally {
             setIsLoading(false);
         }
     }, []);
 
+    const saveAlbumPage = useCallback(async (pageId: string) => {
+        const currentAlbum = albumRef.current;
+        if (!currentAlbum) return { success: false, error: 'No album to save' };
+
+        const page = currentAlbum.pages.find(p => p.id === pageId);
+        if (!page) return { success: false, error: 'Page not found' };
+
+        setSaveStatus('saving');
+        try {
+            // --- UNIFIED SCHEMA SAVE (v5.0) ---
+
+            // 1. Prepare Styles
+            const background_config = {
+                color: page.pageStyles?.backgroundColor || page.backgroundColor,
+                image: page.pageStyles?.backgroundImage || page.backgroundImage,
+                opacity: page.pageStyles?.backgroundOpacity ?? page.backgroundOpacity ?? 100,
+                blendMode: page.pageStyles?.backgroundBlendMode || 'normal'
+            };
+
+            // 2. Prepare Layout & Text (The "Boxes")
+            const finalLayoutConfig = [...(page.layoutConfig || [])];
+            const finalTextLayers = [...(page.textLayers || [])];
+
+            const pageUpdatePayload: any = {
+                album_id: currentAlbum.id,
+                page_number: page.pageNumber,
+                layout_config: finalLayoutConfig,
+                text_layers: finalTextLayers,
+                layout_template: page.layoutTemplate || 'freeform',
+                background_config: background_config,
+                updated_at: new Date().toISOString()
+            };
+
+            // 3. Upsert with Legacy Fallback
+            let { error: upsertError } = await (supabase.from('album_pages') as any).upsert(pageUpdatePayload, {
+                onConflict: 'album_id,page_number'
+            });
+
+            // If layout_config column is missing, fallback to layout_json
+            if (upsertError && upsertError.code === '42703') {
+                console.warn('[Schema] Column layout_config missing, falling back to layout_json');
+                const legacyPayload = {
+                    ...pageUpdatePayload,
+                    layout_json: [...finalLayoutConfig, ...finalTextLayers]
+                };
+                delete legacyPayload.layout_config;
+                delete legacyPayload.text_layers;
+
+                const { error: retryError } = await (supabase.from('album_pages') as any).upsert(legacyPayload, {
+                    onConflict: 'album_id,page_number'
+                });
+                upsertError = retryError;
+            }
+
+            if (upsertError) throw upsertError;
+
+            // 4. METADATA REFRESH: Sync album stats to the primary table
+            const frontPage = currentAlbum.pages[0];
+            let derivedCover = currentAlbum.coverUrl;
+
+            if (frontPage) {
+                const layoutItems = (frontPage.layoutConfig || []);
+                const firstBox = layoutItems.find((b: any) => b.content?.url && (b.content.type === 'image' || b.content.type === 'video'));
+                if (firstBox?.content?.url) derivedCover = firstBox.content.url;
+            }
+
+            const metadataUpdates: any = {
+                total_pages: currentAlbum.pages.length,
+                cover_image_url: derivedCover,
+                updated_at: new Date().toISOString()
+            };
+
+            const { error: metadataError } = await (supabase.from('albums') as any)
+                .update(metadataUpdates)
+                .eq('id', currentAlbum.id);
+
+            // Graceful Schema Handling: If columns missing, retry without them
+            if (metadataError && metadataError.code === '42703') {
+                console.warn('[Schema] Metadata mismatch on saveAlbumPage, retrying with core columns only');
+                await (supabase.from('albums') as any)
+                    .update({ updated_at: new Date().toISOString() })
+                    .eq('id', currentAlbum.id);
+            } else if (metadataError) {
+                console.error('[saveAlbumPage] Metadata Sync Error:', metadataError);
+            }
+
+
+            setSaveStatus('saved');
+            return { success: true };
+        } catch (error: any) {
+            console.error('[saveAlbumPage] Sync Failure:', error);
+            setSaveStatus('error');
+            return { success: false, error: error.message };
+        }
+    }, []);
+
+
+
     const saveAlbum = useCallback(async () => {
         const currentAlbum = albumRef.current;
         if (!currentAlbum) return { success: false, error: 'No album to save' };
-        setIsSaving(true);
+        setSaveStatus('saving');
         try {
+            // 1b. Dynamic Cover Update: Sync first image of Page 1 (Front Cover) to album cover
+            const primaryPage = currentAlbum.pages.find(p => p.pageNumber === 1 || p.layoutTemplate === 'cover-front');
+            let detectedCoverUrl = currentAlbum.coverUrl;
+
+            if (primaryPage) {
+                const firstImage = (primaryPage.assets || []).find(a => a.type === 'image' || a.type === 'frame');
+                if (firstImage?.url) {
+                    detectedCoverUrl = firstImage.url;
+                } else {
+                    // Check layoutConfig for slots with images
+                    const firstSlotWithImage = (primaryPage.layoutConfig || []).find(slot =>
+                        slot.role === 'slot' && slot.content?.url && (slot.content.type === 'image' || slot.content.type === 'video')
+                    );
+                    if (firstSlotWithImage?.content?.url) {
+                        detectedCoverUrl = firstSlotWithImage.content.url;
+                    }
+                }
+            }
+
             // 1. Update Album Metadata
+            const albumUpdates: any = {
+                title: currentAlbum.title,
+                description: currentAlbum.description,
+                category: currentAlbum.category,
+                is_published: currentAlbum.isPublished,
+                hashtags: currentAlbum.hashtags || [],
+                location: currentAlbum.location,
+                country: currentAlbum.country,
+                cover_image_url: detectedCoverUrl,
+                geotag: currentAlbum.geotag,
+                config: {
+                    ...currentAlbum.config,
+                    unplacedMedia: currentAlbum.unplacedMedia
+                },
+                total_pages: currentAlbum.pages.length,
+                layout_metadata: currentAlbum.pages.map(p => ({
+                    page: p.pageNumber,
+                    template: p.layoutTemplate,
+                    imageCount: (p.layoutConfig || []).length
+                })),
+                updated_at: new Date().toISOString()
+            };
+
             const { error: albumError } = await (supabase.from('albums') as any)
-                .update({
-                    title: currentAlbum.title,
-                    description: currentAlbum.description,
-                    category: currentAlbum.category,
-                    is_published: currentAlbum.isPublished,
-                    hashtags: currentAlbum.hashtags || [],
-                    location: currentAlbum.location,
-                    country: currentAlbum.country,
-                    geotag: currentAlbum.geotag,
-                    config: {
-                        ...currentAlbum.config,
-                        unplacedMedia: currentAlbum.unplacedMedia,
-                        geotag: currentAlbum.geotag,
-                        location: currentAlbum.location
+                .update(albumUpdates)
+                .eq('id', currentAlbum.id);
+
+            // Graceful Schema Handling
+            if (albumError && albumError.code === '42703') {
+                console.warn('[Schema] Column mismatch on saveAlbum, retrying without extended metadata');
+                delete albumUpdates.total_pages;
+                delete albumUpdates.cover_image_url;
+                delete albumUpdates.layout_metadata;
+                const { error: retryError } = await (supabase.from('albums') as any)
+                    .update(albumUpdates)
+                    .eq('id', currentAlbum.id);
+                if (retryError) throw retryError;
+            } else if (albumError) {
+                throw albumError;
+            }
+
+            // 2. Batch Save All Pages to album_pages
+            const pagePromises = currentAlbum.pages.map(async (page) => {
+                const accountedAssetIds = new Set<string>();
+
+                // 2a. Sync image slots
+                const syncedLayoutConfig = (page.layoutConfig || []).map((slot: any, index: number) => {
+                    const asset = page.assets.find(a => a.slotId === index);
+                    if (asset) {
+                        accountedAssetIds.add(asset.id);
+                        return {
+                            ...slot,
+                            role: 'slot',
+                            id: asset.id,
+                            content: {
+                                url: asset.url,
+                                type: asset.type,
+                                zoom: asset.crop?.zoom || 1,
+                                x: asset.crop?.x ?? 50,
+                                y: asset.crop?.y ?? 50,
+                                rotation: asset.rotation || 0,
+                                config: asset
+                            }
+                        };
+                    }
+                    return { ...slot, role: 'slot' };
+                });
+
+                // 2b. Collect freeform / remaining assets
+                const freeformAssets = page.assets.filter(a => !accountedAssetIds.has(a.id));
+                const syncedTextLayers = [...(page.textLayers || [])];
+
+                // Add text assets that aren't in textLayers yet
+                freeformAssets.filter(a => a.type === 'text').forEach(asset => {
+                    syncedTextLayers.push({
+                        id: asset.id,
+                        role: 'text',
+                        left: asset.x,
+                        top: asset.y,
+                        width: asset.width,
+                        height: asset.height,
+                        zIndex: asset.zIndex || 50,
+                        content: {
+                            type: 'text',
+                            url: undefined,
+                            rotation: asset.rotation || 0,
+                            config: asset
+                        }
+                    });
+                });
+
+                // Add freeform images to layoutConfig as 'freeform'
+                freeformAssets.filter(a => a.type !== 'text').forEach(asset => {
+                    syncedLayoutConfig.push({
+                        id: asset.id,
+                        role: 'freeform',
+                        left: asset.x,
+                        top: asset.y,
+                        width: asset.width,
+                        height: asset.height,
+                        zIndex: asset.zIndex || 10,
+                        content: {
+                            type: asset.type,
+                            url: asset.url,
+                            zoom: asset.crop?.zoom || 1,
+                            x: asset.crop?.x ?? 50,
+                            y: asset.crop?.y ?? 50,
+                            rotation: asset.rotation || 0,
+                            config: asset
+                        }
+                    });
+                });
+
+                const pagePayload: any = {
+                    album_id: currentAlbum.id,
+                    page_number: page.pageNumber,
+                    layout_config: syncedLayoutConfig,
+                    text_layers: syncedTextLayers,
+                    layout_template: page.layoutTemplate || 'freeform',
+                    background_config: {
+                        color: page.backgroundColor,
+                        alpha: page.backgroundOpacity, // Alignment with some legacy schemas
+                        image: page.backgroundImage
                     },
+                    updated_at: new Date().toISOString()
+                };
+
+                let { error } = await (supabase.from('album_pages') as any).upsert(pagePayload, {
+                    onConflict: 'album_id,page_number'
+                });
+
+                // Legacy Retry
+                if (error && error.code === '42703') {
+                    const legacyPayload = {
+                        ...pagePayload,
+                        layout_json: [...syncedLayoutConfig, ...syncedTextLayers],
+                        background_config: {
+                            color: page.backgroundColor,
+                            image: page.backgroundImage,
+                            opacity: page.backgroundOpacity
+                        }
+                    };
+                    delete legacyPayload.layout_config;
+                    delete legacyPayload.text_layers;
+                    const { error: retryError } = await (supabase.from('album_pages') as any).upsert(legacyPayload, {
+                        onConflict: 'album_id,page_number'
+                    });
+                    error = retryError;
+                }
+
+                return { error };
+            });
+
+            const results = await Promise.all(pagePromises);
+            const error = results.find(r => r.error);
+            if (error) throw error.error;
+
+            // 3. Cleanup: Delete pages that no longer exist
+            const maxPageNumber = currentAlbum.pages.length;
+            await supabase
+                .from('album_pages')
+                .delete()
+                .eq('album_id', currentAlbum.id)
+                .gt('page_number', maxPageNumber);
+
+            // 4. METADATA REFRESH: Sync album stats to the primary table
+            // This ensures the library is always accurate using the results of the mass save.
+            const statsPage = currentAlbum.pages[0];
+            let finalCover = detectedCoverUrl; // Reuse the detected cover from step 1b
+
+            if (statsPage && !finalCover) {
+                const layoutItems = (statsPage.layoutConfig || []);
+                const firstBox = layoutItems.find((b: any) => b.content?.url && (b.content.type === 'image' || b.content.type === 'video'));
+                if (firstBox?.content?.url) finalCover = firstBox.content.url;
+            }
+
+            await (supabase.from('albums') as any)
+                .update({
+                    total_pages: maxPageNumber,
+                    cover_image_url: finalCover,
                     updated_at: new Date().toISOString()
                 })
                 .eq('id', currentAlbum.id);
 
-            if (albumError) throw albumError;
-
-            // 2. Prepare Payloads
-            const pagesPayload = currentAlbum.pages.map(page => ({
-                id: page.id,
-                album_id: currentAlbum.id,
-                page_number: page.pageNumber,
-                template_id: page.layoutTemplate,
-                background_color: page.backgroundColor,
-                background_opacity: page.backgroundOpacity ?? 100,
-                background_image: page.backgroundImage,
-                updated_at: new Date().toISOString()
-            }));
-
-            const assetsPayload = currentAlbum.pages.flatMap(page =>
-                page.assets.map(asset => {
-                    // Map legacy/custom types to database enum types
-                    let dbType = asset.type;
-                    if (asset.type === 'map') dbType = 'image'; // Save maps as images to satisfy potential DB enum
-                    if (asset.type === 'location') dbType = 'text'; // Save locations as text
-
-                    return {
-                        id: asset.id,
-                        page_id: page.id,
-                        asset_type: dbType,
-                        url: asset.url || '', // Ensure URL is never null
-                        z_index: asset.zIndex || 0,
-                        slot_id: asset.slotId || null,
-                        config: {
-                            ...asset,
-                            // Explicitly preserve the real type in config for restoration
-                            originalType: asset.type,
-                            mapConfig: asset.type === 'map' ? asset.mapConfig : undefined
-                        } as any,
-                        updated_at: new Date().toISOString()
-                    };
-                })
-            );
-
-            // 3. Cleanup Orphans & Batch Upsert
-            const currentPageIds = Array.from(new Set(currentAlbum.pages.map(p => p.id)));
-            const currentAssetIds = Array.from(new Set(assetsPayload.map(a => a.id)));
-
-            const { data: dbPages } = await supabase.from('pages').select('id').eq('album_id', currentAlbum.id);
-            const pagesToDelete = (dbPages as any[])?.filter(p => !currentPageIds.includes(p.id)).map(p => p.id) || [];
-
-            if (pagesToDelete.length > 0) {
-                await supabase.from('pages').delete().in('id', pagesToDelete);
-            }
-
-            const { data: dbAssets } = await supabase.from('assets').select('id').in('page_id', currentPageIds);
-            const assetsToDelete = (dbAssets as any[])?.filter(a => !currentAssetIds.includes(a.id)).map(a => a.id) || [];
-
-            if (assetsToDelete.length > 0) {
-                await supabase.from('assets').delete().in('id', assetsToDelete);
-            }
-
-            if (pagesPayload.length > 0) {
-                // Upsert pages (using a 2-step process to avoid unique constraint violations on page_number)
-                const { error: pagesStep1Error } = await (supabase.from('pages') as any).upsert(pagesPayload.map(p => ({ ...p, page_number: p.page_number + 20000 })));
-                if (pagesStep1Error) throw pagesStep1Error;
-
-                const { error: pagesStep2Error } = await (supabase.from('pages') as any).upsert(pagesPayload);
-                if (pagesStep2Error) throw pagesStep2Error;
-            }
-
-            if (assetsPayload.length > 0) {
-                const { error: assetsError } = await (supabase.from('assets') as any).upsert(assetsPayload);
-                if (assetsError) throw assetsError;
-            }
-
+            setSaveStatus('saved');
             return { success: true };
         } catch (error: any) {
-            console.error('Save error:', error);
+            console.error('[saveAlbum] Persistence Crash:', error);
+            setSaveStatus('error');
             return { success: false, error: error.message };
-        } finally {
-            setIsSaving(false);
         }
     }, []);
+
     const toggleLock = useCallback(async () => {
         if (!album) return;
         const newLockedState = !album.config.isLocked;
@@ -1091,10 +1543,12 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         moveFromLibrary,
         addMediaByUrl,
         saveAlbum,
+        saveAlbumPage,
         fetchAlbum,
-        isSaving,
+        saveStatus,
+        isSaving: saveStatus === 'saving',
         isLoading,
-        uploadProgress, // Added uploadProgress
+        uploadProgress,
         duplicateAsset,
         duplicatePage,
         movePage,
@@ -1110,7 +1564,11 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         updatePageAssets,
         moveAssetToPage,
         toggleLock,
-        commitHistory
+        commitHistory,
+        showLayoutOutlines,
+        toggleLayoutOutlines,
+        activeSlot,
+        setActiveSlot
     };
 
     return (

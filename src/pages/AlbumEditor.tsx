@@ -7,7 +7,7 @@ import {
     Layers, Bold, Underline, Pencil, Trash2,
     Lock, Unlock, Eye, Plus, Undo, Redo, Maximize, MapPin
 } from 'lucide-react';
-import { AlbumProvider, useAlbum } from '../contexts/AlbumContext';
+import { useAlbum } from '../contexts/AlbumContext';
 import { EditorCanvas } from '../components/editor/EditorCanvas';
 import { AssetControlPanel } from '../components/editor/AssetControlPanel';
 import { Filmstrip } from '../components/editor/Filmstrip';
@@ -26,7 +26,9 @@ import { MaskEditorModal } from '../components/editor/MaskEditorModal';
 import { LocationPicker } from '../components/ui/LocationPicker';
 import { LocationPickerModal } from '../components/ui/LocationPickerModal';
 import { MapAssetModal } from '../components/ui/MapAssetModal';
+import { LayoutSidebar } from '../components/editor/LayoutSidebar';
 
+import { TextEditorModal } from '../components/editor/TextEditorModal';
 
 function AlbumEditorContent() {
     const { id } = useParams<{ id: string }>();
@@ -64,7 +66,10 @@ function AlbumEditorContent() {
     const [showShareModal, setShowShareModal] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [hasCopied, setHasCopied] = useState(false);
-    const [activeSidebarTab, setActiveSidebarTab] = useState<'properties' | 'layers'>('properties');
+    const [activeSidebarTab, setActiveSidebarTab] = useState<'properties' | 'layers' | 'layouts'>('properties');
+
+    // Editor State
+    const [proTextAssetId, setProTextAssetId] = useState<string | null>(null);
     // Navigation State
     const [zoom, setZoom] = useState(0.5); // Start zoomed out to see full spread
     const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -461,7 +466,7 @@ function AlbumEditorContent() {
 
                         <div className="flex items-center gap-2 mt-0.5">
                             <span className="text-[10px] text-catalog-text/40 uppercase tracking-widest bg-catalog-stone/50 px-2 py-0.5 rounded">
-                                {currentPage.layoutTemplate.replace('-', ' ')}
+                                {(currentPage.layoutTemplate || 'freeform').replace('-', ' ')}
                             </span>
                             <div className="flex items-center bg-catalog-stone/50 rounded overflow-hidden">
                                 <button className="px-2 py-0.5 hover:bg-white/50 text-[10px]" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>-</button>
@@ -882,8 +887,8 @@ function AlbumEditorContent() {
                                         >
                                             <ChevronDown className="w-4 h-4 text-catalog-accent font-bold" />
                                         </Button>
-                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-catalog-stone/5 rounded-md border border-catalog-accent/5 mr-2">
-                                            <span className="text-[9px] font-bold text-catalog-text/40 uppercase tracking-tighter">Size</span>
+                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-catalog-stone/5 rounded-md border border-catalog-accent/5 mr-1">
+                                            <span className="text-[9px] font-bold text-catalog-text/40 uppercase tracking-tighter">Ratio Size</span>
                                             <input
                                                 type="number"
                                                 disabled={album.config.isLocked || selectedAsset.isLocked}
@@ -900,7 +905,45 @@ function AlbumEditorContent() {
                                                         });
                                                     }
                                                 }}
-                                                className="w-10 bg-transparent border-none text-[10px] font-bold text-catalog-accent focus:ring-0 text-center p-0 disabled:opacity-50"
+                                                className="w-8 bg-transparent border-none text-[10px] font-bold text-catalog-accent focus:ring-0 text-center p-0 disabled:opacity-50"
+                                            />
+                                            <span className="text-[8px] text-catalog-text/40 font-bold select-none">%</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-catalog-stone/5 rounded-md border border-catalog-accent/5 mr-1">
+                                            <span className="text-[9px] font-bold text-catalog-text/40 uppercase tracking-tighter">W</span>
+                                            <input
+                                                type="number"
+                                                disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                value={Math.round(selectedAsset.width)}
+                                                onChange={(e) => {
+                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                    const val = parseFloat(e.target.value);
+                                                    const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                    if (pageId && !isNaN(val)) {
+                                                        updateAsset(pageId, selectedAsset.id, { width: val });
+                                                    }
+                                                }}
+                                                className="w-8 bg-transparent border-none text-[10px] font-bold text-catalog-accent focus:ring-0 text-center p-0 disabled:opacity-50"
+                                            />
+                                            <span className="text-[8px] text-catalog-text/40 font-bold select-none">%</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-catalog-stone/5 rounded-md border border-catalog-accent/5 mr-1">
+                                            <span className="text-[9px] font-bold text-catalog-text/40 uppercase tracking-tighter">H</span>
+                                            <input
+                                                type="number"
+                                                disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                value={Math.round(selectedAsset.height)}
+                                                onChange={(e) => {
+                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                    const val = parseFloat(e.target.value);
+                                                    const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                    if (pageId && !isNaN(val)) {
+                                                        updateAsset(pageId, selectedAsset.id, { height: val });
+                                                    }
+                                                }}
+                                                className="w-8 bg-transparent border-none text-[10px] font-bold text-catalog-accent focus:ring-0 text-center p-0 disabled:opacity-50"
                                             />
                                             <span className="text-[8px] text-catalog-text/40 font-bold select-none">%</span>
                                         </div>
@@ -1052,6 +1095,7 @@ function AlbumEditorContent() {
                                                         onPageSelect={setActivePageId}
                                                         onOpenMapEditor={handleOpenMapEditor}
                                                         onOpenLocationEditor={handleOpenLocationEditor}
+                                                        onOpenProEditor={(assetId) => setProTextAssetId(assetId)}
                                                     />
                                                     {/* Gutter Guide */}
                                                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-full z-10 pointer-events-none flex">
@@ -1083,6 +1127,7 @@ function AlbumEditorContent() {
                                                         onPageSelect={setActivePageId}
                                                         onOpenMapEditor={handleOpenMapEditor}
                                                         onOpenLocationEditor={handleOpenLocationEditor}
+                                                        onOpenProEditor={(assetId) => setProTextAssetId(assetId)}
                                                     />
                                                 </div>
                                             );
@@ -1135,7 +1180,7 @@ function AlbumEditorContent() {
                 {/* Right Sidebar: Properties & Layouts */}
                 <aside className="w-64 flex flex-col border-l border-catalog-accent/10 bg-white">
                     <div className="flex border-b border-catalog-accent/10">
-                        {['properties', 'layers'].map((tab) => (
+                        {['layouts', 'properties', 'layers'].map((tab) => (
                             <button
                                 key={tab}
                                 onClick={() => setActiveSidebarTab(tab as any)}
@@ -1159,6 +1204,7 @@ function AlbumEditorContent() {
                             />
                         )}
                         {activeSidebarTab === 'layers' && <LayersPanel activePageId={activePageId} />}
+                        {activeSidebarTab === 'layouts' && <LayoutSidebar activePageId={activePageId || ''} />}
                     </div>
                 </aside>
             </div>
@@ -1301,32 +1347,43 @@ function AlbumEditorContent() {
                         } else {
                             addAsset(targetPageId, {
                                 type: 'map',
-                                url: '', // Not used for maps
+                                url: '',
                                 x: 10,
                                 y: 10,
                                 width: 80,
                                 height: 60,
                                 rotation: 0,
                                 zIndex: 30,
-                                mapConfig: {
-                                    center,
-                                    zoom,
-                                    places
-                                }
+                                mapConfig: { center, zoom, places }
                             } as any);
                         }
                     }
                     setShowMapModal(false);
                 }}
             />
+
+            {/* Pro Text Editor Modal (Pop-out) */}
+            {proTextAssetId && (
+                <TextEditorModal
+                    isOpen={true}
+                    onClose={() => setProTextAssetId(null)}
+                    initialContent={(() => {
+                        const pId = activePageId || album.pages[currentPageIndex]?.id;
+                        const asset = album.pages.find(p => p.id === pId)?.assets.find(a => a.id === proTextAssetId);
+                        return asset?.content || '';
+                    })()}
+                    onSave={(newContent) => {
+                        const pId = activePageId || album.pages[currentPageIndex]?.id;
+                        if (pId && proTextAssetId) {
+                            updateAsset(pId, proTextAssetId, { content: newContent });
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }
 
 export function AlbumEditor() {
-    return (
-        <AlbumProvider>
-            <AlbumEditorContent />
-        </AlbumProvider>
-    );
+    return <AlbumEditorContent />;
 }

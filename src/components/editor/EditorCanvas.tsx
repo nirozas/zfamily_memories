@@ -1,12 +1,13 @@
+import React, { useState, memo, useEffect, useRef } from 'react';
 import { useAlbum, type Page, type Asset } from '../../contexts/AlbumContext';
 import { cn } from '../../lib/utils';
-import { useState, memo, useEffect, useRef } from 'react';
-import React from 'react';
 import { motion } from 'framer-motion';
-import { RotateCw, Lock, Plus } from 'lucide-react';
+import { RotateCw, Lock, Plus, Grid } from 'lucide-react';
 import { ContextMenu } from './ContextMenu';
-import { getTransformedUrl, getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
-import { MapAsset } from '../ui/MapAsset';
+import { getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
+import { FocalPointEditorModal } from './FocalPointEditorModal';
+import { RichTextEditor } from './RichTextEditor';
+import { MediaRenderer } from '../shared/MediaRenderer';
 
 interface EditorCanvasProps {
     page: Page;
@@ -19,6 +20,7 @@ interface EditorCanvasProps {
     onPageSelect?: (pageId: string) => void;
     onOpenMapEditor?: (assetId: string) => void;
     onOpenLocationEditor?: (assetId: string) => void;
+    onOpenProEditor?: (assetId: string) => void;
 }
 
 interface AssetRendererProps {
@@ -40,16 +42,18 @@ interface AssetRendererProps {
     canvasRef: React.RefObject<HTMLDivElement | null>;
     otherPage?: Page;
     onDrop?: (e: React.DragEvent) => void;
+    isInSlot?: boolean;
     onOpenMapEditor?: (assetId: string) => void;
     onOpenLocationEditor?: (assetId: string) => void;
+    onOpenProEditor?: (assetId: string) => void;
 }
 
 const AssetRenderer = memo(function AssetRenderer({
     asset, isSelected, isEditing, onClick, onDoubleClick, onEditEnd,
-    onContextMenu, onSnap, onSnapEnd, pageId, side = 'single', editorMode, setEditorMode,
-    zoom, canvasRef, otherPage, onDrop, onOpenMapEditor, onOpenLocationEditor
+    onContextMenu, pageId, side = 'single', editorMode, setEditorMode,
+    zoom, canvasRef, onDrop, onOpenMapEditor, onOpenLocationEditor, onOpenProEditor, isInSlot
 }: AssetRendererProps) {
-    const { updateAsset, album, moveAssetToPage, commitHistory } = useAlbum();
+    const { updateAsset, album, commitHistory } = useAlbum();
     const [textValue, setTextValue] = useState(asset.content || '');
     const [dragPos, setDragPos] = useState<{ x: number, y: number } | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
@@ -60,17 +64,13 @@ const AssetRenderer = memo(function AssetRenderer({
         }
     }, [asset.content, isEditing]);
 
-    // For responsive rendering, we now treat coordinates (0-100) as direct percentages
-    const refWidth = 100;
-    const refHeight = 100;
+    // Positioning Logic
     const canvasRefWidth = side === 'single' ? 100 : 200;
-
-    // Spread view handling for X position
     const renderX = (side === 'right' ? asset.x + 100 : asset.x);
-    const leftPercent = (renderX / canvasRefWidth) * 100;
-    const topPercent = (asset.y / refHeight) * 100;
-    const widthPercent = (asset.width / refWidth) * (side === 'single' ? 100 : 50);
-    const heightPercent = (asset.height / refHeight) * 100;
+    const leftPercent = isInSlot ? asset.x : (renderX / canvasRefWidth) * 100;
+    const topPercent = isInSlot ? asset.y : asset.y;
+    const widthPercent = isInSlot ? asset.width : (asset.width / (side === 'single' ? 100 : 200)) * 100;
+    const heightPercent = isInSlot ? asset.height : asset.height;
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [isUploading, setIsUploading] = useState(false);
@@ -106,10 +106,6 @@ const AssetRenderer = memo(function AssetRenderer({
         }
     };
 
-
-
-
-
     return (
         <div className="relative contents">
             {dragPos && (
@@ -121,95 +117,73 @@ const AssetRenderer = memo(function AssetRenderer({
                         <span>X: {Math.round(asset.x)}%</span>
                         <span>Y: {Math.round(asset.y)}%</span>
                     </div>
-                    {asset.width && <span className="text-[8px] opacity-70">{Math.round(asset.width)}x{Math.round(asset.height)} units</span>}
                 </div>
             )}
             <motion.div
                 onDrop={(e) => { setIsDragOver(false); onDrop?.(e); }}
                 onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
                 onDragLeave={() => setIsDragOver(false)}
-                drag={!isEditing && !asset.isLocked && !album?.config?.isLocked}
-                dragMomentum={false}
-                dragElastic={0}
-                transition={{ type: "tween", duration: 0 }}
-                whileDrag={{ zIndex: 100 }}
-                onDragStart={(_, info) => {
-                    setDragPos({ x: info.point.x, y: info.point.y });
+                onPointerDown={(e) => {
+                    if (asset.isLocked || album?.config?.isLocked) return;
+                    if (e.button !== 0) return;
+
+                    const target = e.currentTarget as HTMLElement;
+                    const rect = target.getBoundingClientRect();
+                    const startOffset = {
+                        x: e.clientX - rect.left,
+                        y: e.clientY - rect.top
+                    };
+
+                    const canvasRect = canvasRef.current?.getBoundingClientRect();
+                    if (!canvasRect) return;
+
+                    const zoomFactor = zoom || 1;
+
+                    const handlePointerMove = (mv: PointerEvent) => {
+                        requestAnimationFrame(() => {
+                            const newX_px = (mv.clientX - canvasRect.left - startOffset.x) / zoomFactor;
+                            const newY_px = (mv.clientY - canvasRect.top - startOffset.y) / zoomFactor;
+
+                            const totalWidth_px = (side === 'single' ? canvasRect.width : canvasRect.width / 2) / zoomFactor;
+                            const totalHeight_px = canvasRect.height / zoomFactor;
+
+                            let nx = (newX_px / totalWidth_px) * 100;
+                            let ny = (newY_px / totalHeight_px) * 100;
+
+                            if (side === 'right') nx -= 100;
+
+                            nx = Math.max(0, Math.min(100 - asset.width, nx));
+                            ny = Math.max(0, Math.min(100 - asset.height, ny));
+
+                            updateAsset(pageId, asset.id, { x: nx, y: ny }, { skipHistory: true });
+                            setDragPos({ x: mv.clientX, y: mv.clientY });
+                        });
+                    };
+
+                    const handlePointerUp = () => {
+                        commitHistory();
+                        setDragPos(null);
+                        window.removeEventListener('pointermove', handlePointerMove);
+                        window.removeEventListener('pointerup', handlePointerUp);
+                    };
+
+                    window.addEventListener('pointermove', handlePointerMove);
+                    window.addEventListener('pointerup', handlePointerUp);
                 }}
-                onDrag={(_, info) => {
-                    setDragPos({ x: info.point.x, y: info.point.y });
-                    if (onSnap && canvasRef.current) {
-                        const rect_bounds = canvasRef.current.getBoundingClientRect();
-                        const pageWidthInPixels = otherPage ? rect_bounds.width / 2 : rect_bounds.width;
-                        const heightInPixels = rect_bounds.height;
-
-                        // info.offset is screen pixels. rect_bounds is screen pixels.
-                        // Zoom is already baked into rect_bounds via transformation on parent.
-                        const offsetXPercent = (info.offset.x / pageWidthInPixels) * 100;
-                        const offsetYPercent = (info.offset.y / heightInPixels) * 100;
-
-                        const currentAssetX = (side === 'right' ? asset.x + 100 : asset.x);
-                        const draggingRect = {
-                            x: currentAssetX + offsetXPercent,
-                            y: asset.y + offsetYPercent,
-                            w: asset.width,
-                            h: asset.height
-                        };
-                        onSnap(draggingRect);
-                    }
+                animate={{
+                    left: `${leftPercent}%`,
+                    top: `${topPercent}%`,
+                    width: `${widthPercent}%`,
+                    height: `${heightPercent}%`,
+                    rotate: asset.rotation || 0,
+                    scaleX: asset.flipX ? -1 : 1,
+                    scaleY: asset.flipY ? -1 : 1,
+                    opacity: (asset.opacity ?? 100) / 100,
+                    zIndex: asset.zIndex || 0,
                 }}
-                onDragEnd={(_, info) => {
-                    setDragPos(null);
-                    if (!canvasRef.current) return;
-                    const rect = canvasRef.current.getBoundingClientRect();
-                    const heightInPixels = rect.height;
-                    const pageWidthInPixels = otherPage ? rect.width / 2 : rect.width;
-
-                    const offsetXPercent = (info.offset.x / pageWidthInPixels) * 100;
-                    const offsetYPercent = (info.offset.y / heightInPixels) * 100;
-
-                    let finalX = asset.x + offsetXPercent;
-                    let finalY = asset.y + offsetYPercent;
-                    const absoluteX = (side === 'right' ? asset.x + 100 : asset.x) + offsetXPercent;
-
-                    if (onSnap) {
-                        const draggingRect = {
-                            x: absoluteX,
-                            y: finalY,
-                            w: asset.width,
-                            h: asset.height
-                        };
-                        const { snappedX, snappedY } = onSnap(draggingRect);
-                        finalX = side === 'right' ? snappedX - 100 : snappedX;
-                        finalY = snappedY;
-                        onSnapEnd?.();
-                    }
-
-                    // Constrain to page borders
-                    finalX = Math.max(0, Math.min(100 - asset.width, finalX));
-                    finalY = Math.max(0, Math.min(100 - asset.height, finalY));
-
-                    if (otherPage && side === 'left' && absoluteX > 110) { // Threshold for moving to next page
-                        moveAssetToPage(asset.id, pageId, otherPage.id, Math.max(0, absoluteX - 100), finalY);
-                    } else if (otherPage && side === 'right' && absoluteX < 90) { // Threshold for moving to prev page
-                        moveAssetToPage(asset.id, pageId, otherPage.id, Math.min(100 - asset.width, absoluteX), finalY);
-                    } else {
-                        updateAsset(pageId, asset.id, { x: finalX, y: finalY });
-                    }
-                    commitHistory();
-                }}
+                transition={{ type: "tween", duration: 0.1 }}
                 onClick={onClick}
-                onDoubleClick={() => {
-                    if (asset.type === 'image') {
-                        setEditorMode('studio');
-                    } else if (asset.type === 'text') {
-                        onDoubleClick?.(); // Standard setEditingAssetId
-                    } else if (asset.type === 'map') {
-                        onOpenMapEditor?.(asset.id);
-                    } else if (asset.type === 'location') {
-                        onOpenLocationEditor?.(asset.id);
-                    }
-                }}
+                onDoubleClick={onDoubleClick}
                 onContextMenu={onContextMenu}
                 className={cn(
                     "absolute cursor-move group/asset",
@@ -220,15 +194,8 @@ const AssetRenderer = memo(function AssetRenderer({
                     asset.isLocked && "cursor-default"
                 )}
                 style={{
-                    left: `${leftPercent}%`,
-                    top: `${topPercent}%`,
-                    width: `${widthPercent}%`,
-                    height: `${heightPercent}%`,
                     ...getFilterStyle(asset),
-                    transformOrigin: `${(asset.pivot?.x ?? 0.5) * 100}% ${(asset.pivot?.y ?? 0.5) * 100}%`,
-                    transform: `rotate(${asset.rotation || 0}deg) scaleX(${asset.flipX ? -1 : 1}) scaleY(${asset.flipY ? -1 : 1})`,
-                    zIndex: asset.zIndex || 0,
-                    opacity: (asset.opacity ?? 100) / 100,
+                    transformOrigin: '0 0',
                 }}
             >
                 {/* Pivot Control Widget */}
@@ -315,13 +282,7 @@ const AssetRenderer = memo(function AssetRenderer({
                         )}
                         {!asset.isLocked && !album?.config?.isLocked && (
                             <>
-                                {/* Border/Frame */}
-                                <div
-                                    className="absolute inset-0 border-2 border-catalog-accent z-[99] pointer-events-none rounded-sm"
-                                    style={{ boxShadow: '0 0 0 1px rgba(194, 65, 12, 0.1), 0 0 8px rgba(194, 65, 12, 0.3)' }}
-                                />
-
-                                {/* Rotation Handle */}
+                                <div className="absolute inset-0 border-2 border-catalog-accent z-[99] pointer-events-none rounded-sm" style={{ boxShadow: '0 0 0 1px rgba(194, 65, 12, 0.1), 0 0 8px rgba(194, 65, 12, 0.3)' }} />
                                 <div
                                     className="absolute -top-12 left-1/2 -translate-x-1/2 w-8 h-8 bg-white border-2 border-catalog-accent rounded-full flex items-center justify-center cursor-alias shadow-lg hover:scale-110 transition-transform z-[101] pointer-events-auto"
                                     style={{ transform: `translate(-50%, 0) scale(${1 / zoom})` }}
@@ -344,20 +305,11 @@ const AssetRenderer = memo(function AssetRenderer({
                                     <RotateCw className="w-4 h-4 text-catalog-accent" />
                                 </div>
 
-                                {/* Corner Resize Handles */}
                                 {['nw', 'ne', 'sw', 'se'].map((handle) => (
                                     <div
                                         key={`corner-${handle}`}
-                                        className={cn(
-                                            "absolute w-4 h-4 bg-white border-2 border-catalog-accent rounded-full z-[101] pointer-events-auto shadow-md hover:scale-125 transition-transform",
-                                            handle === 'nw' && "cursor-nw-resize", handle === 'ne' && "cursor-ne-resize",
-                                            handle === 'sw' && "cursor-sw-resize", handle === 'se' && "cursor-se-resize"
-                                        )}
-                                        style={{
-                                            top: handle.includes('n') ? 0 : '100%',
-                                            left: handle.includes('w') ? 0 : '100%',
-                                            transform: `translate(-50%, -50%) scale(${1 / zoom})`
-                                        }}
+                                        className={cn("absolute w-4 h-4 bg-white border-2 border-catalog-accent rounded-full z-[101] pointer-events-auto shadow-md hover:scale-125 transition-transform", handle === 'nw' && "cursor-nw-resize", handle === 'ne' && "cursor-ne-resize", handle === 'sw' && "cursor-sw-resize", handle === 'se' && "cursor-se-resize")}
+                                        style={{ top: handle.includes('n') ? 0 : '100%', left: handle.includes('w') ? 0 : '100%', transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
                                         onMouseDown={(e) => {
                                             e.stopPropagation();
                                             const startX = e.clientX;
@@ -368,7 +320,7 @@ const AssetRenderer = memo(function AssetRenderer({
                                             const startPosY = asset.y;
                                             if (!canvasRef.current) return;
                                             const rect = canvasRef.current.getBoundingClientRect();
-                                            const pageW_px = (canvasRefWidth === 100) ? rect.width : (rect.width / 2);
+                                            const pageW_px = (side === 'single') ? rect.width : (rect.width / 2);
                                             const pageH_px = rect.height;
                                             const handleMouseMove = (mv: MouseEvent) => {
                                                 const dMx = mv.clientX - startX;
@@ -379,13 +331,15 @@ const AssetRenderer = memo(function AssetRenderer({
                                                 let newH = Math.max(5, startH + (handle.includes('s') ? dPctY : -dPctY));
                                                 let newX = startPosX + (handle.includes('w') ? dPctX : 0);
                                                 let newY = startPosY + (handle.includes('n') ? dPctY : 0);
-
                                                 if (asset.lockAspectRatio) {
                                                     const ratio = asset.aspectRatio || (startW / startH);
                                                     newH = newW / ratio;
                                                     if (handle.includes('n')) newY = startPosY + (startH - newH);
                                                 }
-
+                                                newX = Math.max(0, Math.min(100, newX));
+                                                newY = Math.max(0, Math.min(100, newY));
+                                                newW = Math.max(5, Math.min(100 - newX, newW));
+                                                newH = Math.max(5, Math.min(100 - newY, newH));
                                                 updateAsset(pageId, asset.id, { width: newW, height: newH, x: newX, y: newY }, { skipHistory: true });
                                             };
                                             const handleMouseUp = () => { commitHistory(); window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
@@ -395,22 +349,11 @@ const AssetRenderer = memo(function AssetRenderer({
                                     />
                                 ))}
 
-                                {/* Side Resize Handles */}
                                 {['n', 's', 'e', 'w'].map((handleSide) => (
                                     <div
                                         key={`side-${handleSide}`}
-                                        className={cn(
-                                            "absolute bg-white border-2 border-catalog-accent z-[100] pointer-events-auto shadow-sm hover:scale-110 transition-transform rounded-full",
-                                            (handleSide === 'n' || handleSide === 's') && "h-1.5 w-6",
-                                            (handleSide === 'e' || handleSide === 'w') && "w-1.5 h-6",
-                                            handleSide === 'n' && "cursor-n-resize", handleSide === 's' && "cursor-s-resize",
-                                            handleSide === 'e' && "cursor-e-resize", handleSide === 'w' && "cursor-w-resize"
-                                        )}
-                                        style={{
-                                            top: handleSide === 'n' ? 0 : handleSide === 's' ? '100%' : '50%',
-                                            left: handleSide === 'w' ? 0 : handleSide === 'e' ? '100%' : '50%',
-                                            transform: `translate(-50%, -50%) scale(${1 / zoom})`
-                                        }}
+                                        className={cn("absolute bg-white border-2 border-catalog-accent z-[100] pointer-events-auto shadow-sm hover:scale-110 transition-transform rounded-full", (handleSide === 'n' || handleSide === 's') ? "h-1.5 w-6" : "w-1.5 h-6", handleSide === 'n' && "cursor-n-resize", handleSide === 's' && "cursor-s-resize", handleSide === 'e' && "cursor-e-resize", handleSide === 'w' && "cursor-w-resize")}
+                                        style={{ top: handleSide === 'n' ? 0 : handleSide === 's' ? '100%' : '50%', left: handleSide === 'w' ? 0 : handleSide === 'e' ? '100%' : '50%', transform: `translate(-50%, -50%) scale(${1 / zoom})` }}
                                         onMouseDown={(e) => {
                                             e.stopPropagation();
                                             const startX = e.clientX;
@@ -421,7 +364,7 @@ const AssetRenderer = memo(function AssetRenderer({
                                             const startPosY = asset.y;
                                             if (!canvasRef.current) return;
                                             const rect = canvasRef.current.getBoundingClientRect();
-                                            const pageW_px = (canvasRefWidth === 100) ? rect.width : (rect.width / 2);
+                                            const pageW_px = (side === 'single') ? rect.width : (rect.width / 2);
                                             const pageH_px = rect.height;
                                             const handleMouseMove = (mv: MouseEvent) => {
                                                 const dMx = mv.clientX - startX;
@@ -435,7 +378,7 @@ const AssetRenderer = memo(function AssetRenderer({
                                                 if (handleSide === 's') newH = Math.max(5, startH + dPctY);
                                                 if (handleSide === 'n') { newH = Math.max(5, startH - dPctY); newY = startPosY + dPctY; }
 
-                                                updateAsset(pageId, asset.id, { width: newW, height: newH, x: newX, y: newY, fitMode: 'stretch', crop: undefined }, { skipHistory: true });
+                                                updateAsset(pageId, asset.id, { width: newW, height: newH, x: newX, y: newY, fitMode: 'stretch', crop: undefined, lockAspectRatio: false }, { skipHistory: true });
                                             };
                                             const handleMouseUp = () => { commitHistory(); window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
                                             window.addEventListener('mousemove', handleMouseMove);
@@ -443,178 +386,76 @@ const AssetRenderer = memo(function AssetRenderer({
                                         }}
                                     />
                                 ))}
-
-                                {/* Pivot Point Handle */}
-                                {editorMode === 'pivot' && (
-                                    <div
-                                        className="absolute z-[110] cursor-crosshair pointer-events-auto"
-                                        style={{
-                                            left: `${(asset.pivot?.x ?? 0.5) * 100}%`,
-                                            top: `${(asset.pivot?.y ?? 0.5) * 100}%`,
-                                            transform: 'translate(-50%, -50%)'
-                                        }}
-                                        onMouseDown={(e) => {
-                                            e.stopPropagation();
-                                            const rect = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
-                                            const handleMouseMove = (mv: MouseEvent) => {
-                                                let x = (mv.clientX - rect.left) / rect.width;
-                                                let y = (mv.clientY - rect.top) / rect.height;
-                                                const snaps = [0, 0.5, 1];
-                                                snaps.forEach(s => {
-                                                    if (Math.abs(x - s) < 0.05) x = s;
-                                                    if (Math.abs(y - s) < 0.05) y = s;
-                                                });
-                                                updateAsset(pageId, asset.id, { pivot: { x, y } }, { skipHistory: true });
-                                            };
-                                            const handleMouseUp = () => { commitHistory(); window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-                                            window.addEventListener('mousemove', handleMouseMove);
-                                            window.addEventListener('mouseup', handleMouseUp);
-                                        }}
-                                    >
-                                        <div className="w-4 h-4 rounded-full border-2 border-white bg-catalog-accent shadow-lg flex items-center justify-center">
-                                            <div className="w-1 h-1 bg-white rounded-full" />
-                                        </div>
-                                    </div>
-                                )}
                             </>
                         )}
                     </>
                 )}
 
                 <div className="w-full h-full relative overflow-hidden pointer-events-auto" style={{ borderRadius: `${asset.borderRadius || 0}px`, border: asset.borderWidth ? `${asset.borderWidth}px solid ${asset.borderColor || '#000'}` : 'none', ...getClipPathStyle(asset) }}>
-                    {(asset.type === 'image' || asset.type === 'frame') && asset.url && !asset.isPlaceholder && (
-                        <img
-                            src={getTransformedUrl(asset.url, asset)} alt="" className="absolute max-w-none origin-top-left shadow-none transition-filter duration-300"
-                            crossOrigin="anonymous"
-                            style={{
-                                width: asset.crop ? `${(1 / (asset.crop.width || 1)) * 100}%` : '100%',
-                                height: asset.crop ? `${(1 / (asset.crop.height || 1)) * 100}%` : '100%',
-                                left: asset.crop ? `-${(asset.crop.x || 0) * (asset.crop.width ? 1 / asset.crop.width : 1) * 100}%` : '0',
-                                top: asset.crop ? `-${(asset.crop.y || 0) * (asset.crop.height ? 1 / asset.crop.height : 1) * 100}%` : '0',
-                                objectFit: asset.crop ? 'fill' : (asset.fitMode === 'fit' ? 'contain' : ((asset.fitMode as any) === 'stretch' ? 'fill' : 'cover')),
-                                ...getFilterStyle(asset),
-                            }}
-                            draggable={false}
-                        />
-                    )}
-                    {asset.isPlaceholder && (
-                        <div className={cn(
-                            "w-full h-full flex flex-col items-center justify-center p-4 text-center transition-all duration-200 group/placeholder",
-                            isDragOver
-                                ? "bg-catalog-accent/10 border-2 border-dashed border-catalog-accent scale-105 shadow-md"
-                                : "bg-slate-100 border-2 border-dashed border-slate-300 hover:border-catalog-accent hover:bg-slate-50"
-                        )}>
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                className="hidden"
-                                accept="image/*"
-                                onChange={handleFileSelect}
-                            />
-
+                    {asset.isPlaceholder ? (
+                        <div className={cn("w-full h-full flex flex-col items-center justify-center p-4 text-center transition-all duration-200 group/placeholder", isDragOver ? "bg-catalog-accent/10 border-2 border-dashed border-catalog-accent scale-105 shadow-md" : "bg-slate-100 border-2 border-dashed border-slate-300 hover:border-catalog-accent hover:bg-slate-50")}>
+                            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileSelect} />
                             {isUploading ? (
                                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-catalog-accent mb-2"></div>
                             ) : (
                                 <>
-                                    <button
-                                        className="w-10 h-10 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-catalog-accent hover:border-catalog-accent transition-all mb-2 transform group-hover/placeholder:scale-110 pointer-events-auto"
-                                        onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                                        title="Click to upload image"
-                                    >
+                                    <button className="w-10 h-10 rounded-full bg-white shadow-sm border border-slate-200 flex items-center justify-center text-slate-500 hover:text-catalog-accent hover:border-catalog-accent transition-all mb-2 transform group-hover/placeholder:scale-110 pointer-events-auto" onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>
                                         <Plus className="w-5 h-5" />
                                     </button>
-                                    <span className={cn("text-[9px] uppercase font-bold tracking-widest transition-colors", isDragOver ? "text-catalog-accent" : "text-slate-400")}>
-                                        Drop or Click
-                                    </span>
+                                    <span className={cn("text-[9px] uppercase font-bold tracking-widest transition-colors", isDragOver ? "text-catalog-accent" : "text-slate-400")}>Drop or Click</span>
                                 </>
                             )}
                         </div>
-                    )}
-                    {asset.type === 'video' && asset.url && (
-                        <div className="w-full h-full bg-black relative overflow-hidden group">
-                            <video src={asset.url} className="w-full h-full object-cover cursor-pointer" style={getFilterStyle(asset)} controls={isSelected} muted loop />
-                        </div>
-                    )}
-                    {asset.type === 'text' && (
+                    ) : asset.type === 'text' ? (
                         <div className="w-full h-full">
                             {isEditing ? (
-                                <textarea
-                                    autoFocus className="w-full h-full p-2 bg-transparent resize-none focus:outline-none text-center"
-                                    style={{
-                                        fontFamily: asset.fontFamily || 'Inter, sans-serif',
-                                        fontSize: asset.fontSize || Math.min(asset.width / 5, asset.height / 2),
-                                        fontWeight: asset.fontWeight || 'normal',
-                                        color: asset.textColor || 'inherit',
-                                        textAlign: asset.textAlign || 'center',
-                                        textDecoration: asset.textDecoration || 'none',
-                                        lineHeight: asset.lineHeight || 1.2,
-                                        letterSpacing: (asset.letterSpacing || 0) + 'px',
-                                        backgroundColor: asset.textBackgroundColor || 'transparent',
-                                        textShadow: asset.textShadow || 'none'
-                                    }}
-                                    value={textValue} onChange={(e) => setTextValue(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && !e.shiftKey) {
-                                            e.preventDefault();
-                                            e.currentTarget.blur();
-                                        }
-                                    }}
+                                <RichTextEditor
+                                    content={textValue}
+                                    onChange={(val) => setTextValue(val)}
+                                    autoFocus
+                                    onOpenProEditor={() => onOpenProEditor?.(asset.id)}
                                     onBlur={() => {
                                         if (textValue !== asset.content) {
                                             updateAsset(pageId, asset.id, { content: textValue });
                                         }
                                         onEditEnd?.();
                                     }}
-                                />
-                            ) : (
-                                <div
-                                    className="w-full h-full flex items-center justify-center p-2 break-words overflow-hidden"
                                     style={{
                                         fontFamily: asset.fontFamily || 'Inter, sans-serif',
                                         fontSize: asset.fontSize || Math.min(asset.width / 5, asset.height / 2),
                                         fontWeight: asset.fontWeight || 'normal',
                                         color: asset.textColor || 'inherit',
                                         textAlign: asset.textAlign || 'center',
-                                        textDecoration: asset.textDecoration || 'none',
                                         lineHeight: asset.lineHeight || 1.2,
                                         letterSpacing: (asset.letterSpacing || 0) + 'px',
-                                        textShadow: asset.textShadow,
-                                        backgroundColor: asset.textBackgroundColor
+                                        backgroundColor: asset.textBackgroundColor || 'transparent',
+                                        textShadow: asset.textShadow || 'none'
                                     }}
-                                >
-                                    {asset.content || 'Double click to edit'}
-                                </div>
+                                />
+                            ) : (
+                                <MediaRenderer
+                                    type="text"
+                                    content={asset.content}
+                                    config={asset}
+                                    isEditable={true}
+                                />
                             )}
                         </div>
-                    )}
-                    {asset.type === 'location' && (
-                        <div
-                            className="w-full h-full flex items-center gap-2 px-3 py-2 overflow-hidden"
-                            style={{
-                                fontFamily: asset.fontFamily || 'Inter, sans-serif',
-                                fontSize: asset.fontSize || 14,
-                                fontWeight: asset.fontWeight || 'normal',
-                                color: asset.textColor || '#6b7280',
-                            }}
-                        >
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '1.2em', height: '1.2em', flexShrink: 0, color: '#9333ea' }}>
-                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-                                <circle cx="12" cy="10" r="3"></circle>
-                            </svg>
-                            <span className="truncate">{asset.content || 'Location'}</span>
-                        </div>
-                    )}
-                    {asset.type === 'map' && asset.mapConfig && (
-                        <div className="w-full h-full">
-                            <MapAsset
-                                center={asset.mapConfig.center || { lat: 32.0853, lng: 34.7818 }}
-                                zoom={asset.mapConfig.zoom || 12}
-                                places={asset.mapConfig.places || []}
-                                interactive={isSelected} // Interactive when selected in editor
-                            />
-                        </div>
+                    ) : (
+                        <MediaRenderer
+                            type={asset.type as any}
+                            url={asset.url}
+                            content={asset.content}
+                            zoom={asset.crop?.zoom}
+                            focalX={asset.crop?.x}
+                            focalY={asset.crop?.y}
+                            rotation={asset.rotation}
+                            config={asset}
+                            isEditable={true}
+                        />
                     )}
                 </div>
+
             </motion.div>
         </div>
     );
@@ -630,44 +471,30 @@ const AssetRenderer = memo(function AssetRenderer({
     );
 });
 
-export function EditorCanvas({
-    page,
-    nextPage,
-    side = 'single',
-    editorMode,
-    setEditorMode,
-    showPrintSafe = true,
-    zoom,
-    onPageSelect,
-    onOpenMapEditor,
-    onOpenLocationEditor
+export const EditorCanvas = memo(function EditorCanvas({
+    page, nextPage, side = 'single', editorMode, setEditorMode,
+    showPrintSafe = true, zoom, onPageSelect, onOpenMapEditor, onOpenLocationEditor, onOpenProEditor
 }: EditorCanvasProps) {
     const {
-        album,
-        selectedAssetId,
-        setSelectedAssetId,
-        updateAsset,
-        removeAsset,
-        duplicateAsset,
-        updateAssetZIndex,
-        addAsset
+        album, selectedAssetId, setSelectedAssetId, updateAsset,
+        removeAsset, duplicateAsset, updateAssetZIndex, addAsset, showLayoutOutlines,
+        activeSlot, setActiveSlot
     } = useAlbum();
 
     const canvasRef = useRef<HTMLDivElement>(null);
+    const [dragOverSlot, setDragOverSlot] = useState<{ pageId: string, index: number } | null>(null);
 
     const getSizeStyles = () => {
         const { width, height } = album?.config?.dimensions || { width: 1000, height: 700 };
         const totalWidth = nextPage ? width * 2 : width;
         const aspectRatio = totalWidth / height;
-        return {
-            width: `${totalWidth}px`,
-            aspectRatio: `${aspectRatio}`,
-            backgroundColor: page.backgroundColor,
-        };
+        return { width: `${totalWidth}px`, aspectRatio: `${aspectRatio}`, backgroundColor: page.backgroundColor };
     };
+
     const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, assetId?: string, pageId?: string } | null>(null);
     const [guides, setGuides] = useState<{ type: 'v' | 'h', pos: number }[]>([]);
+    const [focalEditorAsset, setFocalEditorAsset] = useState<{ asset: Asset; pageId: string } | null>(null);
 
     const handleContextMenu = (e: React.MouseEvent, assetId?: string, assetPageId?: string) => {
         if (album?.config.isLocked) return;
@@ -688,27 +515,28 @@ export function EditorCanvas({
         }
     };
 
-    const findSnappingPoints = (draggingRect: { x: number, y: number, w: number, h: number }) => {
+    const findSnappingPoints = React.useCallback((draggingRect: { x: number, y: number, w: number, h: number }) => {
         const snapThreshold = 1.0;
         const newGuides: { type: 'v' | 'h', pos: number }[] = [];
         let snappedX = Math.round(draggingRect.x);
         let snappedY = Math.round(draggingRect.y);
         const colWidth = 100 / 12;
-        for (let i = 0; i <= (nextPage ? 24 : 12); i++) {
+        const totalCols = nextPage ? 24 : 12;
+        for (let i = 0; i <= totalCols; i++) {
             const colPos = i * colWidth;
             if (Math.abs(snappedX - colPos) < snapThreshold) { snappedX = colPos; newGuides.push({ type: 'v', pos: colPos }); }
             if (Math.abs(snappedX + draggingRect.w - colPos) < snapThreshold) { snappedX = colPos - draggingRect.w; newGuides.push({ type: 'v', pos: colPos }); }
         }
         return { snappedX, snappedY, guides: newGuides };
-    };
+    }, [nextPage]);
 
-    const handleAssetClick = (assetId: string, pageId: string, e: React.MouseEvent) => {
+    const handleAssetClick = React.useCallback((assetId: string, pageId: string, e: React.MouseEvent) => {
         e.stopPropagation();
         setSelectedAssetId(assetId);
         if (onPageSelect) onPageSelect(pageId);
-    };
+    }, [onPageSelect, setSelectedAssetId]);
 
-    const handleCanvasClick = (e: React.MouseEvent) => {
+    const handleCanvasClick = React.useCallback((e: React.MouseEvent) => {
         setSelectedAssetId(null);
         setEditingAssetId(null);
         if (nextPage && onPageSelect) {
@@ -717,182 +545,195 @@ export function EditorCanvas({
             if (x > rect.width / 2) onPageSelect(nextPage.id);
             else onPageSelect(page.id);
         } else if (onPageSelect) onPageSelect(page.id);
-    };
+    }, [nextPage, onPageSelect, page.id, setSelectedAssetId]);
 
-    const handleTextUpdate = (assetId: string, newContent: string) => {
+    const handleTextUpdate = React.useCallback((assetId: string, newContent: string) => {
         updateAsset(page.id, assetId, { content: newContent });
-    };
+    }, [page.id, updateAsset]);
+
+    const handleSnap = React.useCallback((rect: { x: number, y: number, w: number, h: number }) => {
+        const result = findSnappingPoints(rect);
+        if (result.guides.length !== guides.length || (result.guides.length > 0 && (result.guides[0].pos !== guides[0]?.pos || result.guides[0].type !== guides[0]?.type))) {
+            setGuides(result.guides);
+        }
+        return result;
+    }, [findSnappingPoints, guides]);
+
+    const handleSnapEnd = React.useCallback(() => { setGuides([]); }, []);
 
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
         if (album?.config.isLocked) return;
-
-
-
-        // 2. Handle Asset Drops (Images/Stickers)
         const assetData = e.dataTransfer.getData('asset');
         if (!assetData) return;
-
         try {
             const data = JSON.parse(assetData);
             const rect = e.currentTarget.getBoundingClientRect();
-
-            // Calculate standardized drop coordinates relative to the canvas
-            // Logic matches AssetRenderer positioning:
-            // Side 'single': 100x100 coord system
-            // Side 'left'/'right': Total width is spread width.
-
             const zoomFactor = zoom || 1;
             const clickX = e.clientX - rect.left;
             const clickY = e.clientY - rect.top;
-
-            // Coordinates in percentage (0-100 for height, 0-100 or 0-200 for width)
             const dropX_Pct = (clickX / (rect.width / zoomFactor)) * (nextPage ? 200 : 100);
             const dropY_Pct = (clickY / (rect.height / zoomFactor)) * 100;
-
             let targetPageId = page.id;
             let localX = dropX_Pct;
-
-            // Determine target page and local X relative to that page (0-100)
-            if (nextPage && dropX_Pct > 100) {
-                targetPageId = nextPage.id;
-                localX = dropX_Pct - 100;
-            }
-
-            // --- GEOMETRIC HIT TEST FOR PLACEHOLDERS ---
-            // Before adding a new asset, check if we dropped ONTOP of a placeholder
-            // This bypasses potential z-index/event bubbling issues
+            if (nextPage && dropX_Pct > 100) { targetPageId = nextPage.id; localX = dropX_Pct - 100; }
             const targetPageObj = targetPageId === page.id ? page : nextPage;
             if (targetPageObj) {
-                // Find highest z-index placeholder that contains the point
-                const hitAsset = targetPageObj.assets
-                    .filter(a => a.isPlaceholder)
-                    .sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0)) // Check top-most first
-                    .find(a => {
-                        // Simple bounding box check
-                        return (
-                            localX >= a.x &&
-                            localX <= (a.x + a.width) &&
-                            dropY_Pct >= a.y &&
-                            dropY_Pct <= (a.y + a.height)
-                        );
-                    });
-
-                if (hitAsset && (data.type === 'image' || !data.type)) {
-                    // HIT! Update the placeholder
-                    updateAsset(targetPageId, hitAsset.id, {
-                        url: data.url,
-                        isPlaceholder: false,
-                        fitMode: 'cover'
-                    });
-                    return; // Stop processing, we filled a slot
+                const hitAsset = targetPageObj.assets.filter(a => a.isPlaceholder).sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0)).find(a => localX >= a.x && localX <= (a.x + a.width) && dropY_Pct >= a.y && dropY_Pct <= (a.y + a.height));
+                if (hitAsset && (data.type === 'image' || data.type === 'video' || !data.type)) {
+                    updateAsset(targetPageId, hitAsset.id, { url: data.url, type: data.type || 'image', isPlaceholder: false, fitMode: 'cover' });
+                    return;
                 }
             }
-            // -------------------------------------------
-
-
-            // 3. If no placeholder hit, Add New Asset
-            if (data.type === 'image' || data.type === 'frame' || !data.type) {
-                const img = new Image();
-                img.src = data.url;
-                img.onload = () => {
-                    let w = 40;
-                    const ratio = img.naturalWidth / img.naturalHeight;
-                    let h = w / ratio;
-
-                    // Center the new asset on the mouse cursor
-                    let finalX = localX - (w / 2);
-                    let finalY = dropY_Pct - (h / 2);
-
-                    const isFrame = data.type === 'frame' || data.category === 'frames' || data.category === 'frame';
-                    const isBackground = data.category === 'backgrounds' || data.category === 'background';
-
-                    if (isBackground) {
-                        addAsset(targetPageId, {
-                            type: 'image',
-                            url: data.url,
-                            x: 0,
-                            y: 0,
-                            width: 100,
-                            height: 100,
-                            rotation: 0,
-                            zIndex: 0,
-                            aspectRatio: ratio,
-                            fitMode: 'cover',
-                            category: 'backgrounds'
-                        } as any);
-                    } else if (isFrame) {
-                        addAsset(targetPageId, { type: 'frame', url: data.url, x: 0, y: 0, width: 100, height: 100, rotation: 0, zIndex: 50, aspectRatio: ratio, fitMode: 'cover' });
-                    } else {
-                        addAsset(targetPageId, {
-                            type: 'image',
-                            url: data.url,
-                            x: finalX,
-                            y: finalY,
-                            width: w,
-                            height: h,
-                            rotation: 0,
-                            zIndex: targetPageObj ? targetPageObj.assets.length + 10 : 10,
-                            aspectRatio: ratio,
-                            fitMode: 'fit'
-                        });
-                    }
-                };
+            const addWithProportions = (assetType: string, url: string, natW: number, natH: number, category?: string) => {
+                const ratio = natW / natH;
+                const albumW = album?.config?.dimensions?.width || 1000;
+                const albumH = album?.config?.dimensions?.height || 700;
+                const isBackground = category === 'backgrounds' || data.category === 'backgrounds';
+                const isFrame = assetType === 'frame' || category === 'frames' || data.category === 'frames';
+                let w = (isBackground || isFrame) ? 100 : (natW / albumW) * 100;
+                let h = (isBackground || isFrame) ? 100 : (natH / albumH) * 100;
+                const maxUnit = 60;
+                if (!isBackground && !isFrame && (w > maxUnit || h > maxUnit)) {
+                    const scale = Math.min(maxUnit / w, maxUnit / h);
+                    w *= scale; h *= scale;
+                }
+                if (!isBackground && !isFrame) h = w / ratio;
+                addAsset(targetPageId, { type: isFrame ? 'frame' : (assetType as any), url: url, x: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - w, localX - (w / 2))), y: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - h, dropY_Pct - (h / 2))), width: w, height: h, originalDimensions: { width: natW, height: natH }, rotation: 0, zIndex: isFrame ? 50 : (isBackground ? 0 : (targetPageObj?.assets.length || 0) + 10), aspectRatio: ratio, fitMode: isBackground ? 'cover' : 'fit', lockAspectRatio: true, category: category || data.category } as any);
+            };
+            if (data.type === 'video') {
+                const video = document.createElement('video'); video.src = data.url;
+                video.onloadedmetadata = () => addWithProportions('video', data.url, video.videoWidth || 1280, video.videoHeight || 720);
+                video.onerror = () => addWithProportions('video', data.url, 1280, 720);
+            } else {
+                const img = new Image(); img.src = data.url;
+                img.onload = () => addWithProportions(data.type || 'image', data.url, img.naturalWidth, img.naturalHeight);
+                img.onerror = () => addWithProportions(data.type || 'image', data.url, 800, 600);
             }
         } catch (err) { console.error('Asset drop failed', err); }
     };
 
     const handleAssetDrop = (assetId: string, pageId: string, e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         if (album?.config.isLocked) return;
-
         const assetData = e.dataTransfer.getData('asset');
-        if (!assetData) return;
+        if (!assetData) {
+            console.warn("[EditorCanvas] Drop failed: No asset data in DataTransfer");
+            return;
+        }
 
         try {
             const data = JSON.parse(assetData);
             if (data.type === 'image' || !data.type) {
-                // Update the existing placeholder asset
-                updateAsset(pageId, assetId, {
-                    url: data.url,
-                    isPlaceholder: false,
-                    fitMode: 'cover',
-                    // Keep existing dimensions/rotation/z-index
-                });
+                if (assetId.startsWith('slot-')) {
+                    const slotIndex = parseInt(assetId.replace('slot-', ''));
+                    addAsset(pageId, {
+                        type: 'image',
+                        url: data.url,
+                        x: 0, y: 0, width: 100, height: 100,
+                        zIndex: 10,
+                        rotation: 0,
+                        slotId: slotIndex,
+                        isPlaceholder: false,
+                        fitMode: 'cover'
+                    });
+                } else {
+                    updateAsset(pageId, assetId, {
+                        url: data.url,
+                        isPlaceholder: false,
+                        fitMode: 'cover'
+                    });
+                }
             }
         } catch (err) {
-            console.error('Failed to drop into placeholder', err);
+            console.error('[EditorCanvas] Injection failed:', err);
         }
     };
 
-    return (
-        <div
-            onMouseDown={handleCanvasClick} onDragOver={(e) => e.preventDefault()} onDrop={handleDrop}
-            className="relative transition-all duration-300 select-none editor-canvas"
-            data-page-id={page.id} data-side={side} style={getSizeStyles()} ref={canvasRef}
-        >
-            {/* Left Page (or Single Page) Background */}
-            {page.backgroundImage && (
-                <img
-                    src={page.backgroundImage}
-                    alt=""
-                    className={cn(
-                        "absolute top-0 bottom-0 object-cover pointer-events-none z-0",
-                        nextPage ? "left-0 w-1/2" : "inset-0 w-full h-full"
-                    )}
-                    style={{ opacity: page.backgroundOpacity ?? 1 }}
-                />
-            )}
+    const renderPageAssets = (targetPage: Page, targetSide: 'left' | 'right' | 'single') => {
+        const layoutCfg = targetPage.layoutConfig;
+        if (targetPage.layoutTemplate !== 'freeform' && layoutCfg && layoutCfg.length > 0) {
+            return (
+                <>
+                    {layoutCfg.map((slot: any, index: number) => {
+                        const asset = targetPage.assets.find(a => a.slotId === index);
+                        const isDragOverThis = dragOverSlot?.pageId === targetPage.id && dragOverSlot?.index === index;
+                        return (
+                            <div
+                                key={`slot-${targetPage.id}-${index}`}
+                                className={cn("absolute group transition-all duration-300", !showLayoutOutlines && !isDragOverThis && "border-transparent", showLayoutOutlines && (asset ? "border-[0.5px] border-black/10" : "border-2 border-dashed border-[#4A90E2] bg-[#4A90E2]/5"), isDragOverThis && "border-[3px] border-solid border-[#007bff] shadow-[0_0_15px_rgba(0,123,255,0.6)] z-[60] bg-[#007bff]/5")}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverSlot({ pageId: targetPage.id, index }); }}
+                                onDragLeave={() => setDragOverSlot(null)}
+                                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverSlot(null); handleAssetDrop(asset?.id || `slot-${index}`, targetPage.id, e); }}
+                                style={{ top: `${slot.top}%`, left: `${targetSide === 'right' ? slot.left + 100 : slot.left}%`, width: `${(nextPage && !targetPage.isSpreadLayout) ? slot.width / 2 : slot.width}%`, height: `${slot.height}%`, zIndex: isDragOverThis ? 60 : (slot.z || 1) }}
+                            >
+                                {asset ? (
+                                    <AssetRenderer
+                                        asset={asset} pageId={targetPage.id} side={targetSide} isSelected={selectedAssetId === asset.id} isEditing={editingAssetId === asset.id}
+                                        onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
+                                        onDoubleClick={() => setFocalEditorAsset({ asset, pageId: targetPage.id })}
+                                        onUpdateText={handleTextUpdate} onEditEnd={() => setEditingAssetId(null)} onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)} onSnap={handleSnap} onSnapEnd={handleSnapEnd} zoom={zoom} editorMode={editorMode} setEditorMode={setEditorMode} canvasRef={canvasRef} otherPage={targetSide === 'left' ? nextPage : page} onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)} onOpenMapEditor={onOpenMapEditor} onOpenLocationEditor={onOpenLocationEditor} isInSlot={true}
+                                    />
+                                ) : (
+                                    <div
+                                        className={cn(
+                                            "w-full h-full flex flex-col items-center justify-center gap-1 transition-all cursor-pointer group/slot",
+                                            (activeSlot?.pageId === targetPage.id && activeSlot?.index === index)
+                                                ? "bg-catalog-accent/20 opacity-100 ring-4 ring-catalog-accent/30 text-catalog-accent"
+                                                : "opacity-20 hover:opacity-60 bg-slate-50 shadow-inner"
+                                        )}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setActiveSlot({ pageId: targetPage.id, index });
+                                        }}
+                                    >
+                                        <div className="w-12 h-12 rounded-full border-2 border-dashed border-catalog-accent/30 flex items-center justify-center group-hover/slot:scale-110 transition-transform">
+                                            <Plus className="w-6 h-6" />
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-[0.2em]">Fill Slot</span>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                    {targetPage.assets.filter(a => a.slotId === undefined).map((asset: Asset) => (
+                        <AssetRenderer
+                            key={asset.id} asset={asset} pageId={targetPage.id} side={targetSide} isSelected={selectedAssetId === asset.id} isEditing={editingAssetId === asset.id}
+                            onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
+                            onDoubleClick={() => {
+                                if (asset.type === 'text') setEditingAssetId(asset.id);
+                                else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
+                                else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
+                                else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
+                            }}
+                            onUpdateText={handleTextUpdate} onEditEnd={() => setEditingAssetId(null)} onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)} onSnap={handleSnap} onSnapEnd={handleSnapEnd} zoom={zoom} editorMode={editorMode} setEditorMode={setEditorMode} canvasRef={canvasRef} otherPage={targetSide === 'left' ? nextPage : page} onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)} onOpenMapEditor={onOpenMapEditor} onOpenLocationEditor={onOpenLocationEditor}
+                        />
+                    ))}
+                </>
+            );
+        }
+        return [...targetPage.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset: Asset) => (
+            <AssetRenderer
+                key={asset.id} asset={asset} pageId={targetPage.id} side={targetSide} isSelected={selectedAssetId === asset.id} isEditing={editingAssetId === asset.id}
+                onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
+                onDoubleClick={() => {
+                    if (asset.type === 'text') setEditingAssetId(asset.id);
+                    else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
+                    else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
+                    else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
+                }}
+                onUpdateText={handleTextUpdate} onEditEnd={() => setEditingAssetId(null)} onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)} onSnap={handleSnap} onSnapEnd={handleSnapEnd} zoom={zoom} editorMode={editorMode} setEditorMode={setEditorMode} canvasRef={canvasRef} otherPage={targetSide === 'left' ? nextPage : page} onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)} onOpenMapEditor={onOpenMapEditor} onOpenLocationEditor={onOpenLocationEditor}
+            />
+        ));
+    };
 
-            {/* Right Page Background (Spread View) */}
+    return (
+        <div onMouseDown={handleCanvasClick} onDragOver={(e) => e.preventDefault()} onDrop={handleDrop} className="relative transition-all duration-300 select-none editor-canvas" data-page-id={page.id} data-side={side} style={getSizeStyles()} ref={canvasRef}>
+            {page.backgroundImage && (
+                <img src={page.backgroundImage} alt="" className={cn("absolute top-0 bottom-0 object-cover pointer-events-none z-0", nextPage ? "left-0 w-1/2" : "inset-0 w-full h-full")} style={{ opacity: page.backgroundOpacity ?? 1 }} />
+            )}
             {nextPage && nextPage.backgroundImage && (
-                <img
-                    src={nextPage.backgroundImage}
-                    alt=""
-                    className="absolute top-0 bottom-0 left-1/2 w-1/2 object-cover pointer-events-none z-0"
-                    style={{ opacity: nextPage.backgroundOpacity ?? 1 }}
-                />
+                <img src={nextPage.backgroundImage} alt="" className="absolute top-0 bottom-0 left-1/2 w-1/2 object-cover pointer-events-none z-0" style={{ opacity: nextPage.backgroundOpacity ?? 1 }} />
             )}
             {album?.config?.gridSettings?.visible && (
                 <div className="absolute inset-0 pointer-events-none z-0 flex px-0">
@@ -908,34 +749,32 @@ export function EditorCanvas({
                 </div>
             )}
             {contextMenu && <ContextMenu x={contextMenu.x} y={contextMenu.y} onAction={handleContextAction} onClose={() => setContextMenu(null)} />}
-            {[...page.assets].sort((a: Asset, b: Asset) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset: Asset) => (
-                <AssetRenderer
-                    key={asset.id} asset={asset} pageId={page.id} side={nextPage ? 'left' : side} isSelected={selectedAssetId === asset.id} isEditing={editingAssetId === asset.id}
-                    onClick={(e: React.MouseEvent) => handleAssetClick(asset.id, page.id, e)} onDoubleClick={() => setEditingAssetId(asset.id)} onUpdateText={handleTextUpdate} onEditEnd={() => setEditingAssetId(null)}
-                    onContextMenu={(e: React.MouseEvent) => handleContextMenu(e, asset.id, page.id)} onSnap={(rect) => { const result = findSnappingPoints(rect); setGuides(result.guides); return result; }}
-                    onSnapEnd={() => setGuides([])} zoom={zoom} editorMode={editorMode} setEditorMode={setEditorMode} canvasRef={canvasRef} otherPage={nextPage}
-                    onDrop={(e) => handleAssetDrop(asset.id, page.id, e)}
-                    onOpenMapEditor={onOpenMapEditor}
-                    onOpenLocationEditor={onOpenLocationEditor}
-                />
-            ))}
-            {nextPage && [...nextPage.assets].sort((a: Asset, b: Asset) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset: Asset) => (
-                <AssetRenderer
-                    key={asset.id} asset={asset} pageId={nextPage.id} side="right" isSelected={selectedAssetId === asset.id} isEditing={editingAssetId === asset.id}
-                    onClick={(e: React.MouseEvent) => handleAssetClick(asset.id, nextPage.id, e)} onDoubleClick={() => setEditingAssetId(asset.id)} onUpdateText={(id, content) => updateAsset(nextPage.id, id, { content })} onEditEnd={() => setEditingAssetId(null)}
-                    onContextMenu={(e: React.MouseEvent) => handleContextMenu(e, asset.id, nextPage.id)} onSnap={(rect) => { const result = findSnappingPoints(rect); setGuides(result.guides); return result; }}
-                    onSnapEnd={() => setGuides([])} zoom={zoom} editorMode={editorMode} setEditorMode={setEditorMode} canvasRef={canvasRef} otherPage={page}
-                    onDrop={(e) => handleAssetDrop(asset.id, nextPage.id, e)}
-                    onOpenMapEditor={onOpenMapEditor}
-                    onOpenLocationEditor={onOpenLocationEditor}
-                />
-            ))}
-            {guides.map((guide, i) => (
-                <div key={i} className="absolute bg-catalog-accent/50 z-[100] pointer-events-none" style={{ left: guide.type === 'v' ? guide.pos : 0, top: guide.type === 'h' ? guide.pos : 0, width: guide.type === 'v' ? '1px' : '100%', height: guide.type === 'h' ? '1px' : '100%' }} />
+            {renderPageAssets(page, nextPage ? 'left' : side)}
+            {nextPage && !page.isSpreadLayout && renderPageAssets(nextPage, 'right')}
+            {guides.length > 0 && guides.map((guide, i) => (
+                <div key={i} className="absolute bg-catalog-accent/40 z-[100] pointer-events-none" style={{ left: guide.type === 'v' ? `${guide.pos}%` : 0, top: guide.type === 'h' ? `${guide.pos}%` : 0, width: guide.type === 'v' ? '1px' : '100%', height: guide.type === 'h' ? '1px' : '100%', boxShadow: '0 0 4px rgba(194, 65, 12, 0.4)' }} />
             ))}
             {page.assets.length === 0 && (!nextPage || nextPage.assets.length === 0) && (
-                <div className="absolute inset-0 flex items-center justify-center"><div className="text-center text-catalog-text/40"><p className="text-lg font-serif italic">Drop images here</p><p className="text-sm mt-2">Or select from the sidebar</p></div></div>
+                <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center text-catalog-text/40 animate-in fade-in zoom-in duration-700">
+                        <Grid className="w-8 h-8 mx-auto mb-4 opacity-20" />
+                        <p className="text-lg font-serif italic text-catalog-text/60">Ready to Create?</p>
+                        <p className="text-xs mt-2 uppercase tracking-widest font-bold">Pick a Layout from the Sidebar</p>
+                        <p className="text-[10px] mt-1 opacity-60 italic">or drop your first image here</p>
+                    </div>
+                </div>
+            )}
+            {focalEditorAsset && (
+                <FocalPointEditorModal
+                    asset={focalEditorAsset.asset}
+                    pageId={focalEditorAsset.pageId}
+                    onSave={(updates) => {
+                        updateAsset(focalEditorAsset.pageId, focalEditorAsset.asset.id, updates);
+                        setFocalEditorAsset(null);
+                    }}
+                    onClose={() => setFocalEditorAsset(null)}
+                />
             )}
         </div>
     );
-}
+});

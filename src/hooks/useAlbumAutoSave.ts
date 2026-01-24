@@ -22,6 +22,8 @@ export function useAlbumAutoSave() {
             } else {
                 setStatus('unsaved');
                 console.error('[AutoSave] Save failed', result.error);
+                // Alert the user so they don't continue working on a "ghost" session
+                alert(`Auto-save failed: ${result.error}. Your changes may not be saved. Please try saving manually or refresh the page.`);
             }
         }, 5000), // 5 second debounce to not overwhelm during active editing
         [saveAlbum]

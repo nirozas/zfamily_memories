@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
+import { AlbumProvider } from './contexts/AlbumContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AppLayout } from './components/layout/AppLayout';
 import { Login } from './pages/Login';
@@ -23,84 +24,86 @@ function App() {
   return (
     <Router>
       <AuthProvider>
-        <Routes>
-          {/* Public Routes */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<SignUp />} />
+        <AlbumProvider>
+          <Routes>
+            {/* Public Routes */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<SignUp />} />
 
-          {/* Album Editor - Full screen, no sidebar */}
-          <Route
-            path="/album/:id/edit"
-            element={
-              <ProtectedRoute>
-                <AlbumEditor />
-              </ProtectedRoute>
-            }
-          />
+            {/* Album Editor - Full screen, no sidebar */}
+            <Route
+              path="/album/:id/edit"
+              element={
+                <ProtectedRoute>
+                  <AlbumEditor />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Album Viewer - Full screen flip-book */}
-          <Route
-            path="/album/:id"
-            element={
-              <ProtectedRoute>
-                <AlbumView />
-              </ProtectedRoute>
-            }
-          />
+            {/* Album Viewer - Full screen flip-book */}
+            <Route
+              path="/album/:id"
+              element={
+                <ProtectedRoute>
+                  <AlbumView />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Shared Album View - Public */}
-          <Route path="/shared/:token" element={<SharedAlbumView />} />
-          <Route path="/share/:token" element={<SharedEventView />} />
+            {/* Shared Album View - Public */}
+            <Route path="/shared/:token" element={<SharedAlbumView />} />
+            <Route path="/share/:token" element={<SharedEventView />} />
 
-          {/* Dedicated Event Reading View - No Layout, open in new tab */}
-          <Route
-            path="/event/:id/view"
-            element={
-              <ProtectedRoute>
-                <EventView />
-              </ProtectedRoute>
-            }
-          />
+            {/* Dedicated Event Reading View - No Layout, open in new tab */}
+            <Route
+              path="/event/:id/view"
+              element={
+                <ProtectedRoute>
+                  <EventView />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Event Editor - Standalone */}
-          <Route
-            path="/event/new"
-            element={
-              <ProtectedRoute>
-                <EventEditor />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/event/:id/edit"
-            element={
-              <ProtectedRoute>
-                <EventEditor />
-              </ProtectedRoute>
-            }
-          />
+            {/* Event Editor - Standalone */}
+            <Route
+              path="/event/new"
+              element={
+                <ProtectedRoute>
+                  <EventEditor />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/event/:id/edit"
+              element={
+                <ProtectedRoute>
+                  <EventEditor />
+                </ProtectedRoute>
+              }
+            />
 
-          {/* Protected Routes */}
-          <Route
-            path="/*"
-            element={
-              <ProtectedRoute>
-                <AppLayout>
-                  <Routes>
-                    <Route path="/" element={<Home />} />
-                    <Route path="/library" element={<Catalog />} />
-                    <Route path="/media" element={<MediaLibrary />} />
-                    <Route path="/events" element={<Events />} />
-                    <Route path="/calendar" element={<Calendar />} />
-                    <Route path="/map" element={<HeritageMap />} />
-                    <Route path="/profile" element={<Profile />} />
-                    <Route path="/settings" element={<Settings />} />
-                  </Routes>
-                </AppLayout>
-              </ProtectedRoute>
-            }
-          />
-        </Routes>
+            {/* Protected Routes */}
+            <Route
+              path="/*"
+              element={
+                <ProtectedRoute>
+                  <AppLayout>
+                    <Routes>
+                      <Route path="/" element={<Home />} />
+                      <Route path="/library" element={<Catalog />} />
+                      <Route path="/media" element={<MediaLibrary />} />
+                      <Route path="/events" element={<Events />} />
+                      <Route path="/calendar" element={<Calendar />} />
+                      <Route path="/map" element={<HeritageMap />} />
+                      <Route path="/profile" element={<Profile />} />
+                      <Route path="/settings" element={<Settings />} />
+                    </Routes>
+                  </AppLayout>
+                </ProtectedRoute>
+              }
+            />
+          </Routes>
+        </AlbumProvider>
       </AuthProvider>
     </Router>
   );

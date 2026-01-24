@@ -77,20 +77,24 @@ export function SharedAlbumView() {
                         pageNumber: p.page_number,
                         layoutTemplate: (p.template_id || 'freeform') as any,
                         backgroundColor: p.background_color,
-                        assets: (p.assets as any[] || []).map((a: any) => ({
-                            id: a.id,
-                            type: a.asset_type,
-                            url: a.url,
-                            x: a.config?.x || 0,
-                            y: a.config?.y || 0,
-                            width: a.config?.width || 100,
-                            height: a.config?.height || 100,
-                            rotation: a.config?.rotation || 0,
-                            scale: a.config?.scale,
-                            zIndex: a.z_index,
-                            filter: a.config?.filter,
-                            content: a.config?.content || '',
-                        })),
+                        assets: (p.assets as any[] || []).map((a: any) => {
+                            let restoredType = a.asset_type;
+                            if (a.config?.originalType) {
+                                restoredType = a.config.originalType;
+                            } else if (a.asset_type === 'image' && a.config?.mapConfig) {
+                                restoredType = 'map';
+                            } else if (a.asset_type === 'text' && (a.config?.location || a.config?.isLocation)) {
+                                restoredType = 'location';
+                            }
+
+                            return {
+                                id: a.id,
+                                type: restoredType,
+                                url: a.url,
+                                zIndex: a.z_index || 0,
+                                ...(a.config || {})
+                            };
+                        }),
                     })),
                 };
 

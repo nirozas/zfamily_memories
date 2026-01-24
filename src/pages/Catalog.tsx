@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Grid, List, PlusCircle } from 'lucide-react';
-import { AlbumCard } from '../components/catalog/AlbumCard';
+import { AlbumsGrid } from '../components/catalog/AlbumsGrid';
 import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Button } from '../components/ui/Button';
@@ -30,50 +30,83 @@ export function Catalog() {
             return;
         }
         try {
-            const { data, error } = await supabase
+            // 1. Fetch All Albums for this Family
+            const { data: albumData, error: albumError } = await supabase
                 .from('albums')
-                .select(`
-                    *,
-                    pages (
-                        id,
-                        page_number,
-                        template_id,
-                        assets (
-                            id,
-                            url,
-                            asset_type
-                        )
-                    )
-                `)
+                .select('*')
                 .eq('family_id', familyId as string)
                 .order('created_at', { ascending: false });
 
-            if (error) throw error;
+            if (albumError) {
+                console.error('[fetchAlbums] Album load failed:', albumError);
+                throw albumError;
+            }
 
-            // Map DB structure to UI structure for AlbumCard
-            const formattedAlbums = (data || []).map((album: any) => ({
+            if (!albumData || albumData.length === 0) {
+                setAlbums([]);
+                return;
+            }
+
+            // 2. Fetch All Pages for these Albums to populate covers
+            const albumIds = (albumData as any[]).map(a => a.id);
+
+            // [REFRESH 2026-01-24] Using * to handle missing 'id' column gracefully
+            const { data: pagesData, error: pagesError } = await (supabase.from('album_pages') as any)
+                .select('*')
+                .in('album_id', albumIds);
+
+            if (pagesError) {
+                console.error('[fetchAlbums] Critical Page Sync Error:', pagesError);
+                // Fallback to empty if table fails
+            }
+
+            // 3. Merge & Formatted
+            const pagesByAlbum = (pagesData || []).reduce((acc: any, page: any) => {
+                if (!acc[page.album_id]) acc[page.album_id] = [];
+                acc[page.album_id].push(page);
+                return acc;
+            }, {});
+
+            const formattedAlbums = albumData.map((album: any) => ({
                 ...album,
                 cover_url: album.cover_image_url,
-                pages: album.pages?.map((page: any) => ({
-                    ...page,
-                    layoutTemplate: page.template_id,
-                    assets: page.assets?.map((asset: any) => ({
-                        ...asset,
-                        type: asset.asset_type
-                    }))
-                })).sort((a: any, b: any) => a.page_number - b.page_number) // Ensure pages are ordered
+                pages: (pagesByAlbum[album.id] || []).sort((a: any, b: any) => (a.page_number || 0) - (b.page_number || 0))
             }));
 
             setAlbums(formattedAlbums);
         } catch (err) {
-            console.error('Error fetching albums:', err);
+            console.error('[fetchAlbums] Fatal Error:', err);
         } finally {
             setLoading(false);
         }
     };
 
+
     useEffect(() => {
         fetchAlbums();
+
+        // 2. Real-Time Sync: Subscribe to album and page changes
+        if (!familyId) return;
+
+        const albumSub = supabase
+            .channel('public:albums')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'albums', filter: `family_id=eq.${familyId}` }, () => {
+                fetchAlbums();
+            })
+            .subscribe();
+
+        const pageSub = supabase
+            .channel('public:album_pages')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'album_pages' }, () => {
+                // We refresh everything to maintain layout consistency
+                fetchAlbums();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(albumSub);
+            supabase.removeChannel(pageSub);
+        };
     }, [familyId]);
 
     const handleEditAlbum = (id: string) => {
@@ -103,7 +136,35 @@ export function Catalog() {
         setSharingAlbumId(id);
     };
 
+    const handleDuplicateAlbum = async (id: string) => {
+        try {
+            console.log('[Duplicate] Starting server-side clone for album:', id);
+
+            const { data: newAlbumId, error: rpcError } = await (supabase as any)
+                .rpc('duplicate_album_v2', {
+                    source_album_id: id,
+                    new_title: `Copy of ${albums.find(a => a.id === id)?.title || 'Album'}`
+                });
+
+            if (rpcError) {
+                console.error('[Duplicate] RPC Error:', rpcError);
+                throw rpcError;
+            }
+
+            console.log('[Duplicate] Success. New Album ID:', newAlbumId);
+            await fetchAlbums();
+        } catch (err: any) {
+            console.error('[Duplicate] Fatal Process Error:', err);
+            const msg = err?.message || 'Unknown database rejection';
+            alert(`Failed to duplicate archive: ${msg}`);
+        }
+    };
+
+
+
+
     const handlePrintAlbum = async (id: string) => {
+
         const album = albums.find(a => a.id === id);
         if (album) {
             try {
@@ -249,29 +310,18 @@ export function Catalog() {
                 </div>
             </div>
 
-            {/* Albums Grid */}
-            <div className={cn(
-                viewMode === 'grid'
-                    ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-                    : "space-y-4"
-            )}>
-                {filteredAlbums.map((album) => (
-                    <AlbumCard
-                        key={album.id}
-                        {...album}
-                        onEdit={() => handleEditAlbum(album.id)}
-                        onDelete={() => handleDeleteAlbum(album.id)}
-                        onShare={() => handleShareAlbum(album.id)}
-                        onPrint={() => handlePrintAlbum(album.id)}
-                    />
-                ))}
-            </div>
+            {/* Albums Grid Section */}
+            <AlbumsGrid
+                albums={filteredAlbums}
+                viewMode={viewMode}
+                onEdit={handleEditAlbum}
+                onDelete={handleDeleteAlbum}
+                onDuplicate={handleDuplicateAlbum}
+                onShare={handleShareAlbum}
+                onPrint={handlePrintAlbum}
+            />
 
-            {filteredAlbums.length === 0 && (
-                <div className="text-center py-12">
-                    <p className="text-catalog-text/50 font-serif italic">No albums found</p>
-                </div>
-            )}
+
 
             <CreateAlbumModal
                 isOpen={isCreateModalOpen}

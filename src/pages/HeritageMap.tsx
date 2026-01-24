@@ -79,7 +79,7 @@ export function HeritageMap() {
             // Fetch Events
             const { data: eventsData, error: eventsError } = await supabase
                 .from('events')
-                .select('id, title, location, country, event_date, category, participants, geotag, cover_image_path')
+                .select('id, title, location, country, event_date, category, participants, geotag, latitude, longitude, cover_image_path')
                 .eq('family_id', familyId);
 
             if (eventsError) console.error('Error fetching events:', eventsError);
@@ -100,9 +100,20 @@ export function HeritageMap() {
                         try { tag = JSON.parse(tag); } catch (err) { tag = null; }
                     }
 
-                    const lat = tag?.lat ?? tag?.latitude;
-                    const lng = tag?.lng ?? tag?.lon ?? tag?.longitude;
+                    // Coordinate Support: JSON Object, GeoJSON Array, or Legacy Columns
+                    let lat = null, lng = null;
+                    if (Array.isArray(tag) && tag.length === 2) {
+                        [lng, lat] = tag; // GeoJSON is [lng, lat]
+                    } else if (tag && typeof tag === 'object') {
+                        lat = tag.lat ?? tag.latitude;
+                        lng = tag.lng ?? tag.lon ?? tag.longitude;
+                    }
 
+                    // Fallback to root columns if json failed
+                    if ((!lat || !lng) && e.latitude && e.longitude) {
+                        lat = e.latitude;
+                        lng = e.longitude;
+                    }
                     return {
                         id: e.id,
                         type: 'event' as const,
@@ -325,7 +336,6 @@ export function HeritageMap() {
 
         map.on('load', () => {
             map.resize();
-            // Add 3D buildings if they exist in the tileset
             if (!map.getLayer('3d-buildings')) {
                 map.addLayer({
                     'id': '3d-buildings',
@@ -349,6 +359,11 @@ export function HeritageMap() {
                     }
                 });
             }
+
+            // Fix "Invisible Map": Force resize check after render
+            setTimeout(() => {
+                map.resize();
+            }, 200);
         });
 
         // Handle container resize
@@ -392,82 +407,92 @@ export function HeritageMap() {
                 return colors[Math.abs(hash) % colors.length];
             };
 
-            filteredItems.forEach((item, index) => {
-                const el = document.createElement('div');
-                el.className = 'custom-marker transition-transform duration-300 hover:scale-125 z-10';
+            // Group items by exact coordinates
+            const groupedLocations: Record<string, MapItem[]> = {};
+            filteredItems.forEach(item => {
+                const key = `${item.lat},${item.lng}`;
+                if (!groupedLocations[key]) groupedLocations[key] = [];
+                groupedLocations[key].push(item);
+            });
 
-                // Use country-based pastel color
-                const color = getCountryColor(item.country);
+            Object.entries(groupedLocations).forEach(([key, itemsAtLocation]) => {
+                const [lat, lng] = key.split(',').map(Number);
+                const el = document.createElement('div');
+                el.className = 'custom-marker transition-transform duration-300 hover:scale-110 z-10';
+
+                // Use country-based pastel color from the first item
+                const color = getCountryColor(itemsAtLocation[0].country);
+                const count = itemsAtLocation.length;
 
                 // Marker HTML
                 el.innerHTML = `
-                    <div class="relative flex items-center justify-center cursor-pointer">
-                        <div class="w-6 h-6 rounded-full shadow-md border-2 border-white flex items-center justify-center text-[10px] font-bold text-gray-700 hover:brightness-95 transition-all" style="background-color: ${color}">
-                            ${index + 1}
+                    <div class="relative flex items-center justify-center cursor-pointer group">
+                        <div class="w-8 h-8 rounded-full shadow-2xl border-4 border-white flex items-center justify-center text-[11px] font-black text-white hover:brightness-110 transition-all transform hover:rotate-12" style="background-color: ${color}; box-shadow: 0 4px 15px rgba(0,0,0,0.15)">
+                            ${count > 1 ? '' : '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zM7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 2.88-2.88 7.19-5 9.88C9.92 16.19 7 11.88 7 9z"/><circle cx="12" cy="9" r="2.5"/></svg>'}
                         </div>
+                        ${count > 1 ? `<div class="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white text-[9px] flex items-center justify-center rounded-full font-black border-2 border-white shadow-sm z-20">${count}</div>` : ''}
                     </div>
                 `;
 
-                // Popup content
+                // Popup content - Multi-window scrollable list
                 const popupContent = document.createElement('div');
-                popupContent.className = 'p-3 min-w-[200px] cursor-pointer group';
-                popupContent.innerHTML = `
-                    <div class="relative w-full h-24 bg-gray-100 overflow-hidden group-hover:opacity-90 transition-opacity">
-                        ${item.coverImage
-                        ? `<img src="${item.coverImage}" class="w-full h-full object-cover" alt="${item.title}" />`
+                popupContent.className = 'flex flex-col gap-3 p-4 max-h-[400px] overflow-y-auto w-[320px] scrollbar-thin scrollbar-thumb-catalog-accent/20';
+
+                let itemsHtml = itemsAtLocation.map(item => `
+                    <div class="group/item relative bg-white rounded-2xl overflow-hidden border border-catalog-accent/5 hover:border-catalog-accent/40 shadow-sm hover:shadow-xl transition-all duration-300 cursor-pointer mb-2" onclick="window.location.href='${item.link}'">
+                        <div class="relative h-28 bg-gray-100 overflow-hidden">
+                            ${item.coverImage
+                        ? `<img src="${item.coverImage}" class="w-full h-full object-cover transition-transform duration-700 group-hover/item:scale-110" alt="${item.title}" />`
                         : `<div class="w-full h-full flex items-center justify-center bg-catalog-stone/10 text-catalog-text/20">
-                                ${item.type === 'album' ? '<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>'
+                                    ${item.type === 'album' ? '<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path></svg>'
                             : '<svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>'}
-                               </div>`
+                                   </div>`
                     }
-                        <div class="absolute top-2 left-2 flex items-center gap-1.5">
-                            <span class="text-[9px] font-black text-white uppercase tracking-widest bg-catalog-accent/90 backdrop-blur-sm px-1.5 py-0.5 rounded shadow-sm">
-                                ${item.type === 'album' ? 'Album' : 'Moment'}
-                            </span>
+                            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+                                <span class="text-[8px] font-black text-white uppercase tracking-widest bg-black/40 backdrop-blur-md px-2 py-1 rounded-full border border-white/20 shadow-lg">
+                                    ${item.type === 'album' ? 'Archive' : 'Story'}
+                                </span>
+                            </div>
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover/item:opacity-100 transition-opacity" />
+                        </div>
+                        <div class="p-4 bg-white">
+                            <h3 class="text-xs font-serif italic text-catalog-text mb-1 group-hover/item:text-catalog-accent transition-colors line-clamp-2">${item.title}</h3>
+                            <div class="flex items-center gap-1.5 text-[8px] text-catalog-text/40 font-bold uppercase tracking-widest border-t border-catalog-accent/5 mt-2 pt-2">
+                                <span>${new Date(item.date).toLocaleDateString()}</span>
+                                <span>•</span>
+                                <span class="truncate">${item.location}</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="p-3">
-                        <h3 class="text-sm font-serif italic text-catalog-text mb-1 leading-tight group-hover:text-catalog-accent transition-colors line-clamp-2">${item.title}</h3>
-                        <div class="flex items-center gap-1.5 text-[9px] text-catalog-text/60">
-                             <span className="font-sans font-bold uppercase tracking-tighter">${new Date(item.date).toLocaleDateString()}</span>
+                `).join('');
+
+                popupContent.innerHTML = `
+                    <div class="flex flex-col">
+                        <div class="px-1 pb-4 mb-2 border-b border-catalog-accent/10">
+                            <h2 class="text-[10px] font-black text-catalog-accent uppercase tracking-[0.2em]">${itemsAtLocation[0].location || 'Location Details'}</h2>
+                            <p class="text-[9px] text-catalog-text/40 font-serif italic">${count} memories preserved here</p>
                         </div>
-                        <p class="text-[9px] text-catalog-text/40 mt-1 italic truncate">${item.location}</p>
+                        ${itemsHtml}
                     </div>
                 `;
-                popupContent.onclick = () => {
-                    navigate(item.link);
-                };
 
                 const popup = new maplibregl.Popup({
                     offset: 15,
                     closeButton: false,
-                    maxWidth: '300px',
+                    maxWidth: '340px',
                     className: 'custom-map-popup'
                 }).setDOMContent(popupContent);
 
                 const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
-                    .setLngLat([item.lng, item.lat])
+                    .setLngLat([lng, lat])
                     .addTo(map);
 
-                // Hover behavior
-                el.addEventListener('mouseenter', () => {
-                    // Always show popup on hover
-                    popup.addTo(map);
-                });
-
-                el.addEventListener('mouseleave', () => {
-                    // Only remove if this is NOT the selected item
-                    if (selectedItemRef.current?.id !== item.id) {
-                        popup.remove();
-                    }
-                });
-
-                // Click behavior
+                // Open popup on click AND sync React State
                 el.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    setSelectedItem(item);
-                    // Force popup to stay
                     popup.addTo(map);
+                    setSelectedItem(itemsAtLocation[0]); // Sync external component state
+                    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 8), duration: 1000 });
                 });
 
                 markersRef.current.push(marker);
@@ -755,7 +780,7 @@ export function HeritageMap() {
             </div >
 
             {/* Map Container */}
-            < div ref={mapContainerRef} className="flex-1 w-full h-full relative" >
+            <div ref={mapContainerRef} className="flex-1 w-full h-full relative block" style={{ minHeight: '500px' }} >
                 {
                     items.length === 0 && !loading && (
                         <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
@@ -772,6 +797,9 @@ export function HeritageMap() {
                     )
                 }
             </div >
+            <style>{`
+                .maplibregl-popup { z-index: 9999 !important; }
+            `}</style>
 
             {/* Custom InfoWindow (Popup) */}
             {

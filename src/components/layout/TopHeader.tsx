@@ -3,9 +3,12 @@ import { NavLink, Link } from 'react-router-dom';
 import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, ChevronDown, LogOut, MapPin, Image as ImageIcon, Clock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
+import { useAlbum } from '../../contexts/AlbumContext';
+import { CloudUpload, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export function TopHeader() {
     const { user, signOut } = useAuth();
+    const { saveStatus } = useAlbum();
     const [isOpen, setIsOpen] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -97,6 +100,34 @@ export function TopHeader() {
                                     <span className="font-sans tracking-wide">Sign Out</span>
                                 </button>
                             </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Save Status Indicator */}
+                <div className="hidden md:flex items-center gap-2 px-4 py-1.5 rounded-full bg-catalog-stone/5 border border-catalog-accent/5">
+                    {saveStatus === 'saving' && (
+                        <div className="flex items-center gap-2 text-catalog-accent animate-pulse">
+                            <CloudUpload className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Saving...</span>
+                        </div>
+                    )}
+                    {saveStatus === 'saved' && (
+                        <div className="flex items-center gap-2 text-green-600 animate-in fade-in duration-500">
+                            <CheckCircle2 className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Sync Complete</span>
+                        </div>
+                    )}
+                    {saveStatus === 'error' && (
+                        <div className="flex items-center gap-2 text-red-500">
+                            <AlertCircle className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest">Sync Error</span>
+                        </div>
+                    )}
+                    {saveStatus === 'idle' && (
+                        <div className="flex items-center gap-2 text-catalog-text/20">
+                            <CloudUpload className="w-4 h-4" />
+                            <span className="text-[10px] font-black uppercase tracking-widest italic opacity-50 font-mono">Standby</span>
                         </div>
                     )}
                 </div>
