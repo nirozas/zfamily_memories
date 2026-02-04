@@ -32,6 +32,62 @@ interface AssetRendererProps {
     isInSlot?: boolean;
 }
 
+const SlotRenderer = memo(function SlotRenderer({
+    box, index, pageId, targetSide, nextPage, isSpreadLayout, handleAssetDrop, onSelect
+}: any) {
+    const [isDragOver, setIsDragOver] = useState(false);
+    const { showLayoutOutlines } = useAlbum();
+
+    return (
+        <div
+            className={cn(
+                "absolute group transition-all duration-300 rounded-sm overflow-hidden",
+                !showLayoutOutlines && !isDragOver && "border-transparent",
+                (showLayoutOutlines || isDragOver) && "border-2 border-dashed border-[#4A90E2]/30 bg-[#4A90E2]/5",
+                isDragOver && "bg-catalog-accent/20 border-catalog-accent scale-[1.02] z-50 shadow-xl"
+            )}
+            onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsDragOver(false);
+                handleAssetDrop(`slot-${index}`, pageId, e);
+            }}
+            style={{
+                top: `${box.top}%`,
+                left: `${targetSide === 'right' ? box.left + 100 : box.left}%`,
+                width: `${(nextPage && !isSpreadLayout) ? box.width / 2 : box.width}%`,
+                height: `${box.height}%`,
+                zIndex: box.zIndex || 1
+            }}
+            onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+            }}
+        >
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+                <div className={cn(
+                    "p-3 rounded-full transition-all duration-500",
+                    isDragOver ? "bg-white scale-110 shadow-lg" : "bg-catalog-accent/5 group-hover:bg-catalog-accent/10"
+                )}>
+                    <Plus className={cn(
+                        "w-5 h-5 transition-all",
+                        isDragOver ? "text-catalog-accent rotate-90" : "text-catalog-accent/20 group-hover:text-catalog-accent/40"
+                    )} />
+                </div>
+                {!isDragOver && (
+                    <span className="text-[9px] font-black text-catalog-text/20 group-hover:text-catalog-text/40 uppercase tracking-[0.2em]">Fill Frame</span>
+                )}
+            </div>
+        </div>
+    );
+});
+
 const AssetRenderer = memo(function AssetRenderer({
     asset, isSelected, onClick, onDoubleClick,
     onContextMenu, pageId, side = 'single',
@@ -195,6 +251,11 @@ const AssetRenderer = memo(function AssetRenderer({
                     }}
                     onDoubleClick={onDoubleClick}
                     onContextMenu={onContextMenu}
+                    onTextChange={(newText) => {
+                        if (asset.type === 'text') {
+                            updateAsset(pageId, asset.id, { content: newText });
+                        }
+                    }}
                 />
             </motion.div>
         </div>
@@ -215,12 +276,11 @@ export const EditorCanvas = memo(function EditorCanvas({
 }: EditorCanvasProps) {
     const {
         album, selectedAssetId, setSelectedAssetId, updateAsset,
-        removeAsset, duplicateAsset, updateAssetZIndex, addAsset, showLayoutOutlines,
-        activeSlot, setActiveSlot
+        removeAsset, duplicateAsset, updateAssetZIndex, addAsset,
+        setActiveSlot
     } = useAlbum();
 
     const canvasRef = useRef<HTMLDivElement>(null);
-    const [dragOverSlot, setDragOverSlot] = useState<{ pageId: string, index: number } | null>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, assetId?: string, pageId?: string } | null>(null);
     const [focalEditorAsset, setFocalEditorAsset] = useState<{ asset: Asset; pageId: string } | null>(null);
 
@@ -284,9 +344,35 @@ export const EditorCanvas = memo(function EditorCanvas({
             if (nextPage && dropX_Pct > 100) { targetPageId = nextPage.id; localX = dropX_Pct - 100; }
             const targetPageObj = targetPageId === page.id ? page : nextPage;
             if (targetPageObj) {
-                const hitAsset = targetPageObj.assets.filter(a => a.isPlaceholder).sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0)).find(a => localX >= a.x && localX <= (a.x + a.width) && dropY_Pct >= a.y && dropY_Pct <= (a.y + a.height));
-                if (hitAsset && (data.type === 'image' || data.type === 'video' || !data.type)) {
-                    updateAsset(targetPageId, hitAsset.id, { url: data.url, type: data.type || 'image', isPlaceholder: false, fitMode: 'cover' });
+                // 1. Check for placeholders
+                const hitPlaceholder = targetPageObj.assets.filter(a => a.isPlaceholder).sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0)).find(a => localX >= a.x && localX <= (a.x + a.width) && dropY_Pct >= a.y && dropY_Pct <= (a.y + a.height));
+                if (hitPlaceholder && (data.type === 'image' || data.type === 'video' || !data.type)) {
+                    updateAsset(targetPageId, hitPlaceholder.id, { url: data.url, type: data.type || 'image', isPlaceholder: false, fitMode: 'cover' });
+                    return;
+                }
+
+                // 2. Check for empty layout slots
+                const layoutCfg = targetPageObj.layoutConfig || [];
+                const hitSlot = layoutCfg.find((box: any, idx: number) => {
+                    if (box.role !== 'slot') return false;
+                    const isOccupied = targetPageObj.assets.some(a => a.slotId === idx);
+                    if (isOccupied) return false;
+                    return localX >= box.left && localX <= (box.left + box.width) &&
+                        dropY_Pct >= box.top && dropY_Pct <= (box.top + box.height);
+                });
+
+                if (hitSlot && (data.type === 'image' || data.type === 'video' || !data.type)) {
+                    const slotIdx = layoutCfg.indexOf(hitSlot);
+                    addAsset(targetPageId, {
+                        type: data.type || 'image',
+                        url: data.url,
+                        x: 0, y: 0, width: 100, height: 100,
+                        zIndex: 10,
+                        rotation: 0,
+                        slotId: slotIdx,
+                        isPlaceholder: false,
+                        fitMode: 'cover'
+                    });
                     return;
                 }
             }
@@ -373,28 +459,18 @@ export const EditorCanvas = memo(function EditorCanvas({
                                     isInSlot={true}
                                 />
                             ) : (
-                                <div
+                                <SlotRenderer
                                     key={`slot-empty-${targetPage.id}-${index}`}
-                                    className={cn("absolute group transition-all duration-300", !showLayoutOutlines && "border-transparent", showLayoutOutlines && "border-2 border-dashed border-[#4A90E2] bg-[#4A90E2]/5")}
-                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleAssetDrop(`slot-${index}`, targetPage.id, e); }}
-                                    style={{
-                                        top: `${box.top}%`,
-                                        left: `${targetSide === 'right' ? box.left + 100 : box.left}%`,
-                                        width: `${(nextPage && !targetPage.isSpreadLayout) ? box.width / 2 : box.width}%`,
-                                        height: `${box.height}%`,
-                                        zIndex: box.zIndex || 1
-                                    }}
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        setActiveSlot({ pageId: targetPage.id, index });
-                                    }}
-                                >
-                                    <div className="w-full h-full flex flex-col items-center justify-center gap-1">
-                                        <Plus className="w-6 h-6 opacity-20" />
-                                        <span className="text-[10px] opacity-40 uppercase font-bold">Fill</span>
-                                    </div>
-                                </div>
+                                    box={box}
+                                    index={index}
+                                    pageId={targetPage.id}
+                                    targetSide={targetSide}
+                                    zoom={zoom}
+                                    nextPage={nextPage}
+                                    isSpreadLayout={targetPage.isSpreadLayout}
+                                    handleAssetDrop={handleAssetDrop}
+                                    onSelect={() => setActiveSlot({ pageId: targetPage.id, index })}
+                                />
                             );
                         }
 
@@ -468,7 +544,11 @@ export const EditorCanvas = memo(function EditorCanvas({
                 key={asset.id} asset={asset} pageId={targetPage.id} side={targetSide} isSelected={selectedAssetId === asset.id}
                 onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
                 onDoubleClick={() => {
-                    if (asset.type === 'text') { /* Handled in context */ }
+                    if (asset.type === 'text') {
+                        // Focus the contentEditable div
+                        const el = document.querySelector(`[data-text-asset-id="${asset.id}"]`) as HTMLElement;
+                        if (el) el.focus();
+                    }
                     else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
                     else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
                     else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
@@ -483,10 +563,28 @@ export const EditorCanvas = memo(function EditorCanvas({
     return (
         <div onMouseDown={handleCanvasClick} onDragOver={(e) => e.preventDefault()} onDrop={handleDrop} className="relative transition-all duration-300 select-none editor-canvas" data-page-id={page.id} data-side={side} style={getSizeStyles()} ref={canvasRef}>
             {page.backgroundImage && (
-                <img src={page.backgroundImage} alt="" className={cn("absolute top-0 bottom-0 object-cover pointer-events-none z-0", nextPage ? "left-0 w-1/2" : "inset-0 w-full h-full")} style={{ opacity: page.backgroundOpacity ?? 1 }} />
+                <img
+                    src={page.backgroundImage || undefined}
+                    alt=""
+                    className={cn("absolute top-0 bottom-0 pointer-events-none z-0", nextPage ? "left-0 w-1/2" : "inset-0 w-full h-full")}
+                    style={{
+                        opacity: page.backgroundOpacity ?? 1,
+                        objectFit: page.backgroundScale === 'contain' ? 'contain' : (page.backgroundScale === 'stretch' ? 'fill' : 'cover'),
+                        objectPosition: page.backgroundPosition || 'center'
+                    }}
+                />
             )}
             {nextPage && nextPage.backgroundImage && (
-                <img src={nextPage.backgroundImage} alt="" className="absolute top-0 bottom-0 left-1/2 w-1/2 object-cover pointer-events-none z-0" style={{ opacity: nextPage.backgroundOpacity ?? 1 }} />
+                <img
+                    src={nextPage.backgroundImage || undefined}
+                    alt=""
+                    className="absolute top-0 bottom-0 left-1/2 w-1/2 pointer-events-none z-0"
+                    style={{
+                        opacity: nextPage.backgroundOpacity ?? 1,
+                        objectFit: nextPage.backgroundScale === 'contain' ? 'contain' : (nextPage.backgroundScale === 'stretch' ? 'fill' : 'cover'),
+                        objectPosition: nextPage.backgroundPosition || 'center'
+                    }}
+                />
             )}
             {album?.config?.gridSettings?.visible && (
                 <div className="absolute inset-0 pointer-events-none z-0 flex px-0">

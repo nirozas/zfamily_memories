@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useRef, useEffect, useState } from 'react';
 import { Maximize2, MapPin } from 'lucide-react';
 import { getTransformedUrl, getFilterStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
@@ -6,7 +6,8 @@ import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { cn } from '../../lib/utils';
 
 interface MediaRendererProps {
-    type: 'image' | 'video' | 'text' | 'map' | 'location';
+    id?: string;
+    type: 'image' | 'video' | 'text' | 'map' | 'location' | 'sticker' | 'ribbon' | 'frame';
     url?: string;
     content?: string;
     zoom?: number;
@@ -25,6 +26,7 @@ interface MediaRendererProps {
  * Ensures pixel-perfect consistency in cropping, scaling, and rotation.
  */
 export const MediaRenderer = memo(function MediaRenderer({
+    id,
     type,
     url,
     content,
@@ -39,18 +41,18 @@ export const MediaRenderer = memo(function MediaRenderer({
 }: MediaRendererProps) {
 
     const { url: resolvedUrl } = useGooglePhotosUrl(config.googlePhotoId, url);
-    const displayUrl = resolvedUrl || url || '';
+    const displayUrl = resolvedUrl || url || null;
 
-    // 1. Handle Images
-    if (type === 'image') {
+    // 1. Handle Images and Decorative Assets
+    if (type === 'image' || type === 'sticker' || type === 'ribbon' || type === 'frame') {
         return (
             <img
-                src={getTransformedUrl(displayUrl, config)}
+                src={getTransformedUrl(displayUrl || '', config)}
                 alt=""
                 className={cn("absolute w-full h-full shadow-none transition-all duration-300", className)}
                 crossOrigin="anonymous"
                 style={{
-                    objectFit: 'cover',
+                    objectFit: config.fitMode === 'fit' ? 'contain' : (config.fitMode === 'stretch' || config.fitMode === 'fill') ? 'fill' : 'cover',
                     objectPosition: `${focalX}% ${focalY}%`,
                     transform: `scale(${zoom}) rotate(${rotation}deg)`,
                     transformOrigin: `${focalX}% ${focalY}%`, // Pivot at the focal point
@@ -93,7 +95,7 @@ export const MediaRenderer = memo(function MediaRenderer({
                 onTouchStart={stopPropagation}
             >
                 <video
-                    src={displayUrl}
+                    src={displayUrl || undefined}
                     className="w-full h-full"
                     style={videoStyle}
                     playsInline
@@ -147,9 +149,62 @@ export const MediaRenderer = memo(function MediaRenderer({
     // 3. Handle Text
     if (type === 'text') {
         const style = config || {};
+        const isEmpty = !content || content === '<br>' || content === '';
+        const textRef = useRef<HTMLDivElement>(null);
+        const [isFocused, setIsFocused] = useState(false);
+
+        // Sync local DOM with external content prop only when NOT focused
+        // This prevents resets while user is actively typing or using spellcheck
+        useEffect(() => {
+            if (textRef.current && !isFocused) {
+                if (textRef.current.innerHTML !== (content || '')) {
+                    textRef.current.innerHTML = content || '';
+                }
+            }
+        }, [content, isFocused]);
+
         return (
             <div
-                className={cn("w-full h-full p-2 break-words overflow-hidden flex flex-col justify-center", className)}
+                ref={textRef}
+                id={id}
+                data-text-asset-id={id}
+                contentEditable={isEditable}
+                spellCheck={true}
+                suppressContentEditableWarning={true}
+                onFocus={() => setIsFocused(true)}
+                onInput={(e) => {
+                    if (isEditable && config.onTextChange) {
+                        const newContent = e.currentTarget.innerHTML;
+                        config.onTextChange(newContent);
+                    }
+                }}
+                onBlur={(e) => {
+                    setIsFocused(false);
+                    if (isEditable && config.onTextChange) {
+                        config.onTextChange(e.currentTarget.innerHTML);
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        // Allow enter for new lines
+                    }
+                    e.stopPropagation(); // Prevent global shortcuts while typing
+                }}
+                onMouseDown={(e) => {
+                    if (isEditable && isFocused) e.stopPropagation();
+                }}
+                onPointerDown={(e) => {
+                    // Only stop propagation if we are already focused and editing
+                    // This allows clicking to SELECT/DRAG the box initially, 
+                    // and double-clicking to enter "Mode B" (editing)
+                    if (isEditable && isFocused) e.stopPropagation();
+                }}
+                className={cn(
+                    "w-full h-full p-4 break-words overflow-hidden flex flex-col justify-center outline-none selection:bg-catalog-accent/20",
+                    isEditable && "cursor-text",
+                    isEmpty && isEditable && !isFocused && "after:content-['Insert_Story_Verse...'] after:opacity-20 after:italic",
+                    className
+                )}
                 style={{
                     fontFamily: style.fontFamily || 'Inter, sans-serif',
                     fontSize: style.fontSize || 16,
@@ -157,12 +212,12 @@ export const MediaRenderer = memo(function MediaRenderer({
                     color: style.textColor || style.color || 'inherit',
                     textAlign: (style.textAlign || 'center') as any,
                     textDecoration: style.textDecoration || 'none',
-                    lineHeight: style.lineHeight || 1.2,
+                    lineHeight: style.lineHeight || 1.4,
                     letterSpacing: (style.letterSpacing || 0) + 'px',
+                    whiteSpace: 'pre-wrap',
                     textShadow: style.textShadow || 'none',
                     backgroundColor: style.textBackgroundColor || 'transparent',
                 }}
-                dangerouslySetInnerHTML={{ __html: content || '' }}
             />
         );
     }

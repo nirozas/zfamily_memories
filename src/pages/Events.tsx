@@ -422,7 +422,7 @@ export function Events() {
     const canCreate = userRole === 'admin' || userRole === 'creator';
 
     return (
-        <div className="space-y-12 animate-fade-in w-full px-6 lg:px-12 pb-20">
+        <div className="min-h-screen bg-catalog-stone/5 font-inter px-6 lg:px-12 pb-20">
             <input
                 ref={eventCoverInputRef}
                 type="file"
@@ -430,32 +430,52 @@ export function Events() {
                 className="hidden"
                 onChange={handleUpdateEventCover}
             />
-            <section className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                <div>
-                    <h1 className="text-5xl font-serif italic text-catalog-text mb-3">The Hearth</h1>
-                    <p className="text-lg font-sans text-catalog-text/70 max-w-xl leading-relaxed">
-                        The heartbeat of your family's legacy. A chronological journey through the moments that matter most.
-                    </p>
-                </div>
-                <div className="flex flex-col sm:flex-row items-center gap-4">
-                    <FilterBar
-                        filters={filters}
-                        onFilterChange={setFilters}
-                        categories={categories}
-                        years={years}
-                        locations={locations}
-                        className="w-full sm:w-auto min-w-[300px]"
-                    />
-                    {canCreate && (
-                        <Button
-                            variant="primary"
-                            onClick={() => navigate('/event/new')}
-                            className="shadow-md hover:shadow-lg transition-all w-full sm:w-auto h-12"
-                        >
-                            <Plus className="w-5 h-5 mr-2" />
-                            Record Moment
-                        </Button>
-                    )}
+
+            {/* Cinematic Page Header */}
+            <section className="relative pt-24 pb-16 px-6 lg:px-12 overflow-hidden">
+                <div className="absolute top-0 left-0 w-full h-[500px] bg-gradient-to-b from-catalog-accent/5 to-transparent pointer-events-none" />
+
+                <div className="relative z-10 max-w-7xl mx-auto flex flex-col md:flex-row md:items-end justify-between gap-10">
+                    <motion.div
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.8, ease: [0.23, 1, 0.32, 1] }}
+                    >
+                        <h1 className="text-8xl md:text-9xl font-outfit font-black text-catalog-text mb-6 tracking-tighter filter blur-[0.5px]">
+                            The <span className="text-catalog-accent italic font-serif opacity-90">Archive</span>
+                        </h1>
+                        <p className="text-xl md:text-2xl font-light text-catalog-text/50 max-w-2xl leading-relaxed font-outfit uppercase tracking-widest">
+                            A chronological journey through the <span className="text-catalog-text/80 font-black">moments</span> that define your family's legacy.
+                        </p>
+                    </motion.div>
+
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.8, delay: 0.2 }}
+                        className="flex flex-col sm:flex-row items-center gap-6"
+                    >
+                        <div className="glass p-2 rounded-[2rem] shadow-2xl border border-white/40 flex items-center gap-2">
+                            <FilterBar
+                                filters={filters}
+                                onFilterChange={setFilters}
+                                categories={categories}
+                                years={years}
+                                locations={locations}
+                                className="border-none bg-transparent shadow-none"
+                            />
+                            {canCreate && (
+                                <Button
+                                    variant="primary"
+                                    onClick={() => navigate('/event/new')}
+                                    className="bg-catalog-accent text-white rounded-full px-8 h-12 font-black uppercase tracking-widest text-[10px] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 shrink-0"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                    Archive Moment
+                                </Button>
+                            )}
+                        </div>
+                    </motion.div>
                 </div>
             </section>
 
@@ -500,7 +520,6 @@ export function Events() {
                                 <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-4 gap-8 md:pl-14">
                                     {groupedEvents[year].map((event, index) => {
                                         const linkedAlbumId = linkedAlbums[event.id];
-                                        const titleColor = YEAR_COLORS[(event.title.length + index + yearIndex) % YEAR_COLORS.length];
 
                                         // PICK PRESENTATION IMAGE
                                         let currentContent: any = event.content;
@@ -532,137 +551,115 @@ export function Events() {
                                         return (
                                             <motion.div
                                                 key={event.id}
-                                                initial={{ opacity: 0, y: 20 }}
+                                                initial={{ opacity: 0, y: 30 }}
                                                 animate={{ opacity: 1, y: 0 }}
-                                                transition={{ duration: 0.4 }}
+                                                transition={{ duration: 0.6, delay: index * 0.1 }}
+                                                className="h-full"
                                             >
-                                                {/* CodePen Card Implementation with Tailwind */}
-                                                <div className="bg-white rounded shadow-[0_20px_40px_-14px_rgba(0,0,0,0.25)] flex flex-col overflow-hidden hover:shadow-2xl transition-all duration-300 group h-full border-2 border-catalog-accent/5 hover:border-catalog-accent/20 relative">
-                                                    {/* Card Image */}
+                                                <div className="group relative glass-card rounded-[2.5rem] border border-black/5 flex flex-col h-full hover:shadow-2xl hover:shadow-catalog-accent/10 transition-all duration-500 hover:-translate-y-2 overflow-hidden">
+
+                                                    {/* Media Section */}
                                                     <div
-                                                        className="relative overflow-hidden filter contrast-[0.7] transition-all duration-500 group-hover:contrast-100 bg-[#ececec] cursor-pointer"
+                                                        className="relative h-64 overflow-hidden cursor-pointer"
                                                         onClick={() => navigate(`/event/${event.id}/view`)}
                                                     >
-                                                        <div
-                                                            className="w-full bg-cover bg-center bg-no-repeat pt-[56.25%] sm:pt-[66.6%]"
+                                                        <motion.div
+                                                            className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
                                                             style={{ backgroundImage: `url(${presentationImage})` }}
                                                         />
+                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60 group-hover:opacity-40 transition-opacity" />
+
+                                                        {/* Category Badge */}
+                                                        {event.category && (
+                                                            <div className="absolute top-6 right-6 px-4 py-1.5 glass rounded-full text-[9px] font-black text-white uppercase tracking-widest border border-white/20 whitespace-nowrap">
+                                                                {event.category}
+                                                            </div>
+                                                        )}
 
                                                         {/* Edit Overlay */}
                                                         {isAdmin && (
-                                                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                            <div className="absolute top-6 left-6 opacity-0 group-hover:opacity-100 transition-all scale-75 group-hover:scale-100">
                                                                 <button
                                                                     onClick={(e) => {
                                                                         e.preventDefault();
                                                                         e.stopPropagation();
                                                                         setShowSourceModal(event.id);
                                                                     }}
-                                                                    className="p-3 bg-white rounded-full shadow-lg hover:scale-110 transition-transform"
-                                                                    title="Change Cover Image"
+                                                                    className="p-3 bg-white text-catalog-accent rounded-full shadow-2xl hover:bg-catalog-accent hover:text-white transition-all border border-black/5"
                                                                 >
                                                                     {isUpdatingCover === event.id ? (
-                                                                        <Loader2 className="w-5 h-5 animate-spin text-catalog-accent" />
+                                                                        <Loader2 className="w-4 h-4 animate-spin" />
                                                                     ) : (
-                                                                        <Edit className="w-5 h-5 text-catalog-accent" />
+                                                                        <Edit className="w-4 h-4" />
                                                                     )}
                                                                 </button>
                                                             </div>
                                                         )}
-
-                                                        {event.category && (
-                                                            <div className="absolute top-2 right-2 px-2 py-1 bg-white/90 text-[#696969] text-[0.6rem] uppercase tracking-widest font-bold border border-[#cccccc] z-10">
-                                                                {event.category}
-                                                            </div>
-                                                        )}
                                                     </div>
 
-                                                    {/* Card Content */}
-                                                    <div className="flex flex-1 flex-col p-6 relative">
-                                                        {/* Hover Rainbow Line */}
-                                                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-rainbow opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                    {/* Content Section */}
+                                                    <div className="flex-1 flex flex-col p-8 pt-6 relative">
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-3 mb-4">
+                                                                <div className="px-3 py-1 bg-black/5 rounded-lg text-[9px] font-black text-catalog-text/50 uppercase tracking-widest font-outfit">
+                                                                    {new Date(event.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                                </div>
+                                                                {event.location && (
+                                                                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-catalog-accent/60 uppercase tracking-tighter truncate max-w-[150px]">
+                                                                        <span className="w-1 h-1 rounded-full bg-catalog-accent/30" />
+                                                                        {event.location}
+                                                                    </div>
+                                                                )}
+                                                            </div>
 
-                                                        <div className="cursor-pointer flex-1 flex flex-col" onClick={() => window.open(`/event/${event.id}/view`, '_blank')}>
-                                                            <h3
-                                                                className="text-2xl font-serif font-medium tracking-wide mb-3 capitalize"
-                                                                style={{ color: titleColor }}
-                                                            >
+                                                            <h3 className="text-3xl font-outfit font-black text-catalog-text mb-4 leading-tight group-hover:text-catalog-accent transition-colors">
                                                                 {event.title}
                                                             </h3>
 
-                                                            <div className="text-xs text-[#999999] font-serif italic mb-4 flex flex-wrap items-center gap-2">
-                                                                <span className="font-sans font-bold uppercase tracking-widest text-[0.65rem]">
-                                                                    {new Date(event.event_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
-                                                                </span>
-                                                                {event.location && (
-                                                                    <>
-                                                                        <span className="not-italic opacity-50">•</span>
-                                                                        <button
-                                                                            className="hover:text-[#696969] hover:underline transition-colors text-left"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                // Assuming /map or /family-map exists, query param location
-                                                                                navigate(`/map?location=${encodeURIComponent(event.location || '')}`);
-                                                                            }}
-                                                                        >
-                                                                            {event.location}
-                                                                        </button>
-                                                                    </>
-                                                                )}
-                                                            </div>
-
-                                                            <div className="flex-1 text-[0.95rem] leading-[1.8] mb-6 text-[#999999] line-clamp-3 font-serif">
+                                                            <div className="text-[15px] leading-relaxed text-catalog-text/40 font-medium line-clamp-3 mb-8">
                                                                 {event.description ? (
                                                                     <div dangerouslySetInnerHTML={{ __html: event.description.replace(/<[^>]+>/g, ' ').substring(0, 150) + (event.description.length > 150 ? '...' : '') }} />
                                                                 ) : (
-                                                                    <span className="italic opacity-50">No description provided.</span>
+                                                                    <span className="italic opacity-30">No legacy record yet.</span>
                                                                 )}
                                                             </div>
-
                                                         </div>
-                                                        {/* Buttons / Actions */}
-                                                        <div className="mt-auto pt-4 border-t border-[#f0f0f0] flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
 
-                                                            {/* Left Side: Create/Open Album */}
-                                                            <div>
+                                                        {/* Actions Area */}
+                                                        <div className="mt-auto flex items-center justify-between pt-6 border-t border-black/5">
+                                                            <div className="flex items-center gap-2">
                                                                 {linkedAlbumId ? (
                                                                     <button
                                                                         onClick={() => navigate(`/album/${linkedAlbumId}`)}
-                                                                        className="text-[0.7rem] bg-[#f8f8f8] hover:bg-[#ececec] text-[#696969] px-3 py-1.5 rounded-sm uppercase tracking-widest font-bold border border-[#e0e0e0] transition-colors"
+                                                                        className="flex items-center gap-2 px-5 py-2.5 bg-catalog-text text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-catalog-accent transition-all shadow-lg shadow-black/10 active:scale-95"
                                                                     >
-                                                                        Open Album
+                                                                        Archive
                                                                     </button>
                                                                 ) : (
                                                                     canCreate && (
                                                                         <button
                                                                             onClick={() => handleCreateAlbum(event)}
                                                                             disabled={creatingAlbumFor === event.id}
-                                                                            className="text-[0.7rem] hover:bg-catalog-accent/10 text-[#999999] hover:text-catalog-accent px-3 py-1.5 rounded-sm uppercase tracking-widest font-bold border border-transparent hover:border-catalog-accent/20 transition-all flex items-center gap-1.5"
+                                                                            className="flex items-center gap-2 px-5 py-2.5 glass rounded-2xl text-[10px] font-black text-catalog-text/40 hover:text-catalog-accent uppercase tracking-widest border border-black/5 transition-all active:scale-95"
                                                                         >
-                                                                            {creatingAlbumFor === event.id ? (
-                                                                                <span>Creating...</span>
-                                                                            ) : (
-                                                                                <>
-                                                                                    <Plus className="w-3 h-3" />
-                                                                                    <span>Create Album</span>
-                                                                                </>
-                                                                            )}
+                                                                            {creatingAlbumFor === event.id ? "Drafting..." : "Bind Album"}
                                                                         </button>
                                                                     )
                                                                 )}
                                                             </div>
 
-                                                            {/* Right Side: Toolbar */}
-                                                            <div className="opacity-60 hover:opacity-100 transition-opacity">
+                                                            <div className="flex items-center gap-1">
                                                                 <ActionToolbar
                                                                     onEdit={canCreate ? () => navigate(`/event/${event.id}/edit`) : undefined}
                                                                     onDelete={canCreate ? () => handleDeleteEvent(event.id) : undefined}
                                                                     onShare={() => handleShareEvent(event.id)}
                                                                     onPrint={() => handlePrintEvent(event)}
-                                                                    className="transform scale-90 origin-right"
+                                                                    className="bg-transparent shadow-none"
                                                                 />
                                                             </div>
                                                         </div>
                                                     </div>
+
                                                 </div>
                                             </motion.div>
                                         );

@@ -123,7 +123,7 @@ export function HeritageMap() {
             // Fetch Albums
             const { data: albumsData, error: albumsError } = await (supabase as any)
                 .from('albums')
-                .select('id, title, location, country, created_at, category, geotag, config, pages(id, page_number, assets(*))')
+                .select('id, title, location, country, created_at, category, geotag, config, cover_image_url, pages(id, page_number, assets(*))')
                 .eq('family_id', familyId);
 
             if (albumsError) {
@@ -216,6 +216,16 @@ export function HeritageMap() {
                     const valLat = parseFloat(albumTag.lat ?? albumTag.latitude ?? NaN);
                     const valLng = parseFloat(albumTag.lng ?? albumTag.lon ?? albumTag.longitude ?? NaN);
                     if (!isNaN(valLat) && !isNaN(valLng) && valLat !== 0 && valLng !== 0) {
+                        let albumCover = a.cover_image_url || config.coverImage || (config.cover && config.cover.url) || undefined;
+
+                        // Fallback to first page asset
+                        if (!albumCover && a.pages && a.pages.length > 0) {
+                            const sortedPages = [...a.pages].sort((p1, p2) => p1.page_number - p2.page_number);
+                            const firstPageAssets = sortedPages[0].assets || [];
+                            const firstImg = firstPageAssets.find((ast: any) => (ast.asset_type || ast.type) === 'image');
+                            if (firstImg) albumCover = firstImg.url;
+                        }
+
                         normalizedAlbums.push({
                             id: a.id,
                             type: 'album',
@@ -226,7 +236,7 @@ export function HeritageMap() {
                             category: a.category || config.category,
                             lat: valLat,
                             lng: valLng,
-                            coverImage: config.coverImage || (config.cover && config.cover.url) || undefined,
+                            coverImage: albumCover,
                             link: `/album/${a.id}`
                         });
                     }
@@ -333,16 +343,19 @@ export function HeritageMap() {
 
     const createCustomMarkerIcon = useMemo(() => (item: HeritageLocation, count: number = 1) => {
         const color = getCountryColor(item.country);
-        const isPhotoPin = count === 1 && item.coverImage;
+        const hasImage = !!item.coverImage;
 
-        const backgroundStyle = isPhotoPin
+        const backgroundStyle = hasImage
             ? `background-image: url(${item.coverImage}); background-size: cover; background-position: center; border: 2px solid white;`
             : `background-color: ${color}; border: 4px solid white;`;
 
         const html = `
             <div class="relative flex items-center justify-center cursor-pointer group">
-                <div class="w-10 h-10 rounded-full shadow-lg flex items-center justify-center text-[11px] font-black text-white hover:ring-4 hover:ring-catalog-accent/20 transition-all transform hover:rotate-6" style="${backgroundStyle}">
-                    ${!isPhotoPin ? (count > 1 ? `<span>${count}</span>` : '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zM7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 2.88-2.88 7.19-5 9.88C9.92 16.19 7 11.88 7 9z"/><circle cx="12" cy="9" r="2.5"/></svg>') : ''}
+                <div class="w-10 h-10 rounded-full shadow-lg flex items-center justify-center text-[11px] font-black text-white hover:ring-4 hover:ring-catalog-accent/20 transition-all transform hover:rotate-6 overflow-hidden" style="${backgroundStyle}">
+                    ${count > 1
+                ? `<div class="bg-black/40 backdrop-blur-[2px] w-full h-full flex items-center justify-center shadow-inner"><span>${count}</span></div>`
+                : (!hasImage ? '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zM7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 2.88-2.88 7.19-5 9.88C9.92 16.19 7 11.88 7 9z"/><circle cx="12" cy="9" r="2.5"/></svg>' : '')
+            }
                 </div>
             </div>
         `;

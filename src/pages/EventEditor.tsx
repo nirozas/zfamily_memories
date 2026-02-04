@@ -1,7 +1,7 @@
 // @locked - This file is locked. Do not edit unless requested to unlock.
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Save, Sparkles, ImagePlus, Calendar, Tag, Users, Layout, Sliders, Plus, Undo, Redo } from 'lucide-react';
+import { ArrowLeft, Save, Sparkles, ImagePlus, Tag, Users, Layout, Sliders, Plus, Undo, Redo } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { GooglePhotosService } from '../services/googlePhotos';
@@ -17,7 +17,7 @@ import { RichTextEditor } from '../components/events/RichTextEditor';
 import type { RichTextEditorRef } from '../components/events/RichTextEditor';
 import { storageService } from '../services/storage';
 import type { Event } from '../types/supabase';
-import { HashtagInput } from '../components/ui/HashtagInput';
+import { HashtagInput } from '../components/ui/HashtagInput'; // ui component
 import { ImageCropper } from '../components/ui/ImageCropper';
 import { LocationPicker } from '../components/ui/LocationPicker';
 
@@ -28,6 +28,7 @@ import { SortableAsset } from '../components/ui/SortableAsset';
 
 import { videoCompressionService } from '../services/videoCompression';
 import { Loader2 } from 'lucide-react';
+import { motion } from 'framer-motion';
 
 export function EventEditor() {
     const { id } = useParams<{ id: string }>();
@@ -341,29 +342,32 @@ export function EventEditor() {
     // ... (rest of component rendering) ...
 
     return (
-        <div className="min-h-screen bg-catalog-bg flex flex-col theme-peach theme-rainbow bg-pattern-diverse animate-fade-in font-sans">
+        <div className="min-h-screen bg-catalog-stone/5 flex flex-col animate-in fade-in duration-700 font-inter">
             {/* Top Bar Decorative Rainbow Line */}
-            <div className="h-1 bg-rainbow w-full fixed top-0 z-[60]" />
+            <div className="h-1 bg-rainbow w-full fixed top-0 z-[60] opacity-80" />
 
             {/* Top Bar */}
-            <header className="h-16 bg-white/90 backdrop-blur-md border-b border-catalog-accent/20 flex items-center justify-between px-6 sticky top-1 z-50 shadow-sm">
-                <div className="flex items-center gap-4">
-                    <Link to="/events" className="p-2 hover:bg-catalog-stone/50 rounded-full transition-colors text-catalog-text/60">
-                        <ArrowLeft className="w-5 h-5" />
+            <header className="h-20 glass border-b border-black/5 flex items-center justify-between px-8 sticky top-1 z-50 shadow-2xl shadow-black/5">
+                <div className="flex items-center gap-6">
+                    <Link to="/events" className="p-3 hover:bg-black/5 rounded-2xl transition-all text-catalog-text/40 hover:text-catalog-accent active:scale-95 group">
+                        <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
                     </Link>
-                    <h1 className="font-serif text-xl text-catalog-text">
-                        {isNew ? 'Record New Moment' : `Editing: ${eventData.title}`}
-                    </h1>
+                    <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-catalog-text/30 mb-0.5">Moment Studio</p>
+                        <h1 className="font-outfit font-black text-xl text-catalog-text">
+                            {isNew ? 'New Chronicle' : eventData.title}
+                        </h1>
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    <div className="flex items-center gap-1 bg-catalog-stone/10 rounded-lg p-0.5 mr-2">
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-1 glass rounded-2xl p-1 border border-black/5 mr-4">
                         <Button
                             variant="ghost"
                             size="sm"
                             disabled={history.length === 0}
                             onClick={undo}
-                            className="h-8 w-8 p-0"
+                            className="h-9 w-9 p-0 rounded-xl hover:bg-black/5 disabled:opacity-20"
                             title="Undo (Ctrl+Z)"
                         >
                             <Undo className="w-4 h-4" />
@@ -373,128 +377,160 @@ export function EventEditor() {
                             size="sm"
                             disabled={redoStack.length === 0}
                             onClick={redo}
-                            className="h-8 w-8 p-0"
+                            className="h-9 w-9 p-0 rounded-xl hover:bg-black/5 disabled:opacity-20"
                             title="Redo (Ctrl+Y)"
                         >
                             <Redo className="w-4 h-4" />
                         </Button>
                     </div>
 
-                    <Button variant="ghost" onClick={() => navigate('/events')}>
-                        Cancel
+                    <Button
+                        variant="ghost"
+                        onClick={() => navigate('/events')}
+                        className="font-black uppercase tracking-widest text-[10px] text-catalog-text/40 hover:text-red-500 rounded-xl"
+                    >
+                        Discard
                     </Button>
                     <Button
                         variant="primary"
                         onClick={handleSave}
                         isLoading={isSaving}
                         disabled={uploading || isSaving}
-                        className="shadow-md"
+                        className="bg-catalog-accent text-white rounded-2xl px-8 h-12 font-black uppercase tracking-widest text-[10px] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
                     >
-                        <Save className="w-4 h-4 mr-2" />
-                        {isNew ? 'Save to Timeline' : 'Save Changes'}
+                        <Save className="w-4 h-4" />
+                        {isNew ? 'Archive Story' : 'Preserve Changes'}
                     </Button>
                 </div>
             </header>
 
-            <main className="flex-1 overflow-auto p-8">
-                <div className="max-w-[95%] mx-auto space-y-8 pb-12">
-                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                        {/* Left: Metadata (Compact) */}
-                        <div className="lg:col-span-1 space-y-6">
-                            <Card className="p-6 space-y-6 bg-white/95 backdrop-blur-sm border-2 border-catalog-accent/10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:border-catalog-accent/30 transition-all">
-                                <h2 className="text-sm font-black text-catalog-accent uppercase tracking-[0.2em] border-b border-catalog-accent/10 pb-3 mb-2 flex items-center justify-between">
-                                    Details
-                                    <Sparkles className="w-3 h-3 text-catalog-accent/40" />
+            <main className="flex-1 overflow-auto bg-grid-pattern">
+                <div className="max-w-[1600px] mx-auto p-10 pb-32">
+                    <div className="flex flex-col xl:flex-row gap-12 items-start">
+                        {/* Left: Metadata Sidebar */}
+                        <aside className="w-full xl:w-[400px] space-y-8 sticky top-24">
+                            <Card className="p-8 space-y-8 glass-card rounded-[2.5rem] border border-black/5 shadow-2xl shadow-black/5 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-8 opacity-5">
+                                    <Sliders className="w-24 h-24 text-catalog-accent" />
+                                </div>
+
+                                <h2 className="text-[11px] font-black text-catalog-text/40 uppercase tracking-[0.3em] flex items-center gap-3">
+                                    <div className="p-2 bg-catalog-accent/10 rounded-lg">
+                                        <Sparkles className="w-4 h-4 text-catalog-accent" />
+                                    </div>
+                                    Archive Meta
                                 </h2>
-                                <Input
-                                    label="Title"
-                                    value={eventData.title}
-                                    onChange={(e) => updateEventData({ ...eventData, title: e.target.value })}
-                                    required
-                                    className="font-serif text-lg"
-                                />
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="relative">
-                                        <div className="flex items-center gap-1 mb-1">
-                                            <Calendar className="w-3.5 h-3.5 text-catalog-accent" />
-                                            <label className="text-xs font-medium text-catalog-text/70">Date</label>
-                                        </div>
-                                        <input
-                                            type="date"
-                                            value={eventData.event_date}
-                                            onChange={(e) => updateEventData({ ...eventData, event_date: e.target.value })}
+
+                                <div className="space-y-6 relative z-10">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-catalog-text/30 px-1">Chronicle Title</label>
+                                        <Input
+                                            value={eventData.title}
+                                            onChange={(e) => updateEventData({ ...eventData, title: e.target.value })}
                                             required
-                                            className="w-full px-3 py-2 border border-catalog-accent/20 rounded-md bg-white text-catalog-text focus:outline-none focus:ring-2 focus:ring-catalog-accent/30 text-sm"
+                                            className="font-outfit font-black text-xl bg-black/5 border-transparent focus:bg-white focus:border-catalog-accent/30 rounded-2xl transition-all h-14"
+                                            placeholder="The Sun-Kissed Wedding..."
                                         />
                                     </div>
-                                    <Input
-                                        label="Category"
-                                        value={eventData.category || ''}
-                                        onChange={(e) => updateEventData({ ...eventData, category: e.target.value })}
-                                        placeholder="Tradition, Vacation..."
-                                    />
-                                </div>
-                                <LocationPicker
-                                    value={eventData.location || ''}
-                                    onChange={(address, lat, lng) => {
-                                        updateEventData({
-                                            ...eventData,
-                                            location: address,
-                                            geotag: lat && lng ? { lat, lng } : null
-                                        });
-                                    }}
-                                />
-                                <div className="space-y-2">
-                                    <label className="text-xs font-medium text-catalog-text/70 uppercase tracking-widest flex items-center gap-1">
-                                        <Users className="w-3.5 h-3.5" /> Participants
-                                    </label>
-                                    <HashtagInput
-                                        tags={eventData.participants || []}
-                                        onChange={(tags) => updateEventData({ ...eventData, participants: tags })}
-                                        placeholder="Add people..."
-                                        suggestions={['Father', 'Mother', 'Grandfather', 'Grandmother', 'Son', 'Daughter']}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-xs font-medium text-catalog-text/70 uppercase tracking-widest flex items-center gap-1">
-                                        <Tag className="w-3.5 h-3.5" /> Hashtags
-                                    </label>
-                                    <HashtagInput
-                                        tags={eventData.hashtags || []}
-                                        onChange={(tags) => updateEventData({ ...eventData, hashtags: tags })}
-                                        suggestions={['tradition', 'vacation', 'holiday', 'birthday', 'wedding']}
-                                    />
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-catalog-text/30 px-1">Origin Date</label>
+                                            <input
+                                                type="date"
+                                                value={eventData.event_date}
+                                                onChange={(e) => updateEventData({ ...eventData, event_date: e.target.value })}
+                                                required
+                                                className="w-full h-14 bg-black/5 border-transparent rounded-2xl px-4 text-sm font-black uppercase tracking-widest text-catalog-text/60 focus:bg-white focus:ring-4 focus:ring-catalog-accent/10 transition-all cursor-pointer"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-catalog-text/30 px-1">Archetype</label>
+                                            <Input
+                                                value={eventData.category || ''}
+                                                onChange={(e) => updateEventData({ ...eventData, category: e.target.value })}
+                                                placeholder="Tradition..."
+                                                className="h-14 bg-black/5 border-transparent rounded-2xl font-black uppercase tracking-widest text-[11px] focus:bg-white transition-all"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-catalog-text/30 px-1">Coordinate Registry</label>
+                                        <LocationPicker
+                                            value={eventData.location || ''}
+                                            onChange={(address, lat, lng) => {
+                                                updateEventData({
+                                                    ...eventData,
+                                                    location: address,
+                                                    geotag: lat && lng ? { lat, lng } : null
+                                                });
+                                            }}
+                                            className="bg-black/5 rounded-2xl border-transparent h-14"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-catalog-text/30 px-1 flex items-center gap-2">
+                                            <Users className="w-3.5 h-3.5" /> Ancestors & Bloodline
+                                        </label>
+                                        <HashtagInput
+                                            tags={eventData.participants || []}
+                                            onChange={(tags) => updateEventData({ ...eventData, participants: tags })}
+                                            placeholder="Tag family..."
+                                            suggestions={['Father', 'Mother', 'Grandfather', 'Grandmother', 'Son', 'Daughter']}
+                                            className="bg-black/5 border-transparent rounded-2xl min-h-[60px]"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-catalog-text/30 px-1 flex items-center gap-2">
+                                            <Tag className="w-3.5 h-3.5" /> Essence Tags
+                                        </label>
+                                        <HashtagInput
+                                            tags={eventData.hashtags || []}
+                                            onChange={(tags) => updateEventData({ ...eventData, hashtags: tags })}
+                                            suggestions={['tradition', 'vacation', 'holiday', 'birthday', 'wedding']}
+                                            className="bg-black/5 border-transparent rounded-2xl min-h-[60px]"
+                                        />
+                                    </div>
                                 </div>
                             </Card>
-                        </div>
+                        </aside>
 
-                        {/* Right: Rich Text Editor (Wider) */}
-                        <div className="lg:col-span-3">
-                            <Card className="p-8 min-h-[700px] flex flex-col bg-white shadow-2xl border-2 border-catalog-accent/5 relative overflow-hidden group/editor transition-all hover:shadow-catalog-accent/5">
-                                <div className="absolute top-0 right-0 p-6 opacity-5 group-hover/editor:opacity-20 transition-opacity">
-                                    <Sparkles className="w-16 h-16 text-catalog-accent" />
+                        {/* Right: Main Creative Area */}
+                        <div className="flex-1 space-y-12">
+                            <Card className="p-10 min-h-[800px] flex flex-col glass-card rounded-[3rem] border border-black/5 relative overflow-hidden group/editor transition-all hover:shadow-2xl hover:shadow-catalog-accent/5">
+                                <div className="absolute top-0 right-0 p-12 opacity-[0.03] group-hover/editor:opacity-[0.08] transition-all duration-1000 rotate-12">
+                                    <Sparkles className="w-48 h-48 text-catalog-accent" />
                                 </div>
-                                <div className="flex items-center justify-between mb-6">
-                                    <label className="flex items-center gap-2 text-sm font-bold text-catalog-accent uppercase tracking-widest">
-                                        <Sparkles className="w-4 h-4" /> The Story
+
+                                <div className="flex items-center justify-between mb-10 relative z-10">
+                                    <label className="flex items-center gap-4 text-[11px] font-black text-catalog-accent uppercase tracking-[0.4em] font-outfit">
+                                        <div className="w-8 h-8 rounded-full bg-catalog-accent/10 flex items-center justify-center">
+                                            <Sparkles className="w-4 h-4" />
+                                        </div>
+                                        The Chronicle
                                     </label>
-                                    <div className="flex items-center gap-4">
-                                        <div className="flex bg-catalog-stone/10 p-1 rounded-lg">
+
+                                    <div className="flex items-center gap-6">
+                                        <div className="flex glass p-1 rounded-2xl border border-black/5 shadow-inner">
                                             <button
                                                 type="button"
                                                 onClick={() => setUploadTarget('story')}
-                                                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all ${uploadTarget === 'story' ? 'bg-white text-catalog-accent shadow-sm' : 'text-catalog-text/40 hover:text-catalog-text/60'}`}
+                                                className={`px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${uploadTarget === 'story' ? 'bg-catalog-accent text-white shadow-xl' : 'text-catalog-text/30 hover:text-catalog-text/60'}`}
                                             >
-                                                Story
+                                                Narrative
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => setUploadTarget('gallery')}
-                                                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-md transition-all ${uploadTarget === 'gallery' ? 'bg-white text-catalog-accent shadow-sm' : 'text-catalog-text/40 hover:text-catalog-text/60'}`}
+                                                className={`px-6 py-2 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${uploadTarget === 'gallery' ? 'bg-catalog-accent text-white shadow-xl' : 'text-catalog-text/30 hover:text-catalog-text/60'}`}
                                             >
-                                                Gallery
+                                                Visuals
                                             </button>
                                         </div>
+
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -502,20 +538,27 @@ export function EventEditor() {
                                                 setUploadTarget('story');
                                                 setShowSourceModal('story');
                                             }}
-                                            className="p-2 bg-catalog-accent/10 hover:bg-catalog-accent/20 text-catalog-accent rounded-md transition-colors"
-                                            title="Add Image"
+                                            className="w-12 h-12 bg-catalog-accent/10 hover:bg-catalog-accent text-catalog-accent hover:text-white rounded-2xl transition-all shadow-lg shadow-catalog-accent/5 flex items-center justify-center p-0 active:scale-90"
+                                            title="Add Media to Story"
                                         >
-                                            <Camera className="w-4 h-4" />
+                                            <Camera className="w-5 h-5" />
                                         </Button>
                                     </div>
+
                                     {/* Upload/Compression Indicator */}
                                     {(uploading || compressionProgress !== null) && (
-                                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white/90 px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
-                                            <Loader2 className="w-4 h-4 animate-spin text-catalog-accent" />
-                                            <span className="text-xs font-bold text-catalog-text">
-                                                {compressionProgress !== null ? `Compressing Video ${compressionProgress}%...` : 'Uploading...'}
+                                        <motion.div
+                                            initial={{ opacity: 0, scale: 0.9 }}
+                                            animate={{ opacity: 1, scale: 1 }}
+                                            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass px-8 py-4 rounded-[2rem] shadow-2xl z-50 flex items-center gap-4 border border-white/40"
+                                        >
+                                            <div className="w-10 h-10 rounded-full bg-catalog-accent/10 flex items-center justify-center">
+                                                <Loader2 className="w-5 h-5 animate-spin text-catalog-accent" />
+                                            </div>
+                                            <span className="text-[10px] font-black text-catalog-text uppercase tracking-widest">
+                                                {compressionProgress !== null ? `Refining Video ${compressionProgress}%` : 'Archiving Media...'}
                                             </span>
-                                        </div>
+                                        </motion.div>
                                     )}
                                     <input
                                         type="file"
@@ -653,26 +696,28 @@ export function EventEditor() {
                                         disabled={uploading}
                                     />
                                 </div>
-                                <div className="flex-1">
+
+                                <div className="flex-1 relative z-10 glass rounded-[2rem] border border-black/5 p-2 bg-white/40 backdrop-blur-sm">
                                     <RichTextEditor
                                         ref={editorRef}
                                         value={eventData.description || ''}
                                         folderName={eventData.title}
-                                        onChange={(html) => updateEventData({ ...eventData, description: html })}
+                                        onChange={(html: string) => updateEventData({ ...eventData, description: html })}
                                     />
                                 </div>
                             </Card>
 
                             {/* Gallery Management Section */}
-                            <Card className="p-8 mt-8 bg-white/50 backdrop-blur-sm border-dashed border-2 border-catalog-accent/10">
-                                <div className="flex items-center justify-between mb-6">
-                                    <h3 className="flex items-center gap-2 text-sm font-bold text-catalog-text/60 uppercase tracking-widest">
-                                        <Layout className="w-4 h-4" /> Gallery Content
+                            <Card className="p-10 bg-black/5 backdrop-blur-sm border-dashed border-2 border-black/10 rounded-[3rem] relative overflow-hidden group/gallery">
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10 relative z-10">
+                                    <h3 className="flex items-center gap-4 text-[11px] font-black text-catalog-text/30 uppercase tracking-[0.4em] font-outfit">
+                                        <div className="p-2 bg-white rounded-lg shadow-sm border border-black/5">
+                                            <Layout className="w-4 h-4 text-catalog-accent" />
+                                        </div>
+                                        Visual Matrix
                                     </h3>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-bold uppercase text-catalog-text/40 mr-2 flex items-center gap-1">
-                                            <Sliders className="w-3 h-3" /> Layout:
-                                        </span>
+
+                                    <div className="flex flex-wrap items-center gap-2 glass p-1.5 rounded-2xl border border-black/5">
                                         {(['cards', 'carousel', 'grid', 'masonry', 'polaroid'] as const).map(mode => (
                                             <button
                                                 key={mode}
@@ -681,7 +726,7 @@ export function EventEditor() {
                                                     ...eventData,
                                                     content: { ...eventData.content, galleryMode: mode }
                                                 })}
-                                                className={`px-3 py-1 text-[10px] font-bold uppercase rounded border transition-all ${eventData.content?.galleryMode === mode ? 'bg-catalog-accent border-catalog-accent text-white' : 'border-catalog-accent/20 text-catalog-text/60 hover:bg-catalog-accent/5'}`}
+                                                className={`px-5 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${eventData.content?.galleryMode === mode ? 'bg-catalog-text text-white shadow-xl' : 'text-catalog-text/30 hover:bg-black/5'}`}
                                             >
                                                 {mode}
                                             </button>
@@ -689,18 +734,18 @@ export function EventEditor() {
                                     </div>
                                 </div>
 
-
-
                                 {(!eventData.content?.assets || eventData.content.assets.length === 0) ? (
-                                    <div className="py-12 flex flex-col items-center justify-center border-2 border-dashed border-catalog-accent/5 rounded-xl bg-catalog-stone/5">
-                                        <ImagePlus className="w-8 h-8 text-catalog-accent/20 mb-3" />
-                                        <p className="text-sm text-catalog-text/40 italic">No gallery images added yet.</p>
+                                    <div className="py-24 flex flex-col items-center justify-center bg-white/40 border-2 border-dashed border-black/5 rounded-[2.5rem] relative group/empty">
+                                        <div className="w-20 h-20 bg-catalog-accent/5 rounded-[2rem] flex items-center justify-center mb-6 group-hover/empty:scale-110 transition-transform duration-500">
+                                            <ImagePlus className="w-8 h-8 text-catalog-accent/30" />
+                                        </div>
+                                        <p className="text-[11px] font-black text-catalog-text/20 uppercase tracking-[0.3em] mb-8">Visualization is empty</p>
                                         <button
                                             type="button"
                                             onClick={() => { setUploadTarget('gallery'); setShowSourceModal('gallery'); }}
-                                            className="mt-4 text-[10px] font-bold uppercase text-catalog-accent hover:underline"
+                                            className="px-10 py-4 bg-catalog-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.3em] shadow-2xl shadow-catalog-accent/20 hover:scale-105 active:scale-95 transition-all"
                                         >
-                                            Add to Gallery
+                                            Ignite Gallery
                                         </button>
                                     </div>
                                 ) : (
@@ -713,7 +758,7 @@ export function EventEditor() {
                                             items={(eventData.content?.assets || []).map((a: { url: string }) => a.url)}
                                             strategy={rectSortingStrategy}
                                         >
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">
+                                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6 relative z-10">
                                                 {eventData.content.assets.map((asset: { url: string; type: string; caption?: string }) => (
                                                     <SortableAsset
                                                         key={asset.url}
@@ -728,10 +773,12 @@ export function EventEditor() {
                                                 <button
                                                     type="button"
                                                     onClick={() => { setUploadTarget('gallery'); setShowSourceModal('gallery'); }}
-                                                    className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-catalog-accent/20 rounded-lg hover:bg-catalog-accent/5 transition-colors group"
+                                                    className="aspect-square flex flex-col items-center justify-center bg-white/60 border-2 border-dashed border-black/5 rounded-[2rem] group hover:bg-white hover:border-catalog-accent/30 transition-all duration-500 shadow-sm"
                                                 >
-                                                    <Plus className="w-6 h-6 text-catalog-accent/40 group-hover:text-catalog-accent transition-colors" />
-                                                    <span className="text-[10px] font-bold uppercase text-catalog-accent/40 mt-1">Add More</span>
+                                                    <div className="w-12 h-12 bg-catalog-accent/5 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
+                                                        <Plus className="w-6 h-6 text-catalog-accent" />
+                                                    </div>
+                                                    <span className="text-[9px] font-black uppercase tracking-[0.3em] text-catalog-text/30 mt-4">Expand Matrix</span>
                                                 </button>
                                             </div>
                                         </SortableContext>

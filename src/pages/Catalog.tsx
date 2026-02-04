@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Grid, List, PlusCircle } from 'lucide-react';
+import { Search, Grid, List, PlusCircle, Filter } from 'lucide-react';
 import { AlbumsGrid } from '../components/catalog/AlbumsGrid';
 import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Button } from '../components/ui/Button';
-import { Card } from '../components/ui/Card';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { printService } from '../services/printService';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const eventFilters = ['All', 'Wedding', 'Birthday', 'Holiday', 'Vacation', 'Gathering'];
 
@@ -30,37 +30,26 @@ export function Catalog() {
             return;
         }
         try {
-            // 1. Fetch All Albums for this Family
             const { data: albumData, error: albumError } = await supabase
                 .from('albums')
                 .select('*')
                 .eq('family_id', familyId as string)
                 .order('created_at', { ascending: false });
 
-            if (albumError) {
-                console.error('[fetchAlbums] Album load failed:', albumError);
-                throw albumError;
-            }
+            if (albumError) throw albumError;
 
             if (!albumData || albumData.length === 0) {
                 setAlbums([]);
                 return;
             }
 
-            // 2. Fetch All Pages for these Albums to populate covers
             const albumIds = (albumData as any[]).map(a => a.id);
-
-            // [REFRESH 2026-01-24] Using * to handle missing 'id' column gracefully
             const { data: pagesData, error: pagesError } = await (supabase.from('album_pages') as any)
                 .select('*')
                 .in('album_id', albumIds);
 
-            if (pagesError) {
-                console.error('[fetchAlbums] Critical Page Sync Error:', pagesError);
-                // Fallback to empty if table fails
-            }
+            if (pagesError) console.error('Page Sync Error:', pagesError);
 
-            // 3. Merge & Formatted
             const pagesByAlbum = (pagesData || []).reduce((acc: any, page: any) => {
                 if (!acc[page.album_id]) acc[page.album_id] = [];
                 acc[page.album_id].push(page);
@@ -75,32 +64,24 @@ export function Catalog() {
 
             setAlbums(formattedAlbums);
         } catch (err) {
-            console.error('[fetchAlbums] Fatal Error:', err);
+            console.error('Fatal Catalog Error:', err);
         } finally {
             setLoading(false);
         }
     };
 
-
     useEffect(() => {
         fetchAlbums();
-
-        // 2. Real-Time Sync: Subscribe to album and page changes
         if (!familyId) return;
 
         const albumSub = supabase
             .channel('public:albums')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'albums', filter: `family_id=eq.${familyId}` }, () => {
-                fetchAlbums();
-            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'albums', filter: `family_id=eq.${familyId}` }, () => fetchAlbums())
             .subscribe();
 
         const pageSub = supabase
             .channel('public:album_pages')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'album_pages' }, () => {
-                // We refresh everything to maintain layout consistency
-                fetchAlbums();
-            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'album_pages' }, () => fetchAlbums())
             .subscribe();
 
         return () => {
@@ -109,84 +90,38 @@ export function Catalog() {
         };
     }, [familyId]);
 
-    const handleEditAlbum = (id: string) => {
-        navigate(`/album/${id}/edit`);
-    };
+    const handleEditAlbum = (id: string) => navigate(`/album/${id}/edit`);
 
     const handleDeleteAlbum = async (id: string) => {
-        if (!window.confirm('Are you sure you want to delete this album? This action cannot be undone.')) {
-            return;
-        }
-
+        if (!window.confirm('Are you sure?')) return;
         try {
-            const { error } = await supabase
-                .from('albums')
-                .delete()
-                .eq('id', id);
-
+            const { error } = await supabase.from('albums').delete().eq('id', id);
             if (error) throw error;
             setAlbums(prev => prev.filter(a => a.id !== id));
         } catch (err) {
-            console.error('Error deleting album:', err);
-            alert('Failed to delete album');
+            alert('Failed to delete');
         }
     };
 
-    const handleShareAlbum = (id: string) => {
-        setSharingAlbumId(id);
-    };
+    const handleShareAlbum = (id: string) => setSharingAlbumId(id);
 
     const handleDuplicateAlbum = async (id: string) => {
         try {
-            console.log('[Duplicate] Initiating server-side deep-clone for album:', id);
-
-            // Call the PostgreSQL RPC function (handles schema detection internally)
             const { data, error: rpcError } = await (supabase as any)
-                .rpc('duplicate_album_v2', {
-                    source_album_id: id,
-                    new_title: null // Let RPC auto-generate "Copy of" title
-                })
+                .rpc('duplicate_album_v2', { source_album_id: id, new_title: null })
                 .single();
 
-            if (rpcError) {
-                console.error('[Duplicate] RPC Invocation Error:', rpcError);
-                throw new Error(rpcError.message || 'RPC call failed');
-            }
-
-            // Validate the RPC response
-            if (!data || !data.success) {
-                const errorMsg = data?.error_message || 'Unknown duplication failure';
-                console.error('[Duplicate] Server-Side Clone Failed:', errorMsg);
-                throw new Error(errorMsg);
-            }
-
-            console.log('[Duplicate] Success. New Album ID:', data.new_album_id);
-
-            // Refresh the catalog
+            if (rpcError) throw rpcError;
+            if (!data?.success) throw new Error(data?.error_message);
             await fetchAlbums();
         } catch (err: any) {
-            console.error('[Duplicate] Fatal Process Error:', err);
-            const msg = err?.message || 'Database rejected the clone operation';
-            alert(`Failed to duplicate archive: ${msg}\n\nCheck console for details.`);
+            alert(`Duplication failed: ${err.message}`);
         }
     };
 
-
-
-
-
     const handlePrintAlbum = async (id: string) => {
-
         const album = albums.find(a => a.id === id);
-        if (album) {
-            try {
-                // For now, use the demo HTML5 export
-                await printService.exportToHTML5(album);
-            } catch (err) {
-                console.error('Error printing album:', err);
-                alert('Failed to generate print version');
-            }
-        }
+        if (album) await printService.exportToHTML5(album);
     };
 
     const filteredAlbums = albums.filter(album => {
@@ -197,148 +132,144 @@ export function Catalog() {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="w-12 h-12 border-4 border-catalog-accent border-t-transparent rounded-full animate-spin" />
-            </div>
-        );
-    }
-
-    if (!familyId) {
-        return (
-            <div className="space-y-12 pb-12">
-                <section className="relative h-[40vh] bg-catalog-stone/20 flex flex-col items-center justify-center text-center p-8">
-                    <h1 className="text-4xl md:text-5xl font-serif italic text-catalog-text mb-4">Welcome to Your Archive</h1>
-                    <p className="text-lg text-catalog-text/60 max-w-xl">
-                        To begin preserving your family's legacy, please join a family group using an invite code or create a new group.
-                    </p>
-                    <div className="mt-8">
-                        <Button onClick={() => navigate('/settings')} variant="primary" size="lg">
-                            Get Started
-                        </Button>
-                    </div>
-                </section>
-            </div>
-        );
-    }
-
-    if (!familyId) {
-        return (
-            <div className="container-fluid max-w-wide py-20 text-center">
-                <Card className="max-w-md mx-auto p-12 space-y-6">
-                    <div className="w-20 h-20 bg-catalog-accent/5 rounded-full flex items-center justify-center mx-auto">
-                        <PlusCircle className="w-10 h-10 text-catalog-accent" />
-                    </div>
-                    <h2 className="text-3xl font-serif text-catalog-text">Welcome to the Library</h2>
-                    <p className="text-catalog-text/60">
-                        You haven't joined a family group yet. To start creating albums, you'll need to join a family or create a new one in your profile settings.
-                    </p>
-                    <Button onClick={() => navigate('/settings')} variant="primary" className="w-full">
-                        Account Settings
-                    </Button>
-                </Card>
+            <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+                <div className="w-16 h-16 border-t-4 border-catalog-accent rounded-full animate-spin" />
+                <p className="font-outfit text-catalog-text/40 font-bold uppercase tracking-widest text-xs">Accessing Archives</p>
             </div>
         );
     }
 
     return (
-        <div className="container-fluid max-w-wide space-y-8 pb-12">
+        <div className="container-fluid max-w-wide space-y-12 pb-24">
             {/* Header Section */}
-            <div className="space-y-6">
-                <div>
-                    <h1 className="text-4xl font-serif italic text-catalog-text">The Library</h1>
-                    <p className="text-lg font-sans text-catalog-text/70 mt-2">
-                        Explore your family's treasured memories.
-                    </p>
+            <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex flex-col md:flex-row md:items-end justify-between gap-10 pt-10"
+            >
+                <div className="space-y-6">
+                    <div className="inline-flex items-center gap-3 px-4 py-2 rounded-2xl bg-catalog-accent/10 border border-catalog-accent/10">
+                        <span className="w-2 h-2 rounded-full bg-catalog-accent animate-pulse" />
+                        <span className="text-[10px] font-black uppercase tracking-[0.3em] text-catalog-accent">Vault Secured</span>
+                    </div>
+                    <div className="space-y-2">
+                        <p className="text-sm font-black text-catalog-accent uppercase tracking-[0.4em] font-outfit">The Collection</p>
+                        <h1 className="text-6xl md:text-8xl font-black font-outfit text-catalog-text tracking-tighter leading-none">
+                            Family <span className="text-rainbow font-black not-italic">Folios</span>
+                        </h1>
+                    </div>
                 </div>
 
-                {/* Toolbar */}
-                <div className="flex flex-col xl:flex-row gap-4 items-start xl:items-center justify-between bg-white p-4 rounded-lg shadow-sm border border-catalog-accent/10">
-                    {/* Search */}
-                    <div className="relative flex-1 w-full xl:max-w-md">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-catalog-text/40" />
-                        <input
-                            type="text"
-                            placeholder="Search albums..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-catalog-accent/30 rounded-sm bg-white focus:outline-none focus:ring-2 focus:ring-catalog-accent font-sans text-sm"
-                        />
-                    </div>
+                <Button
+                    onClick={() => setIsCreateModalOpen(true)}
+                    className="shrink-0 h-20 px-12 glass hover:bg-catalog-accent hover:text-white text-catalog-accent font-outfit font-black rounded-[2.5rem] shadow-2xl flex items-center gap-4 transition-all duration-500 hover:-translate-y-2 border border-black/5"
+                >
+                    <PlusCircle className="w-6 h-6" />
+                    <span className="text-xs uppercase tracking-[0.2em]">Initiate New Folio</span>
+                </Button>
+            </motion.div>
 
-                    {/* Filters & Actions */}
-                    <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-                        {/* Event Filters */}
-                        <div className="flex gap-2 overflow-x-auto pb-2 md:pb-0 no-scrollbar">
+            {/* Toolbar */}
+            <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="glass-card p-6 rounded-[3rem] flex flex-col xl:flex-row gap-8 items-start xl:items-center justify-between sticky top-24 z-40 border border-black/5 shadow-2xl shadow-black/5"
+            >
+                {/* Search */}
+                <div className="relative flex-1 w-full xl:max-w-xl group">
+                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-catalog-text/20 group-focus-within:text-catalog-accent transition-colors" />
+                    <input
+                        type="text"
+                        placeholder="Locate memoirs by title or sentiment..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-16 pr-8 h-16 bg-white border border-black/5 rounded-[2rem] focus:outline-none focus:ring-4 focus:ring-catalog-accent/5 focus:border-catalog-accent/30 transition-all font-outfit text-base placeholder:text-catalog-text/10 shadow-inner"
+                    />
+                </div>
+
+                {/* Filters & Actions */}
+                <div className="flex flex-wrap items-center gap-6 w-full xl:w-auto">
+                    <div className="flex items-center gap-2 glass p-1.5 rounded-[2rem] border border-black/5 shadow-inner">
+                        <div className="p-3 bg-white rounded-xl shadow-sm mr-2">
+                            <Filter className="w-4 h-4 text-catalog-accent" />
+                        </div>
+                        <div className="flex gap-1 pr-2">
                             {eventFilters.map((filter) => (
                                 <button
                                     key={filter}
                                     onClick={() => setEventFilter(filter)}
                                     className={cn(
-                                        "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors whitespace-nowrap",
+                                        "px-6 py-3 text-[10px] font-black rounded-xl transition-all font-outfit uppercase tracking-widest",
                                         eventFilter === filter
-                                            ? "bg-catalog-accent text-white"
-                                            : "bg-catalog-accent/10 text-catalog-text/70 hover:bg-catalog-accent/20"
+                                            ? "bg-catalog-accent text-white shadow-xl"
+                                            : "text-catalog-text/30 hover:text-catalog-text hover:bg-black/5"
                                     )}
                                 >
                                     {filter}
                                 </button>
                             ))}
                         </div>
+                    </div>
 
-                        <div className="h-8 w-px bg-gray-200 mx-2 hidden md:block" />
-
-                        {/* View Toggle */}
-                        <div className="flex border border-catalog-accent/30 rounded-sm overflow-hidden shrink-0">
-                            <button
-                                onClick={() => setViewMode('grid')}
-                                className={cn(
-                                    "p-2 transition-colors",
-                                    viewMode === 'grid' ? "bg-catalog-accent text-white" : "bg-white text-catalog-text/60"
-                                )}
-                            >
-                                <Grid className="w-4 h-4" />
-                            </button>
-                            <button
-                                onClick={() => setViewMode('list')}
-                                className={cn(
-                                    "p-2 transition-colors",
-                                    viewMode === 'list' ? "bg-catalog-accent text-white" : "bg-white text-catalog-text/60"
-                                )}
-                            >
-                                <List className="w-4 h-4" />
-                            </button>
-                        </div>
-
-                        {/* New Chapter Button */}
-                        <Button
-                            onClick={() => setIsCreateModalOpen(true)}
-                            className="shrink-0 h-10 flex items-center gap-2 shadow-catalog-accent/20 ml-auto md:ml-0"
+                    <div className="flex glass rounded-[1.5rem] p-1.5 shadow-inner border border-black/5 shrink-0">
+                        <button
+                            onClick={() => setViewMode('grid')}
+                            className={cn(
+                                "p-4 rounded-xl transition-all",
+                                viewMode === 'grid' ? "bg-white text-catalog-accent shadow-lg" : "text-catalog-text/20 hover:text-catalog-text"
+                            )}
                         >
-                            <PlusCircle className="w-4 h-4" />
-                            <span className="hidden sm:inline">New Chapter</span>
-                            <span className="sm:hidden">New</span>
-                        </Button>
+                            <Grid className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={() => setViewMode('list')}
+                            className={cn(
+                                "p-4 rounded-xl transition-all",
+                                viewMode === 'list' ? "bg-white text-catalog-accent shadow-lg" : "text-catalog-text/20 hover:text-catalog-text"
+                            )}
+                        >
+                            <List className="w-5 h-5" />
+                        </button>
                     </div>
                 </div>
-            </div>
+            </motion.div>
 
             {/* Albums Grid Section */}
-            <AlbumsGrid
-                albums={filteredAlbums}
-                viewMode={viewMode}
-                onEdit={handleEditAlbum}
-                onDelete={handleDeleteAlbum}
-                onDuplicate={handleDuplicateAlbum}
-                onShare={handleShareAlbum}
-                onPrint={handlePrintAlbum}
-            />
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={viewMode + eventFilter + searchQuery}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                >
+                    <AlbumsGrid
+                        albums={filteredAlbums}
+                        viewMode={viewMode}
+                        onEdit={handleEditAlbum}
+                        onDelete={handleDeleteAlbum}
+                        onDuplicate={handleDuplicateAlbum}
+                        onShare={handleShareAlbum}
+                        onPrint={handlePrintAlbum}
+                    />
 
+                    {filteredAlbums.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-24 text-center space-y-6">
+                            <div className="w-24 h-24 bg-catalog-accent/5 rounded-full flex items-center justify-center text-catalog-accent/30">
+                                <Search className="w-10 h-10" />
+                            </div>
+                            <div className="space-y-2">
+                                <h3 className="text-2xl font-outfit font-black text-catalog-text">No Archives Found</h3>
+                                <p className="text-catalog-text/40 font-outfit max-w-sm">Adjust your filters or start a new collection to fill your library.</p>
+                            </div>
+                            <Button variant="ghost" onClick={() => { setSearchQuery(''); setEventFilter('All'); }} className="font-outfit uppercase tracking-widest font-bold text-xs">Clear All Filters</Button>
+                        </div>
+                    )}
+                </motion.div>
+            </AnimatePresence>
 
-
-            <CreateAlbumModal
-                isOpen={isCreateModalOpen}
-                onClose={() => setIsCreateModalOpen(false)}
-            />
+            <CreateAlbumModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
 
             {sharingAlbumId && (
                 <SharingDialog

@@ -1,7 +1,11 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { supabase } from '../lib/supabase';
 import { GooglePhotosService } from '../services/googlePhotos';
+import { AlbumDataService } from '../services/albumDataService';
+import {
+    unifiedAlbumToContextAlbum,
+    contextAlbumToUnifiedAlbum,
+} from '../lib/albumAdapters';
 
 export interface Asset {
     id: string;
@@ -200,6 +204,8 @@ export interface Page {
     backgroundColor: string;
     backgroundOpacity?: number;
     backgroundImage?: string;
+    backgroundScale?: 'cover' | 'contain' | 'stretch';
+    backgroundPosition?: 'top' | 'center' | 'bottom';
     name?: string;
     isSpreadLayout?: boolean;
 
@@ -242,7 +248,7 @@ interface AlbumContextType {
     setAlbum: (album: Album) => void;
     setCurrentPageIndex: (index: number) => void;
     setSelectedAssetId: (id: string | null) => void;
-    addPage: (template?: Page['layoutTemplate']) => void;
+    addPage: (template?: Page['layoutTemplate'], atIndex?: number) => void;
     removePage: (pageId: string) => void;
     updatePage: (pageId: string, updates: Partial<Page>) => void;
     addAsset: (pageId: string, asset: Omit<Asset, 'id'>) => void;
@@ -280,9 +286,10 @@ interface AlbumContextType {
     toggleLayoutOutlines: () => void;
     activeSlot: { pageId: string; index: number } | null;
     setActiveSlot: (slot: { pageId: string; index: number } | null) => void;
+    clearPageMedia: (pageId: string) => void;
 }
 
-const AlbumContext = createContext<AlbumContextType | undefined>(undefined);
+export const AlbumContext = createContext<AlbumContextType | undefined>(undefined);
 
 function generateId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -291,21 +298,7 @@ function generateId() {
     return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }
 
-const DEFAULT_CONFIG: AlbumConfig = {
-    dimensions: {
-        width: 1000,
-        height: 700,
-        unit: 'px',
-        bleed: 25,
-        gutter: 40,
-    },
-    useSpreadView: true,
-    gridSettings: {
-        size: 20,
-        snap: true,
-        visible: false,
-    }
-};
+
 
 export function AlbumProvider({ children }: { children: React.ReactNode }) {
     const [album, setAlbumInternal] = useState<Album | null>(null);
@@ -370,12 +363,14 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         });
     }, []);
 
-    const addPage = useCallback((template: Page['layoutTemplate'] = 'freeform') => {
+    const addPage = useCallback((template: Page['layoutTemplate'] = 'freeform', atIndex?: number) => {
         if (!album || album.config.isLocked) return;
 
         // Find back cover index
         const backCoverIndex = album.pages.findIndex(p => p.layoutTemplate === 'cover-back');
-        const insertIndex = backCoverIndex !== -1 ? backCoverIndex : album.pages.length;
+        const insertIndex = atIndex !== undefined ? atIndex : (backCoverIndex !== -1 ? backCoverIndex : album.pages.length);
+
+        const isSpread = album.config.useSpreadView;
 
         const newPage1: Page = {
             id: generateId(),
@@ -384,16 +379,20 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             assets: [],
             backgroundColor: '#ffffff',
         };
-        const newPage2: Page = {
-            id: generateId(),
-            pageNumber: insertIndex + 2,
-            layoutTemplate: template,
-            assets: [],
-            backgroundColor: '#ffffff',
-        };
 
         const newPages = [...album.pages];
-        newPages.splice(insertIndex, 0, newPage1, newPage2);
+        if (isSpread) {
+            const newPage2: Page = {
+                id: generateId(),
+                pageNumber: insertIndex + 2,
+                layoutTemplate: template,
+                assets: [],
+                backgroundColor: '#ffffff',
+            };
+            newPages.splice(insertIndex, 0, newPage1, newPage2);
+        } else {
+            newPages.splice(insertIndex, 0, newPage1);
+        }
 
         setAlbum({
             ...album,
@@ -401,7 +400,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             updatedAt: new Date(),
         });
         setCurrentPageIndex(insertIndex);
-    }, [album]);
+    }, [album, setAlbum]);
 
     const removePage = useCallback((pageId: string) => {
         if (!album || album.pages.length <= 1 || album.config.isLocked) return;
@@ -419,6 +418,15 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         setAlbum({
             ...album,
             pages: album.pages.map(p => p.id === pageId ? { ...p, ...updates } : p),
+            updatedAt: new Date(),
+        });
+    }, [album]);
+
+    const clearPageMedia = useCallback((pageId: string) => {
+        if (!album || album.config.isLocked) return;
+        setAlbum({
+            ...album,
+            pages: album.pages.map(p => p.id === pageId ? { ...p, assets: [] } : p),
             updatedAt: new Date(),
         });
     }, [album]);
@@ -464,6 +472,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                                     zoom: updates.zoom ?? box.content?.zoom,
                                     x: updates.focalX ?? box.content?.x,
                                     y: updates.focalY ?? box.content?.y,
+                                    text: updates.content ?? box.content?.text,
                                     config: { ...(box.content?.config || {}), ...updates }
                                 }
                             } as any;
@@ -620,7 +629,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                     try {
                         const photosService = new GooglePhotosService(googleAccessToken);
                         const mediaItem = await photosService.uploadMedia(fileToUpload, fileToUpload.name);
-                        url = mediaItem.baseUrl;
+                        url = mediaItem.baseUrl || null;
                         googlePhotoId = mediaItem.id;
                         setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
                     } catch (err) {
@@ -1150,139 +1159,21 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
     const fetchAlbum = useCallback(async (albumId: string) => {
         setIsLoading(true);
         try {
-            const { supabase } = await import('../lib/supabase');
-            const { data: albumData, error: albumError } = await supabase
-                .from('albums')
-                .select('*')
-                .eq('id', albumId)
-                .single();
-
-            if (albumError) throw albumError;
-
-            // 2. Try Primary Unified Schema (album_pages)
-            const { data: albumPagesData, error: albumPagesError } = await (supabase.from('album_pages') as any)
-                .select('*')
-                .eq('album_id', albumId)
-                .order('page_number', { ascending: true });
-
-            let pages: Page[] = [];
-
-            // 3. Always fetch Legacy Data to check for stragglers/rescue
-            const { data: legacyPagesData } = await supabase
-                .from('pages')
-                .select(`*, assets(*)`)
-                .eq('album_id', albumId)
-                .order('page_number', { ascending: true });
-
-            if (!albumPagesError && albumPagesData && albumPagesData.length > 0) {
-                const { normalizePageData } = await import('../lib/normalization');
-                console.log(`[AlbumContext] Hydrating ${albumPagesData.length} unified pages for album: ${albumId}`);
-
-                const unifiedPages: Page[] = albumPagesData.map(normalizePageData);
-
-                // --- HYBRID RESCUE STRATEGY ---
-                // If a unified page is empty but legacy data exists, merge it.
-                pages = unifiedPages.map(uPage => {
-                    const legacyPage = legacyPagesData?.find((lp: any) => lp.page_number === uPage.pageNumber);
-
-                    // Check if unified page is effectively empty (no layout items, no text)
-                    const isUnifiedEmpty = (!uPage.layoutConfig || uPage.layoutConfig.length === 0) &&
-                        (!uPage.textLayers || uPage.textLayers.length === 0) &&
-                        (!uPage.assets || (uPage.assets && uPage.assets.length === 0));
-
-                    if (isUnifiedEmpty && legacyPage && (legacyPage as any).assets && (legacyPage as any).assets.length > 0) {
-                        console.log(`[AlbumContext] HYBRID RESCUE: Merging legacy assets for page ${uPage.pageNumber}`);
-                        // Normalize the legacy page to get its assets in the standard format
-                        const normalizedLegacy = normalizePageData(legacyPage);
-
-                        // Merge assets. We prefer the legacy assets since unified was empty.
-                        // We also need to construct a basic layoutConfig from these assets if one doesn't exist
-                        return {
-                            ...uPage,
-                            assets: normalizedLegacy.assets,
-                            layoutConfig: (normalizedLegacy.layoutConfig && normalizedLegacy.layoutConfig.length > 0) ? normalizedLegacy.layoutConfig : (uPage.layoutConfig || []),
-
-                            // If unified template is 'freeform' but legacy has a template, maybe adopt it?
-                            // For safety, let's keep unified metadata but inject assets.
-                        };
-                    }
-                    return uPage;
-                });
-
-            } else {
-                // --- FALLBACK TO LEGACY SCHEMA ---
-                console.log(`[AlbumContext] Unified data missing, attempting legacy recovery for album: ${albumId}`);
-                if (legacyPagesData) {
-                    const { normalizePageData } = await import('../lib/normalization');
-                    pages = (legacyPagesData || []).map(p => normalizePageData(p));
-                }
+            console.log(`[AlbumContext] Fetching unified album: ${albumId}`);
+            const unifiedAlbum = await AlbumDataService.fetchAlbum(albumId);
+            if (!unifiedAlbum) {
+                console.error(`[AlbumContext] Album not found or failed to load: ${albumId}`);
+                return { success: false, error: 'Album not found' };
             }
 
-            if (pages.length === 0) {
-                pages = [
-                    {
-                        id: generateId(),
-                        pageNumber: 1,
-                        layoutTemplate: 'cover-front',
-                        assets: [],
-                        backgroundColor: '#ffffff',
-                        backgroundOpacity: 100,
-                        backgroundImage: undefined
-                    },
-                    {
-                        id: generateId(),
-                        pageNumber: 2,
-                        layoutTemplate: 'freeform',
-                        assets: [],
-                        backgroundColor: '#ffffff',
-                        backgroundOpacity: 100,
-                        backgroundImage: undefined
-                    },
-                    {
-                        id: generateId(),
-                        pageNumber: 3,
-                        layoutTemplate: 'freeform',
-                        assets: [],
-                        backgroundColor: '#ffffff',
-                        backgroundOpacity: 100,
-                        backgroundImage: undefined
-                    },
-                    {
-                        id: generateId(),
-                        pageNumber: 4,
-                        layoutTemplate: 'cover-back',
-                        assets: [],
-                        backgroundColor: '#ffffff',
-                        backgroundOpacity: 100,
-                        backgroundImage: undefined
-                    }
-                ];
-            }
+            const album = unifiedAlbumToContextAlbum(unifiedAlbum);
 
-            const data = albumData as any;
-            const fullAlbum: Album = {
-                id: data.id,
-                family_id: data.family_id,
-                title: data.title,
-                description: data.description,
-                category: data.category,
-                location: data.location,
-                country: data.country,
-                geotag: data.geotag,
-                coverUrl: data.cover_image_url,
-                isPublished: data.is_published,
-                hashtags: data.hashtags || [],
-                unplacedMedia: data.config?.unplacedMedia || [],
-                createdAt: new Date(data.created_at),
-                updatedAt: new Date(data.updated_at),
-                pages: pages,
-                config: {
-                    ...DEFAULT_CONFIG,
-                    ...(data.config || {})
-                }
-            };
+            setAlbumInternal(album);
+            albumRef.current = album;
 
-            setAlbum(fullAlbum);
+            // Set first page as current
+            setCurrentPageIndex(0);
+
             return { success: true };
         } catch (error: any) {
             console.error('[fetchAlbum] Fatal Hydration Failure:', error);
@@ -1292,352 +1183,49 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         }
     }, []);
 
-    const saveAlbumPage = useCallback(async (pageId: string) => {
-        const currentAlbum = albumRef.current;
-        if (!currentAlbum) return { success: false, error: 'No album to save' };
-
-        const page = currentAlbum.pages.find(p => p.id === pageId);
-        if (!page) return { success: false, error: 'Page not found' };
-
-        setSaveStatus('saving');
-        try {
-            // --- UNIFIED SCHEMA SAVE (v5.0) ---
-
-            // 1. Prepare Styles
-            const background_config = {
-                color: page.pageStyles?.backgroundColor || page.backgroundColor,
-                image: page.pageStyles?.backgroundImage || page.backgroundImage,
-                opacity: page.pageStyles?.backgroundOpacity ?? page.backgroundOpacity ?? 100,
-                blendMode: page.pageStyles?.backgroundBlendMode || 'normal'
-            };
-
-            // 2. Prepare Layout & Text (The "Boxes")
-            const { prepareLayoutForSave } = await import('../lib/layoutUtils');
-            const finalLayoutConfig = prepareLayoutForSave(page);
-            const finalTextLayers = [...(page.textLayers || [])];
-
-            const pageUpdatePayload: any = {
-                album_id: currentAlbum.id,
-                page_number: page.pageNumber,
-                layout_config: finalLayoutConfig,
-                text_layers: finalTextLayers,
-                layout_template: page.layoutTemplate || 'freeform',
-                background_config: background_config,
-                updated_at: new Date().toISOString()
-            };
-
-            // 3. Upsert with Legacy Fallback
-            let { error: upsertError } = await (supabase.from('album_pages') as any).upsert(pageUpdatePayload, {
-                onConflict: 'album_id,page_number'
-            });
-
-            // If layout_config column is missing, fallback to layout_json
-            if (upsertError && upsertError.code === '42703') {
-                console.warn('[Schema] Column layout_config missing, falling back to layout_json');
-                const legacyPayload = {
-                    ...pageUpdatePayload,
-                    layout_json: [...finalLayoutConfig, ...finalTextLayers]
-                };
-                delete legacyPayload.layout_config;
-                delete legacyPayload.text_layers;
-
-                const { error: retryError } = await (supabase.from('album_pages') as any).upsert(legacyPayload, {
-                    onConflict: 'album_id,page_number'
-                });
-                upsertError = retryError;
-            }
-
-            if (upsertError) throw upsertError;
-
-            // 4. METADATA REFRESH: Sync album stats to the primary table
-            const frontPage = currentAlbum.pages[0];
-            let derivedCover = currentAlbum.coverUrl;
-
-            if (frontPage) {
-                const layoutItems = (frontPage.layoutConfig || []);
-                const firstBox = layoutItems.find((b: any) => b.content?.url && (b.content.type === 'image' || b.content.type === 'video'));
-                if (firstBox?.content?.url) derivedCover = firstBox.content.url;
-            }
-
-            const metadataUpdates: any = {
-                total_pages: currentAlbum.pages.length,
-                cover_image_url: derivedCover,
-                updated_at: new Date().toISOString()
-            };
-
-            const { error: metadataError } = await (supabase.from('albums') as any)
-                .update(metadataUpdates)
-                .eq('id', currentAlbum.id);
-
-            // Graceful Schema Handling: If columns missing, retry without them
-            if (metadataError && metadataError.code === '42703') {
-                console.warn('[Schema] Metadata mismatch on saveAlbumPage, retrying with core columns only');
-                await (supabase.from('albums') as any)
-                    .update({ updated_at: new Date().toISOString() })
-                    .eq('id', currentAlbum.id);
-            } else if (metadataError) {
-                console.error('[saveAlbumPage] Metadata Sync Error:', metadataError);
-            }
-
-
-            setSaveStatus('saved');
-            return { success: true };
-        } catch (error: any) {
-            console.error('[saveAlbumPage] Sync Failure:', error);
-            setSaveStatus('error');
-            return { success: false, error: error.message };
-        }
-    }, []);
-
-
-
     const saveAlbum = useCallback(async () => {
         const currentAlbum = albumRef.current;
         if (!currentAlbum) return { success: false, error: 'No album to save' };
+
         setSaveStatus('saving');
         try {
-            // 1b. Dynamic Cover Update: Sync first image of Page 1 (Front Cover) to album cover
-            const primaryPage = currentAlbum.pages.find(p => p.pageNumber === 1 || p.layoutTemplate === 'cover-front');
-            let detectedCoverUrl = currentAlbum.coverUrl;
-
-            if (primaryPage) {
-                const firstImage = (primaryPage.assets || []).find(a => a.type === 'image' || a.type === 'frame');
-                if (firstImage?.url) {
-                    detectedCoverUrl = firstImage.url;
-                } else {
-                    // Check layoutConfig for slots with images
-                    const firstSlotWithImage = (primaryPage.layoutConfig || []).find(slot =>
-                        slot.role === 'slot' && slot.content?.url && (slot.content.type === 'image' || slot.content.type === 'video')
-                    );
-                    if (firstSlotWithImage?.content?.url) {
-                        detectedCoverUrl = firstSlotWithImage.content.url;
-                    }
-                }
+            const unifiedAlbum = contextAlbumToUnifiedAlbum(currentAlbum);
+            const success = await AlbumDataService.saveAlbum(unifiedAlbum);
+            if (success) {
+                setSaveStatus('saved');
+                return { success: true };
+            } else {
+                setSaveStatus('error');
+                return { success: false, error: 'Failed to save album' };
             }
-
-            // 1. Update Album Metadata
-            const albumUpdates: any = {
-                title: currentAlbum.title,
-                description: currentAlbum.description,
-                category: currentAlbum.category,
-                is_published: currentAlbum.isPublished,
-                hashtags: currentAlbum.hashtags || [],
-                location: currentAlbum.location,
-                country: currentAlbum.country,
-                cover_image_url: detectedCoverUrl,
-                geotag: currentAlbum.geotag,
-                config: {
-                    ...currentAlbum.config,
-                    unplacedMedia: currentAlbum.unplacedMedia
-                },
-                total_pages: currentAlbum.pages.length,
-                layout_metadata: currentAlbum.pages.map(p => ({
-                    page: p.pageNumber,
-                    template: p.layoutTemplate,
-                    imageCount: (p.layoutConfig || []).length
-                })),
-                updated_at: new Date().toISOString()
-            };
-
-            const { error: albumError } = await (supabase.from('albums') as any)
-                .update(albumUpdates)
-                .eq('id', currentAlbum.id);
-
-            // Graceful Schema Handling
-            if (albumError && albumError.code === '42703') {
-                console.warn('[Schema] Column mismatch on saveAlbum, retrying without extended metadata');
-                delete albumUpdates.total_pages;
-                delete albumUpdates.cover_image_url;
-                delete albumUpdates.layout_metadata;
-                const { error: retryError } = await (supabase.from('albums') as any)
-                    .update(albumUpdates)
-                    .eq('id', currentAlbum.id);
-                if (retryError) throw retryError;
-            } else if (albumError) {
-                throw albumError;
-            }
-
-            // 2. Batch Save All Pages to album_pages
-            const pagePromises = currentAlbum.pages.map(async (page) => {
-                const accountedAssetIds = new Set<string>();
-
-                // 2a. Sync image slots
-                const syncedLayoutConfig = (page.layoutConfig || []).map((slot: any, index: number) => {
-                    const asset = page.assets.find(a => a.slotId === index);
-                    if (asset) {
-                        accountedAssetIds.add(asset.id);
-                        return {
-                            ...slot,
-                            role: 'slot',
-                            id: asset.id,
-                            content: {
-                                url: asset.url,
-                                type: asset.type,
-                                zoom: asset.crop?.zoom || 1,
-                                x: asset.crop?.x ?? 50,
-                                y: asset.crop?.y ?? 50,
-                                rotation: asset.rotation || 0,
-                                config: asset
-                            }
-                        };
-                    }
-                    return { ...slot, role: 'slot' };
-                });
-
-                // 2b. Collect freeform / remaining assets
-                const freeformAssets = page.assets.filter(a => !accountedAssetIds.has(a.id));
-                const syncedTextLayers = [...(page.textLayers || [])];
-
-                // Add text assets that aren't in textLayers yet
-                freeformAssets.filter(a => a.type === 'text').forEach(asset => {
-                    syncedTextLayers.push({
-                        id: asset.id,
-                        role: 'text',
-                        left: asset.x,
-                        top: asset.y,
-                        width: asset.width,
-                        height: asset.height,
-                        zIndex: asset.zIndex || 50,
-                        content: {
-                            type: 'text',
-                            url: undefined,
-                            zoom: 1,
-                            x: 50,
-                            y: 50,
-                            rotation: asset.rotation || 0,
-                            config: asset
-                        }
-                    });
-                });
-
-                // Add freeform images to layoutConfig as 'freeform'
-                freeformAssets.filter(a => a.type !== 'text').forEach(asset => {
-                    syncedLayoutConfig.push({
-                        id: asset.id,
-                        role: 'freeform',
-                        left: asset.x,
-                        top: asset.y,
-                        width: asset.width,
-                        height: asset.height,
-                        zIndex: asset.zIndex || 10,
-                        content: {
-                            type: asset.type,
-                            url: asset.url,
-                            zoom: asset.crop?.zoom || 1,
-                            x: asset.crop?.x ?? 50,
-                            y: asset.crop?.y ?? 50,
-                            rotation: asset.rotation || 0,
-                            config: asset
-                        }
-                    });
-                });
-
-                const pagePayload: any = {
-                    album_id: currentAlbum.id,
-                    page_number: page.pageNumber,
-                    layout_config: syncedLayoutConfig,
-                    text_layers: syncedTextLayers,
-                    layout_template: page.layoutTemplate || 'freeform',
-                    background_config: {
-                        color: page.backgroundColor,
-                        alpha: page.backgroundOpacity, // Alignment with some legacy schemas
-                        image: page.backgroundImage
-                    },
-                    updated_at: new Date().toISOString()
-                };
-
-                let { error } = await (supabase.from('album_pages') as any).upsert(pagePayload, {
-                    onConflict: 'album_id,page_number'
-                });
-
-                // Legacy Retry
-                if (error && error.code === '42703') {
-                    const legacyPayload = {
-                        ...pagePayload,
-                        layout_json: [...syncedLayoutConfig, ...syncedTextLayers],
-                        background_config: {
-                            color: page.backgroundColor,
-                            image: page.backgroundImage,
-                            opacity: page.backgroundOpacity
-                        }
-                    };
-                    delete legacyPayload.layout_config;
-                    delete legacyPayload.text_layers;
-                    const { error: retryError } = await (supabase.from('album_pages') as any).upsert(legacyPayload, {
-                        onConflict: 'album_id,page_number'
-                    });
-                    error = retryError;
-                }
-
-                return { error };
-            });
-
-            const results = await Promise.all(pagePromises);
-            const error = results.find(r => r.error);
-            if (error) throw error.error;
-
-            // 3. Cleanup: Delete pages that no longer exist
-            const maxPageNumber = currentAlbum.pages.length;
-            await supabase
-                .from('album_pages')
-                .delete()
-                .eq('album_id', currentAlbum.id)
-                .gt('page_number', maxPageNumber);
-
-            // 4. METADATA REFRESH: Sync album stats to the primary table
-            // This ensures the library is always accurate using the results of the mass save.
-            const statsPage = currentAlbum.pages[0];
-            let finalCover = detectedCoverUrl; // Reuse the detected cover from step 1b
-
-            if (statsPage && !finalCover) {
-                const layoutItems = (statsPage.layoutConfig || []);
-                const firstBox = layoutItems.find((b: any) => b.content?.url && (b.content.type === 'image' || b.content.type === 'video'));
-                if (firstBox?.content?.url) finalCover = firstBox.content.url;
-            }
-
-            await (supabase.from('albums') as any)
-                .update({
-                    total_pages: maxPageNumber,
-                    cover_image_url: finalCover,
-                    updated_at: new Date().toISOString()
-                })
-                .eq('id', currentAlbum.id);
-
-            setSaveStatus('saved');
-            return { success: true };
         } catch (error: any) {
-            console.error('[saveAlbum] Persistence Crash:', error);
+            console.error('[AlbumContext] saveAlbum error:', error);
             setSaveStatus('error');
             return { success: false, error: error.message };
         }
     }, []);
 
+    const saveAlbumPage = useCallback(async (_pageId: string) => {
+        return saveAlbum();
+    }, [saveAlbum]);
+
+
+
     const toggleLock = useCallback(async () => {
         if (!album) return;
-        const newLockedState = !album.config.isLocked;
-
-        // Optimistic update
-        setAlbum(prev => prev ? ({
-            ...prev,
+        setAlbum({
+            ...album,
             config: {
-                ...prev.config,
-                isLocked: newLockedState
+                ...album.config,
+                isLocked: !album.config.isLocked
             },
             updatedAt: new Date()
-        }) : null);
+        });
 
-        const { supabase } = await import('../lib/supabase');
-        const { error } = await (supabase.from('albums') as any)
-            .update({
-                config: {
-                    ...album.config,
-                    isLocked: newLockedState
-                }
-            })
-            .eq('id', album.id);
-
-        if (error) console.error("Error toggling lock:", error);
-    }, [album]);
+        // The setAlbum call above updates state and ref, 
+        // saveAlbum will pull the latest from ref.
+        setTimeout(() => saveAlbum(), 100);
+    }, [album, saveAlbum, setAlbum]);
 
     const value: AlbumContextType = {
         album,
@@ -1683,7 +1271,8 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         showLayoutOutlines,
         toggleLayoutOutlines,
         activeSlot,
-        setActiveSlot
+        setActiveSlot,
+        clearPageMedia
     };
 
     return (

@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import HTMLFlipBook from 'react-pageflip';
-import { ChevronLeft, ChevronRight, X, Maximize2, Minimize2, Download, FileText, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Maximize2, Minimize2, Download, FileText, Globe, BookOpen, Moon } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { type Album, type Page } from '../../contexts/AlbumContext';
 import { printService } from '../../services/printService';
 import { motion, AnimatePresence } from 'framer-motion';
 import { VideoPortal } from './VideoPortal';
 import { AlbumPage } from './AlbumPage';
-import { supabase } from '../../lib/supabase';
-
 interface FlipbookViewerProps {
     pages: Page[];
     album?: Album;
@@ -25,22 +23,10 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     const [zoom, setZoom] = useState(1);
     const [selectedVideo, setSelectedVideo] = useState<{ url: string, rotation?: number } | null>(null);
     const [isTheaterMode, setIsTheaterMode] = useState(false);
-    const [layouts, setLayouts] = useState<Record<string, any>>({});
     const [flippingTime, setFlippingTime] = useState(1000);
-
-    useEffect(() => {
-        const fetchLayouts = async () => {
-            const { data, error } = await supabase.from('album_layouts').select('*');
-            if (!error && data) {
-                const layoutMap = data.reduce((acc: any, layout: any) => ({
-                    ...acc,
-                    [layout.name]: layout.config
-                }), {});
-                setLayouts(layoutMap);
-            }
-        };
-        fetchLayouts();
-    }, []);
+    const [showPageNumbers, setShowPageNumbers] = useState(true);
+    const [showShadows, setShowShadows] = useState(true);
+    const [_layouts, _setLayouts] = useState<Record<string, any>>({});
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 1024);
@@ -308,7 +294,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                         swipeDistance={30}
                         showPageCorners={false}
                         disableFlipByClick={isTheaterMode}
-                        drawShadow={true}
+                        drawShadow={showShadows}
                         maxShadowOpacity={0.6}
                         autoSize={false}
                         clickEventForward={!selectedVideo && !isTheaterMode}
@@ -334,6 +320,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                                         density={density}
                                         isCover={isCover}
                                         onVideoClick={handleSetSelectedVideo}
+                                        showPageNumber={showPageNumbers}
                                     />
                                 </div>
                             );
@@ -358,6 +345,30 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 </div>
 
                 <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => setShowPageNumbers(!showPageNumbers)}
+                        className={cn(
+                            "p-2 rounded-full transition-all flex items-center gap-2 px-3",
+                            showPageNumbers ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
+                        )}
+                        title="Toggle Page Numbers"
+                    >
+                        <BookOpen className="w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">Numbers</span>
+                    </button>
+
+                    <button
+                        onClick={() => setShowShadows(!showShadows)}
+                        className={cn(
+                            "p-2 rounded-full transition-all flex items-center gap-2 px-3",
+                            showShadows ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
+                        )}
+                        title="Toggle Shadows"
+                    >
+                        <Moon className="w-4 h-4" />
+                        <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">Shadows</span>
+                    </button>
+
                     <button
                         onClick={() => {
                             const container = document.getElementById('flipbook-container');

@@ -10,6 +10,13 @@ export interface GoogleMediaItem {
     baseUrl?: string;
     mimeType?: string;
     filename?: string;
+    description?: string;
+    mediaMetadata?: {
+        width: string;
+        height: string;
+        photo?: any;
+        video?: any;
+    };
 }
 
 export interface GooglePhotosSearchResponse {
@@ -87,7 +94,16 @@ export class GooglePhotosService {
     }
 
     /**
-     * Step 2: List items from a specific session
+     * List media items from the Library (Library API)
+     */
+    async listLibraryMediaItems(pageSize = 50, pageToken?: string): Promise<GooglePhotosSearchResponse> {
+        let url = `/mediaItems?pageSize=${pageSize}`;
+        if (pageToken) url += `&pageToken=${pageToken}`;
+        return this.fetchWithAuth(url, {}, 'library');
+    }
+
+    /**
+     * Step 2: List items from a specific session (Picker API)
      */
     async listMediaItems(sessionId: string, pageSize = 50, pageToken?: string): Promise<GooglePhotosSearchResponse> {
         let url = `/mediaItems?sessionId=${sessionId}&pageSize=${pageSize}`;

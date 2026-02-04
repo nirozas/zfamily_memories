@@ -1,15 +1,18 @@
-import { useState, type KeyboardEvent } from 'react';
+import React, { useState, type KeyboardEvent } from 'react';
 import { X, Tag, Plus } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-interface HashtagInputProps {
+export type HashtagInputProps = {
     tags: string[];
     onChange: (tags: string[]) => void;
     placeholder?: string;
     suggestions?: string[];
+    className?: string;
 }
 
-export function HashtagInput({ tags = [], onChange, placeholder = "Add hashtags...", suggestions = [] }: HashtagInputProps) {
+export const HashtagInput: React.FC<HashtagInputProps> = ({ tags = [], onChange, placeholder = "Add hashtags...", suggestions = [], className }) => {
     const [inputValue, setInputValue] = useState('');
+
     const [showSuggestions, setShowSuggestions] = useState(false);
 
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -38,8 +41,8 @@ export function HashtagInput({ tags = [], onChange, placeholder = "Add hashtags.
     );
 
     return (
-        <div className="space-y-2">
-            <div className="flex flex-wrap gap-2 p-2 min-h-[42px] bg-white border border-catalog-accent/20 rounded-lg focus-within:ring-2 focus-within:ring-catalog-accent/30 transition-all">
+        <div className="space-y-2 relative">
+            <div className={cn("flex flex-wrap gap-2 p-2 min-h-[42px] bg-white border border-catalog-accent/20 rounded-lg focus-within:ring-2 focus-within:ring-catalog-accent/30 transition-all", className)}>
                 {tags.map((tag, index) => (
                     <span
                         key={tag}

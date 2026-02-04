@@ -73,22 +73,46 @@ export const getFilterStyle = (asset: Asset) => {
 
     switch (asset.filter) {
         case 'vintage':
-            filterString += `sepia(${50 * intensity}%) contrast(${120 * intensity}%) brightness(${90 * intensity}%) `;
+            filterString += `sepia(${50 * intensity}%) contrast(${110 * intensity}%) brightness(${95 * intensity}%) `;
             break;
         case 'matte':
-            filterString += `contrast(${80 * intensity}%) brightness(${110 * intensity}%) saturate(${70 * intensity}%) `;
+            filterString += `contrast(${85 * intensity}%) brightness(${105 * intensity}%) saturate(${75 * intensity}%) `;
             break;
         case 'portrait':
-            filterString += `brightness(${105 * intensity}%) contrast(${105 * intensity}%) sepia(${10 * intensity}%) `;
+            filterString += `brightness(${105 * intensity}%) contrast(${105 * intensity}%) sepia(${15 * intensity}%) `;
             break;
         case 'film':
-            filterString += `contrast(${125 * intensity}%) hue-rotate(${-10 * intensity}deg) saturate(${80 * intensity}%) `;
+            filterString += `contrast(${115 * intensity}%) hue-rotate(${-10 * intensity}deg) saturate(${85 * intensity}%) `;
             break;
         case 'sketch':
-            filterString += `grayscale(100%) contrast(${200 * intensity}%) brightness(${120 * intensity}%) `;
+            filterString += `grayscale(100%) contrast(${180 * intensity}%) brightness(${115 * intensity}%) `;
             break;
-        case 'cartoon':
-            filterString += `saturate(${200 * intensity}%) contrast(${120 * intensity}%) brightness(${110 * intensity}%) `;
+        case 'noir':
+            filterString += `grayscale(100%) contrast(${150 * intensity}%) brightness(${90 * intensity}%) `;
+            break;
+        case 'cyberpunk':
+            filterString += `hue-rotate(180deg) saturate(${150 * intensity}%) contrast(${110 * intensity}%) `;
+            break;
+        case 'golden':
+            filterString += `sepia(${30 * intensity}%) saturate(${130 * intensity}%) brightness(${105 * intensity}%) `;
+            break;
+        case 'moody':
+            filterString += `brightness(${80 * intensity}%) contrast(${130 * intensity}%) saturate(${60 * intensity}%) `;
+            break;
+        case 'pastel':
+            filterString += `brightness(${110 * intensity}%) contrast(${85 * intensity}%) saturate(${85 * intensity}%) `;
+            break;
+        case 'dramatic':
+            filterString += `contrast(${150 * intensity}%) brightness(${90 * intensity}%) saturate(${110 * intensity}%) `;
+            break;
+        case 'faded':
+            filterString += `contrast(${90 * intensity}%) brightness(${105 * intensity}%) saturate(${80 * intensity}%) sepia(${10 * intensity}%) `;
+            break;
+        case 'vibrant':
+            filterString += `saturate(${160 * intensity}%) contrast(${110 * intensity}%) `;
+            break;
+        case 'cinematic':
+            filterString += `hue-rotate(-15deg) contrast(${115 * intensity}%) saturate(${110 * intensity}%) brightness(${95 * intensity}%) `;
             break;
         default: break;
     }

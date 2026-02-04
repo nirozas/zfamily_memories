@@ -21,8 +21,6 @@ import {
     CheckSquare,
     FolderPlus,
     Link as LinkIcon,
-    Filter,
-    ArrowUpDown
 } from 'lucide-react';
 import { UrlInputModal } from '../components/media/UrlInputModal';
 import { GooglePhotosService } from '../services/googlePhotos';
@@ -416,8 +414,7 @@ export function MediaLibrary() {
 
             // If 0, try matching without query params if item.url has them
             if (count === 0 && item.url.includes('?')) {
-                const base = item.url.split('?')[0];
-                // usageMap might keys might also have params or not. 
+                // usageMap might keys might also have params or not.
                 // This is expensive O(N) lookup without better structure, let's keep it simple for now.
             }
             return { ...item, usageCount: count };

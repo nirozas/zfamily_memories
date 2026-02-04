@@ -15,8 +15,9 @@ import { ImageCropper } from '../components/ui/ImageCropper';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
 import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload } from 'lucide-react';
 import type { Event, Profile } from '../types/supabase';
+import { motion } from 'framer-motion';
 
-const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=80&w=2070&auto=format&fit=crop';
+const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=100&w=3840&auto=format&fit=crop';
 
 export function Home() {
     const { familyId, userRole, googleAccessToken, loading: authLoading } = useAuth();
@@ -84,7 +85,7 @@ export function Home() {
                 }
 
                 // Workflow #2: Fallback/Dual-save to Supabase Storage
-                const { url: storageUrl, error } = await storageService.uploadFile(
+                const { url: storageUrl } = await storageService.uploadFile(
                     file,
                     'album-assets',
                     `hero/${familyId}/${Date.now()}/`
@@ -237,7 +238,7 @@ export function Home() {
                 googlePhotoId: googlePhotoId || content.googlePhotoId
             };
 
-            const { data: updatedRows, error: updateError } = await (supabase as any)
+            const { error: updateError } = await (supabase as any)
                 .from('events')
                 .update({ content: updatedContent })
                 .eq('id', eventId)
@@ -406,20 +407,29 @@ export function Home() {
     return (
         <div className="space-y-12 pb-12">
             {/* 1. Hero Section */}
-            <section className="relative h-[50vh] w-full overflow-hidden group">
-                <div className="absolute inset-0 bg-black/40 z-10" />
+            <section className="relative h-[65vh] w-full overflow-hidden group">
+                <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-catalog-stone/5 z-10" />
                 <img
                     src={heroImageUrl}
                     alt="Family Archive"
-                    className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
+                    className="w-full h-full object-cover transition-transform duration-[3s] group-hover:scale-110"
+                    style={{ imageRendering: '-webkit-optimize-contrast' }}
                 />
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-4">
-                    <h1 className="text-4xl md:text-5xl font-sans font-black text-white mb-4 drop-shadow-lg tracking-tight uppercase">
-                        The <span className="text-rainbow brightness-125">Family</span> Archive
-                    </h1>
-                    <p className="text-lg md:text-xl text-white/90 font-light max-w-2xl drop-shadow-md">
-                        Preserving our legacy, one story at a time.
-                    </p>
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center p-6 bg-black/5 backdrop-blur-[2px]">
+                    <motion.div
+                        initial={{ opacity: 0, y: 30 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 1 }}
+                        className="space-y-6"
+                    >
+                        <h1 className="text-6xl md:text-9xl font-outfit font-black text-white mb-4 drop-shadow-2xl tracking-tighter uppercase leading-[0.8]">
+                            The <span className="text-rainbow bg-clip-text text-transparent brightness-125">Family</span> <br />
+                            <span className="opacity-90">Chronicle</span>
+                        </h1>
+                        <p className="text-sm md:text-base text-white/60 font-black uppercase tracking-[0.5em] max-w-2xl drop-shadow-md mx-auto">
+                            The Living Legacy of {familyMembers[0]?.full_name?.split(' ').pop() || 'Our'} Ancestors
+                        </p>
+                    </motion.div>
                 </div>
 
                 {/* Admin Edit Hero Button */}
@@ -438,33 +448,40 @@ export function Home() {
                                 setShowSourceModal(true);
                             }}
                             disabled={isUploadingHero}
-                            className="absolute bottom-6 right-6 z-30 flex items-center gap-2 px-4 py-2 bg-white/90 hover:bg-white text-catalog-text rounded-full shadow-xl opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-105"
+                            className="absolute bottom-10 right-10 z-30 flex items-center gap-3 px-6 py-3 glass hover:bg-white text-catalog-text rounded-2xl shadow-2xl opacity-0 group-hover:opacity-100 transition-all duration-500 hover:scale-105 active:scale-95 border border-white/20"
                         >
                             {isUploadingHero ? (
-                                <div className="w-5 h-5 border-2 border-catalog-accent border-t-transparent rounded-full animate-spin" />
+                                <Loader2 className="w-5 h-5 animate-spin text-catalog-accent" />
                             ) : (
                                 <Camera className="w-5 h-5 text-catalog-accent" />
                             )}
-                            <span className="text-sm font-medium">
-                                {isUploadingHero ? 'Uploading...' : 'Change Cover'}
+                            <span className="text-[10px] font-black uppercase tracking-widest leading-none">
+                                {isUploadingHero ? 'Processing...' : 'Alter Reality'}
                             </span>
                         </button>
                     </>
                 )}
             </section>
 
-            <div className="container-fluid max-w-wide space-y-16">
+            <div className="container-fluid max-w-[1400px] mx-auto px-6 space-y-24">
 
                 {/* 2. Highlights Section (Recent Events) */}
-                <section className="space-y-6">
-                    <div className="flex items-center justify-between border-b-2 border-rainbow pb-4">
-                        <h2 className="text-3xl font-sans font-bold text-catalog-text">Recent Highlights</h2>
-                        <Link to="/events" className="text-pastel-indigo hover:text-pastel-indigo/80 text-sm font-bold uppercase tracking-widest flex items-center gap-2">
-                            View Calendar <Calendar className="w-4 h-4" />
+                <section className="space-y-10">
+                    <div className="flex items-center justify-between border-b border-black/5 pb-8 relative">
+                        <div className="space-y-2">
+                            <h2 className="text-sm font-black text-catalog-accent uppercase tracking-[0.4em] font-outfit">Timeline Fragments</h2>
+                            <p className="text-3xl md:text-5xl font-outfit font-black text-catalog-text tracking-tighter">Recent Highlights</p>
+                        </div>
+                        <Link to="/events" className="group flex items-center gap-4 bg-catalog-stone/10 px-6 py-3 rounded-2xl hover:bg-catalog-accent hover:text-white transition-all duration-500 hover:-translate-y-1 shadow-sm">
+                            <span className="text-[10px] font-black uppercase tracking-widest">Chronicle Grid</span>
+                            <div className="w-6 h-6 bg-catalog-accent group-hover:bg-white rounded-lg flex items-center justify-center transition-colors">
+                                <Calendar className="w-3 h-3 text-white group-hover:text-catalog-accent" />
+                            </div>
                         </Link>
+                        <div className="absolute bottom-0 left-0 w-32 h-[2px] bg-catalog-accent" />
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-8">
                         <input
                             ref={eventCoverInputRef}
                             type="file"
@@ -473,17 +490,12 @@ export function Home() {
                             onChange={handleUpdateEventCover}
                         />
                         {recentEvents.length > 0 ? (
-                            recentEvents.map(event => {
+                            recentEvents.map((event, idx) => {
                                 const presentationImages = [
                                     'https://images.unsplash.com/photo-1511895426328-dc8714191300?auto=format&fit=crop&w=800&q=80',
-                                    'https://images.unsplash.com/photo-1526749837599-b4eba9fd855e?auto=format&fit=crop&w=800&q=80',
-                                    'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80',
-                                    'https://images.unsplash.com/photo-1516733725897-1aa73b87c8e8?auto=format&fit=crop&w=800&q=80',
-                                    'https://images.unsplash.com/photo-1582234372722-50d7ccc30ebd?auto=format&fit=crop&w=800&q=80',
-                                    'https://images.unsplash.com/photo-1473625247510-8ceb1760943f?auto=format&fit=crop&w=800&q=80'
+                                    'https://images.unsplash.com/photo-1526749837599-b4eba9fd855e?auto=format&fit=crop&w=800&q=80'
                                 ];
 
-                                // Pick a stable random image based on ID
                                 const fallbackImage = presentationImages[event.id.charCodeAt(0) % presentationImages.length];
 
                                 let content = event.content;
@@ -494,71 +506,86 @@ export function Home() {
                                 const displayUrl = content?.presentationUrl || firstImg?.url || fallbackImage;
 
                                 return (
-                                    <Link key={event.id} to={`/event/${event.id}/view`} className="block h-full relative group/card">
-                                        <Card variant="interactive" className="h-full flex flex-col group border-l-2 border-pastel-green overflow-hidden p-0 relative">
-                                            {/* 1. Image (fills top portion) */}
-                                            <div className="aspect-square w-full bg-gray-100 overflow-hidden relative">
-                                                <img
-                                                    src={displayUrl}
-                                                    className="w-full h-full object-cover transition-transform group-hover:scale-110 duration-500"
-                                                    alt={event.title}
-                                                />
+                                    <motion.div
+                                        key={event.id}
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        transition={{ delay: idx * 0.1 }}
+                                    >
+                                        <Link to={`/event/${event.id}/view`} className="block h-full group/card relative">
+                                            <Card className="h-full flex flex-col group p-0 overflow-hidden relative glass-card rounded-[2rem] border border-black/5 transition-all duration-[0.6s] hover:scale-105 hover:shadow-2xl hover:shadow-catalog-accent/10 active:scale-95">
+                                                {/* Image Container */}
+                                                <div className="aspect-[4/5] w-full bg-catalog-stone/10 overflow-hidden relative">
+                                                    <img
+                                                        src={displayUrl}
+                                                        className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 grayscale-[0.2] group-hover:grayscale-0"
+                                                        alt={event.title}
+                                                    />
 
-                                                {/* Edit Hover Overlay */}
-                                                {isAdmin && (
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.preventDefault();
-                                                            e.stopPropagation();
-                                                            setActiveTarget(event.id);
-                                                            setShowSourceModal(true);
-                                                        }}
-                                                        className="absolute top-2 right-2 p-2 bg-white/90 rounded-full shadow-lg opacity-0 group-hover/card:opacity-100 transition-all hover:scale-110 z-20"
-                                                        title="Change Cover Image"
-                                                    >
-                                                        {isUpdatingCover === event.id ? (
-                                                            <Loader2 className="w-4 h-4 animate-spin text-catalog-accent" />
-                                                        ) : (
-                                                            <Edit className="w-4 h-4 text-catalog-accent" />
-                                                        )}
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {/* 2. Content (Title -> Date -> Location) */}
-                                            <div className="p-3 flex-1 flex flex-col">
-                                                <h3 className="text-xs font-sans font-black text-catalog-text group-hover:text-pastel-indigo transition-colors line-clamp-2 mb-2 leading-tight uppercase tracking-tight">
-                                                    {event.title}
-                                                </h3>
-
-                                                <div className="mt-auto space-y-1">
-                                                    <div className="flex items-center gap-1.5 text-pastel-indigo text-[9px] font-bold uppercase tracking-wider">
-                                                        <Calendar className="w-3 h-3" />
-                                                        {new Date(event.event_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                                                    </div>
-
-                                                    {event.location && (
-                                                        <div className="flex items-center gap-1.5 text-gray-400 text-[9px] font-medium truncate">
-                                                            <MapPin className="w-3 h-3 text-catalog-accent/40" />
-                                                            {event.location}
+                                                    {/* Category Chip */}
+                                                    {event.category && (
+                                                        <div className="absolute top-4 left-4 z-20">
+                                                            <div className="glass px-3 py-1.5 rounded-xl text-[8px] font-black uppercase tracking-widest text-catalog-accent border border-white/20">
+                                                                {event.category}
+                                                            </div>
                                                         </div>
                                                     )}
+
+                                                    {/* Admin Edit Overlay */}
+                                                    {isAdmin && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                e.stopPropagation();
+                                                                setActiveTarget(event.id);
+                                                                setShowSourceModal(true);
+                                                            }}
+                                                            className="absolute top-4 right-4 p-2.5 glass rounded-xl shadow-lg opacity-0 group-hover/card:opacity-100 transition-all hover:scale-110 z-20 hover:bg-white"
+                                                            title="Change Cover Image"
+                                                        >
+                                                            {isUpdatingCover === event.id ? (
+                                                                <Loader2 className="w-3 h-3 animate-spin text-catalog-accent" />
+                                                            ) : (
+                                                                <Edit className="w-3 h-3 text-catalog-accent" />
+                                                            )}
+                                                        </button>
+                                                    )}
                                                 </div>
-                                            </div>
-                                        </Card>
-                                    </Link>
+
+                                                {/* Content Overlay */}
+                                                <div className="p-5 flex-1 flex flex-col space-y-3 bg-gradient-to-b from-white to-catalog-stone/5">
+                                                    <h3 className="text-[11px] font-black font-outfit text-catalog-text group-hover:text-catalog-accent transition-colors line-clamp-2 leading-[1.3] uppercase tracking-wider">
+                                                        {event.title}
+                                                    </h3>
+
+                                                    <div className="mt-auto pt-3 border-t border-black/5 space-y-2">
+                                                        <div className="flex items-center gap-2 text-catalog-text/40 text-[9px] font-black uppercase tracking-[0.2em] font-outfit">
+                                                            <Calendar className="w-3 h-3 text-catalog-accent/40" />
+                                                            {new Date(event.event_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </div>
+
+                                                        {event.location && (
+                                                            <div className="flex items-center gap-2 text-catalog-text/30 text-[9px] font-medium truncate font-outfit italic">
+                                                                <MapPin className="w-3 h-3 text-catalog-accent/20" />
+                                                                {event.location}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        </Link>
+                                    </motion.div>
                                 );
                             })
                         ) : (
-                            // Placeholder cards if no events (matching new 6-column grid)
                             [1, 2, 3, 4, 5, 6].map(i => (
-                                <Card key={i} className="aspect-[3/4] opacity-20 p-0 border-l-2 border-gray-100">
-                                    <div className="h-1/2 bg-gray-50 flex items-center justify-center">
-                                        <ImageIcon className="w-6 h-6 text-gray-200" />
+                                <Card key={i} className="aspect-[4/5] opacity-20 p-0 glass-card rounded-[2rem] border border-black/5">
+                                    <div className="h-2/3 bg-catalog-stone/10 flex items-center justify-center">
+                                        <ImageIcon className="w-8 h-8 text-catalog-text/10" />
                                     </div>
-                                    <div className="p-3 space-y-2">
-                                        <div className="h-2 w-full bg-gray-100 rounded" />
-                                        <div className="h-2 w-2/3 bg-gray-100 rounded" />
+                                    <div className="p-5 space-y-3">
+                                        <div className="h-2 w-full bg-catalog-stone/10 rounded-full" />
+                                        <div className="h-2 w-2/3 bg-catalog-stone/10 rounded-full" />
                                     </div>
                                 </Card>
                             ))

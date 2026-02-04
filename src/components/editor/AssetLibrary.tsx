@@ -210,26 +210,29 @@ export function AssetLibrary() {
                             // but we can use list and filter locally, OR use specific search parameters
                             // Actually, let's just list and filter locally for now to stay simple, 
                             // OR if we want 'search', we can use searchMediaItems with filters
-                            response = await photosService.listMediaItems(100);
+                            response = await photosService.listLibraryMediaItems(100);
                         } else {
-                            response = await photosService.listMediaItems(100);
+                            response = await photosService.listLibraryMediaItems(100);
                         }
 
                         let items = response.mediaItems || [];
                         if (searchQuery.trim()) {
                             const q = searchQuery.toLowerCase();
-                            items = items.filter(i => i.filename.toLowerCase().includes(q) || i.description?.toLowerCase().includes(q));
+                            items = items.filter(i =>
+                                (i.filename?.toLowerCase() || '').includes(q) ||
+                                (i.description?.toLowerCase() || '').includes(q)
+                            );
                         }
 
                         const assets = items.map(item => ({
                             id: item.id,
                             url: item.baseUrl || '',
-                            type: item.mimeType.startsWith('video') ? 'video' : 'image',
+                            type: item.mimeType?.startsWith('video') ? 'video' : 'image',
                             category: 'google_photos',
-                            name: item.filename,
+                            name: item.filename || 'Google Photo',
                             is_google: true,
-                            width: parseInt(item.mediaMetadata.width),
-                            height: parseInt(item.mediaMetadata.height)
+                            width: item.mediaMetadata ? parseInt(item.mediaMetadata.width) : 800,
+                            height: item.mediaMetadata ? parseInt(item.mediaMetadata.height) : 600
                         }));
                         setLibraryAssets(assets);
                     } catch (err) {
@@ -272,9 +275,9 @@ export function AssetLibrary() {
                 // For now, let's just do it silently or log.
 
                 for (const file of files) {
-                    const { url, error } = await storageService.uploadFile(file, 'system-assets', `${category}/`);
+                    const { url } = await storageService.uploadFile(file, 'system-assets', `${category}/`);
                     if (url) {
-                        await supabase.from('library_assets').insert({
+                        await (supabase.from('library_assets') as any).insert({
                             category: category,
                             url: url,
                             name: file.name,
@@ -712,13 +715,13 @@ export function AssetLibrary() {
                                                         >
                                                             {item.type === 'video' ? (
                                                                 <div className="w-full h-full relative">
-                                                                    <img src={getThumbnailUrl(item.url, 'video')} alt="" className="w-full h-full object-cover" />
+                                                                    <img src={getThumbnailUrl(item.url, 'video') || undefined} alt="" className="w-full h-full object-cover" />
                                                                     <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/30 transition-colors">
                                                                         <Video className="w-5 h-5 text-white drop-shadow-md" />
                                                                     </div>
                                                                 </div>
                                                             ) : (
-                                                                <img src={getThumbnailUrl(item.url)} alt="" className="w-full h-full object-cover" />
+                                                                <img src={getThumbnailUrl(item.url) || undefined} alt="" className="w-full h-full object-cover" />
                                                             )}
                                                             <div className="absolute inset-0 bg-catalog-accent/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                                 <Plus className="w-5 h-5 text-white" />

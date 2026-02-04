@@ -23,10 +23,10 @@ export function AppLayout({ children }: AppLayoutProps) {
     }, [location.pathname]);
 
     return (
-        <div className={`min-h-screen bg-catalog-bg pt-16 ${themeClass} theme-rainbow bg-pattern-diverse`}>
+        <div className={`min-h-screen bg-catalog-bg ${themeClass} bg-pattern-diverse selection:bg-catalog-accent/30`}>
             <TopHeader />
-            <main className="transition-all duration-300">
-                <div className="max-w-wide px-4 sm:px-8 py-8 animate-fade-in">
+            <main className="transition-all duration-500 ease-in-out pt-16">
+                <div className="max-w-wide px-6 sm:px-12 py-10 animate-fade-in font-outfit">
                     {children}
                 </div>
             </main>

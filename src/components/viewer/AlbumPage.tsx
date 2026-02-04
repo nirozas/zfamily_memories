@@ -12,6 +12,7 @@ interface AlbumPageProps {
     density?: 'hard' | 'soft';
     isSpread?: boolean;
     onVideoClick: (url: string, rotation?: number) => void;
+    showPageNumber?: boolean;
 }
 
 /**
@@ -27,7 +28,8 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
     isCover,
     density,
     isSpread,
-    onVideoClick
+    onVideoClick,
+    showPageNumber = true
 }) => {
 
     // 1. Data Normalization (The "Bridge")
@@ -49,7 +51,9 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
         }
 
         freeformAssets.forEach(asset => {
-            const role = asset.type === 'text' ? 'text' : 'slot';
+            const role = asset.type === 'text' ? 'text' : 'decoration';
+            const zIndex = asset.zIndex ?? (role === 'text' ? 50 : 10);
+
             combinedLayout.push({
                 id: asset.id,
                 role: role,
@@ -57,9 +61,9 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
                 top: asset.y,
                 width: asset.width,
                 height: asset.height,
-                zIndex: asset.zIndex || (role === 'text' ? 50 : 10),
+                zIndex: zIndex,
                 content: {
-                    type: asset.type === 'image' || asset.type === 'frame' ? 'image' : (asset.type as any),
+                    type: asset.type === 'video' ? 'video' : (asset.type === 'text' ? 'text' : 'image'),
                     url: asset.url,
                     zoom: asset.crop?.zoom || 1,
                     x: asset.crop?.x || 50,
@@ -92,7 +96,7 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
         <div
             data-density={density}
             className={cn(
-                "relative select-none album-page",
+                "relative select-none album-page overflow-hidden",
                 density !== 'hard' && "shadow-[inset_3px_0_20px_-7px_rgba(0,0,0,0.2)]",
                 (isSpread || page.isSpreadLayout) && "is-spread-layout"
             )}
@@ -103,8 +107,12 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
                 <img
                     src={normalizedPage.styles.backgroundImage}
                     alt=""
-                    className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
-                    style={{ opacity: (normalizedPage.styles.backgroundOpacity || 100) / 100 }}
+                    className="absolute inset-0 w-full h-full pointer-events-none z-0"
+                    style={{
+                        opacity: (normalizedPage.styles.backgroundOpacity || 100) / 100,
+                        objectFit: page.backgroundScale === 'contain' ? 'contain' : (page.backgroundScale === 'stretch' ? 'fill' : 'cover'),
+                        objectPosition: page.backgroundPosition || 'center'
+                    }}
                 />
             )}
 
@@ -134,7 +142,7 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
             <div className="absolute inset-x-[3%] inset-y-[3%] pointer-events-none border border-dashed border-red-500/0 z-[100] rounded-sm" />
 
             {/* Page Number */}
-            {!isCover && (
+            {!isCover && showPageNumber && (
                 <div className={cn("absolute bottom-6 text-[10px] font-sans tracking-[0.3em] uppercase opacity-30 z-[90]", side === 'left' ? "left-8" : "right-8")}>
                     {page.pageNumber}
                 </div>

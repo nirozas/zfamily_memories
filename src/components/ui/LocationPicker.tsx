@@ -1,17 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { Input } from './Input';
 import { MapPin, Search, Loader2 } from 'lucide-react';
+import { cn } from '../../lib/utils'; // helper function
 
 interface LocationPickerProps {
     value: string;
     onChange: (address: string, lat?: number, lng?: number) => void;
     placeholder?: string;
     label?: string;
+    className?: string;
 }
 
-export function LocationPicker({ value, onChange, placeholder = "Search for a location...", label = "Location" }: LocationPickerProps) {
+export function LocationPicker({ value, onChange, placeholder = "Search for a location...", label = "Location", className }: LocationPickerProps) {
     const [query, setQuery] = useState(value);
     const [suggestions, setSuggestions] = useState<any[]>([]);
+
     const [loading, setLoading] = useState(false);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -76,7 +79,7 @@ export function LocationPicker({ value, onChange, placeholder = "Search for a lo
                     onFocus={() => {
                         if (suggestions.length > 0) setShowSuggestions(true);
                     }}
-                    className="pr-10"
+                    className={cn("pr-10", className)}
                 />
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                     {loading ? (

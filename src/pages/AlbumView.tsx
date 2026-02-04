@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
-import { type Album, type Page } from '../contexts/AlbumContext';
+import { useAlbum } from '../contexts/AlbumContext';
 import { useAuth } from '../contexts/AuthContext';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Share2, Edit3, ArrowLeft } from 'lucide-react';
@@ -11,105 +11,33 @@ import { Button } from '../components/ui/Button';
 export function AlbumView() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const [album, setAlbum] = useState<Album | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
+    const { album, fetchAlbum, isLoading: loading } = useAlbum();
     const [showSharing, setShowSharing] = useState(false);
     const { userRole } = useAuth();
-
     const canEdit = userRole === 'admin' || userRole === 'creator';
+    const error = null; // We can use context error if we add it, but for now null is fine
 
     useEffect(() => {
-        const fetchAlbum = async () => {
-            if (!id) return;
-            setLoading(true);
-            try {
-                // 1. Fetch Album Metadata
-                const { data: albumData, error: albumError } = await supabase
-                    .from('albums')
-                    .select('*')
-                    .eq('id', id)
-                    .single();
+        if (id) {
+            fetchAlbum(id);
+        }
+    }, [id, fetchAlbum]);
 
-                if (albumError || !albumData) throw new Error('Album not found');
+    // Real-Time Subscription for the Current Album (Optional, context might eventually handle this)
+    useEffect(() => {
+        if (!id) return;
 
-                // 2. Try Primary Unified Schema (album_pages)
-                const { data: albumPagesData, error: albumPagesError } = await (supabase.from('album_pages') as any)
-                    .select('*')
-                    .eq('album_id', id)
-                    .order('page_number', { ascending: true });
-
-                let pages: Page[] = [];
-                const { normalizePageData } = await import('../lib/normalization');
-                const DEFAULT_CONFIG = {
-                    dimensions: { width: 1000, height: 700, unit: 'px', bleed: 25, gutter: 40 },
-                    useSpreadView: true,
-                    gridSettings: { size: 20, snap: true, visible: false }
-                };
-
-                if (!albumPagesError && albumPagesData && albumPagesData.length > 0) {
-                    pages = albumPagesData.map(normalizePageData);
-                } else {
-                    // FALLBACK TO LEGACY SCHEMA
-                    const { data: legacyPages, error: legacyError } = await supabase
-                        .from('pages')
-                        .select('*, assets(*)')
-                        .eq('album_id', id)
-                        .order('page_number', { ascending: true });
-
-                    if (!legacyError && legacyPages && legacyPages.length > 0) {
-                        pages = legacyPages.map(normalizePageData);
-                    }
-                }
-
-                if (pages.length === 0) {
-                    throw new Error('This album has no pages yet. Please edit it in the Studio first.');
-                }
-
-                // 3. Construct Album Object
-                const data = albumData as any;
-                const fullAlbum: Album = {
-                    id: data.id,
-                    family_id: data.family_id,
-                    title: data.title,
-                    description: data.description,
-                    category: data.category,
-                    coverUrl: data.cover_image_url,
-                    createdAt: new Date(data.created_at),
-                    updatedAt: new Date(data.updated_at),
-                    isPublished: data.is_published,
-                    hashtags: data.hashtags || [],
-                    config: {
-                        ...DEFAULT_CONFIG,
-                        ...(data.config || {})
-                    },
-                    unplacedMedia: data.config?.unplacedMedia || [],
-                    pages: pages
-                };
-
-                setAlbum(fullAlbum);
-            } catch (err: any) {
-                console.error('Error loading album:', err);
-                setError(err.message);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchAlbum();
-
-        // Real-Time Subscription for the Current Album
         const subscription = supabase
             .channel(`album:${id}`)
             .on('postgres_changes', { event: '*', schema: 'public', table: 'album_pages', filter: `album_id=eq.${id}` }, () => {
-                fetchAlbum();
+                fetchAlbum(id);
             })
             .subscribe();
 
         return () => {
             supabase.removeChannel(subscription);
         };
-    }, [id]);
+    }, [id, fetchAlbum]);
 
 
     if (loading) {

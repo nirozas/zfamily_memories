@@ -8,7 +8,7 @@ export type Json =
 
 export type UserRole = 'admin' | 'creator' | 'member' | 'external_viewer';
 
-export interface Database {
+export type Database = {
     public: {
         Tables: {
             profiles: {
@@ -164,6 +164,8 @@ export interface Database {
                     geotag: Json | null;
                     is_published: boolean;
                     hashtags: string[] | null;
+                    total_pages?: number; // Optional: cached page count
+                    layout_metadata?: Json; // Optional: cached layout info
                     created_at: string;
                     updated_at: string;
                 }
@@ -182,6 +184,8 @@ export interface Database {
                     geotag?: Json | null;
                     is_published?: boolean;
                     hashtags?: string[] | null;
+                    total_pages?: number;
+                    layout_metadata?: Json;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -200,7 +204,35 @@ export interface Database {
                     geotag?: Json | null;
                     is_published?: boolean;
                     hashtags?: string[] | null;
+                    total_pages?: number;
+                    layout_metadata?: Json;
                     created_at?: string;
+                    updated_at?: string;
+                }
+            }
+            album_pages: {
+                Row: {
+                    album_id: string;
+                    page_number: number;
+                    layout_json: Json; // Renamed from 'elements' in V4.2
+                    background_config: Json;
+                    layout_template: string | null;
+                    updated_at: string;
+                }
+                Insert: {
+                    album_id: string;
+                    page_number: number;
+                    layout_json?: Json;
+                    background_config?: Json;
+                    layout_template?: string | null;
+                    updated_at?: string;
+                }
+                Update: {
+                    album_id?: string;
+                    page_number?: number;
+                    layout_json?: Json;
+                    background_config?: Json;
+                    layout_template?: string | null;
                     updated_at?: string;
                 }
             }
@@ -212,6 +244,7 @@ export interface Database {
                     template_id: string;
                     background_color: string;
                     background_image: string | null;
+                    background_opacity?: number; // Optional: opacity of background image
                     created_at: string;
                     updated_at: string;
                 }
@@ -222,6 +255,7 @@ export interface Database {
                     template_id: string;
                     background_color?: string;
                     background_image?: string | null;
+                    background_opacity?: number;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -232,6 +266,7 @@ export interface Database {
                     template_id?: string;
                     background_color?: string;
                     background_image?: string | null;
+                    background_opacity?: number;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -395,6 +430,16 @@ export interface Database {
                 Args: { token_param: string }
                 Returns: boolean
             }
+            duplicate_album_v2: {
+                Args: { source_album_id: string; new_title: string }
+                Returns: string
+            }
+        }
+        Enums: {
+            [_ in never]: never
+        }
+        CompositeTypes: {
+            [_ in never]: never
         }
     }
 }

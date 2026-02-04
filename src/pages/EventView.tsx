@@ -7,50 +7,68 @@ import { EventReviews } from '../components/events/EventReviews';
 import { EventMediaGallery } from '../components/events/EventMediaGallery';
 import { GlobalLightboxProvider, useGlobalLightbox } from '../components/ui/GlobalLightbox';
 import type { Event } from '../types/supabase';
+import { motion } from 'framer-motion';
 
 const EventContent = ({ event }: { event: Event }) => {
     const { openLightbox } = useGlobalLightbox();
 
     return (
-        <article className="space-y-12">
-            <header className="space-y-8 text-center">
-                <div className="space-y-4">
+        <article className="space-y-20 font-inter">
+            <header className="space-y-12 text-center py-10 relative">
+                {/* Decorative Elements */}
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[200px] h-[200px] bg-catalog-accent/5 rounded-full blur-[100px] -z-10" />
+
+                <div className="space-y-6">
                     {event.category && (
-                        <span className="inline-block px-4 py-1 text-xs font-bold tracking-[0.3em] text-catalog-accent uppercase bg-catalog-accent/5 rounded-full">
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="inline-block px-5 py-2 glass rounded-full text-[10px] font-black tracking-[0.3em] text-catalog-accent uppercase border border-catalog-accent/20 shadow-xl shadow-catalog-accent/5"
+                        >
                             {event.category}
-                        </span>
+                        </motion.div>
                     )}
-                    <h1 className="text-5xl md:text-7xl font-serif text-catalog-text leading-tight">
+                    <motion.h1
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.1, duration: 0.8 }}
+                        className="text-6xl md:text-8xl font-outfit font-black text-catalog-text leading-[0.9] tracking-tighter"
+                    >
                         {event.title}
-                    </h1>
+                    </motion.h1>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-center gap-6 text-catalog-text/50 font-sans text-sm tracking-wide">
-                    <div className="flex items-center gap-2">
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.3 }}
+                    className="flex flex-wrap items-center justify-center gap-8 text-catalog-text/40 font-outfit text-[11px] font-black uppercase tracking-[0.2em]"
+                >
+                    <div className="flex items-center gap-3 glass px-4 py-2 rounded-xl border border-black/5 shadow-sm">
                         <Calendar className="w-4 h-4 text-catalog-accent" />
                         {new Date(event.event_date).toLocaleDateString(undefined, { dateStyle: 'long' })}
                     </div>
                     {event.location && (
                         <Link
                             to={`/map?location=${encodeURIComponent(event.location)}`}
-                            className="flex items-center gap-2 hover:text-catalog-accent transition-colors cursor-pointer group"
-                            title="View on Map"
+                            className="flex items-center gap-3 glass px-4 py-2 rounded-xl border border-black/5 shadow-sm hover:text-catalog-accent transition-all hover:scale-105"
                         >
-                            <MapPin className="w-4 h-4 text-catalog-accent group-hover:scale-110 transition-transform" />
-                            <span className="border-b border-transparent group-hover:border-catalog-accent/50">
-                                {event.location}
-                            </span>
+                            <MapPin className="w-4 h-4 text-catalog-accent" />
+                            {event.location}
                         </Link>
                     )}
-                </div>
+                </motion.div>
 
-                <div className="w-24 h-px bg-catalog-accent/20 mx-auto" />
+                <div className="w-32 h-[2px] bg-gradient-to-r from-transparent via-catalog-accent/20 to-transparent mx-auto" />
             </header>
 
-            <div
-                className="prose prose-lg md:prose-xl prose-catalog max-w-none font-serif leading-relaxed text-catalog-text/80 selection:bg-catalog-accent/20"
+            <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5, duration: 1 }}
+                className="prose prose-lg md:prose-xl prose-catalog max-w-none font-serif leading-[2] text-catalog-text/70 selection:bg-catalog-accent/20 first-letter:text-7xl first-letter:font-black first-letter:text-catalog-accent first-letter:mr-3 first-letter:float-left drop-shadow-sm"
                 dangerouslySetInnerHTML={{ __html: event.description || '' }}
-                onClick={(e) => {
+                onClick={(e: React.MouseEvent) => {
                     const target = e.target as HTMLElement;
                     if (target.tagName === 'IMG') {
                         const img = target as HTMLImageElement;
@@ -59,25 +77,45 @@ const EventContent = ({ event }: { event: Event }) => {
                 }}
             />
 
-            {/* Media Gallery */}
+            {/* Media Gallery Section */}
             {event.content?.assets && event.content.assets.length > 0 && (
-                <EventMediaGallery
-                    assets={event.content.assets}
-                    mode={event.content.galleryMode || 'cards'}
-                />
+                <section className="space-y-10 pt-20 border-t border-black/5">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-[11px] font-black text-catalog-text/40 uppercase tracking-[0.4em] font-outfit">Visual Chronicles</h2>
+                        <div className="flex-1 mx-8 h-[1px] bg-black/5" />
+                    </div>
+                    <EventMediaGallery
+                        assets={event.content.assets}
+                        mode={event.content.galleryMode || 'cards'}
+                    />
+                </section>
             )}
 
             {/* Review Section */}
-            <EventReviews eventId={event.id} />
+            <div className="pt-20 border-t border-black/5">
+                <EventReviews eventId={event.id} />
+            </div>
 
-            {/* Footer / Signature */}
-            <footer className="pt-16 mt-16 border-t border-catalog-stone/20 text-center space-y-8">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 bg-catalog-accent/10 rounded-full flex items-center justify-center">
-                        <Heart className="w-6 h-6 text-catalog-accent animate-pulse" />
+            {/* Premium Archive Footer */}
+            <footer className="pt-32 pb-20 text-center space-y-12">
+                <div className="flex flex-col items-center gap-6">
+                    <div className="relative">
+                        <div className="absolute inset-0 bg-catalog-accent/40 rounded-full blur-2xl animate-pulse" />
+                        <div className="relative w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-2xl border border-black/5">
+                            <Heart className="w-8 h-8 text-catalog-accent" />
+                        </div>
                     </div>
-                    <p className="font-serif italic text-xl text-catalog-text/60">
-                        This moment is part of our family's living legacy.
+                    <div className="space-y-3">
+                        <p className="font-outfit font-black text-catalog-text uppercase tracking-[0.3em] text-sm">
+                            Seal of the Archive
+                        </p>
+                        <p className="font-serif italic text-2xl text-catalog-text/40 max-w-lg mx-auto leading-relaxed">
+                            "This moment is etched into the living legacy of our ancestors, preserved for those yet to come."
+                        </p>
+                    </div>
+                    <div className="w-24 h-px bg-black/5" />
+                    <p className="font-outfit text-[9px] font-black text-catalog-text/20 uppercase tracking-[0.5em]">
+                        Digital Heritage Protocol v5.0
                     </p>
                 </div>
             </footer>

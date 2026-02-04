@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
 import { validateShareLink } from '../services/sharing';
-import { supabase } from '../lib/supabase';
+import { AlbumDataService } from '../services/albumDataService';
+import { unifiedAlbumToContextAlbum } from '../lib/albumAdapters';
 import { type Album } from '../contexts/AlbumContext';
 
 export function SharedAlbumView() {
@@ -35,70 +36,15 @@ export function SharedAlbumView() {
             // Let's assume for this step that we are fetching normally. If RLS blocks it, we know what to fix later.
 
             try {
-                // Fetch Album
-                const { data: albumData, error: albumError } = await supabase
-                    .from('albums')
-                    .select('*')
-                    .eq('id', albumId)
-                    .single();
+                console.log(`[SharedAlbumView] Fetching unified shared album: ${albumId}`);
+                const unifiedAlbum = await AlbumDataService.fetchAlbum(albumId);
 
-                if (albumError || !albumData) {
-                    throw new Error('Album not found');
+                if (!unifiedAlbum) {
+                    throw new Error('Album not found or failed to load');
                 }
 
-                // Fetch Pages
-                const { data: pagesData, error: pagesError } = await supabase
-                    .from('pages')
-                    .select('*, assets(*)')
-                    .eq('album_id', albumId)
-                    .order('page_number', { ascending: true });
-
-                if (pagesError) {
-                    throw new Error('Failed to load pages');
-                }
-
-                // Transform to Album type
-                const album = albumData as any;
-                const fullAlbum: Album = {
-                    id: album.id,
-                    title: album.title,
-                    family_id: album.family_id,
-                    description: album.description || undefined,
-                    category: album.category || undefined,
-                    coverUrl: album.cover_image_url || undefined,
-                    createdAt: new Date(album.created_at),
-                    updatedAt: new Date(album.updated_at),
-                    isPublished: album.is_published,
-                    hashtags: album.hashtags || [],
-                    unplacedMedia: album.config?.unplacedMedia || [],
-                    config: album.config || {},
-                    pages: (pagesData as any[]).map((p: any) => ({
-                        id: p.id,
-                        pageNumber: p.page_number,
-                        layoutTemplate: (p.template_id || 'freeform') as any,
-                        backgroundColor: p.background_color,
-                        assets: (p.assets as any[] || []).map((a: any) => {
-                            let restoredType = a.asset_type;
-                            if (a.config?.originalType) {
-                                restoredType = a.config.originalType;
-                            } else if (a.asset_type === 'image' && a.config?.mapConfig) {
-                                restoredType = 'map';
-                            } else if (a.asset_type === 'text' && (a.config?.location || a.config?.isLocation)) {
-                                restoredType = 'location';
-                            }
-
-                            return {
-                                id: a.id,
-                                type: restoredType,
-                                url: a.url,
-                                zIndex: a.z_index || 0,
-                                ...(a.config || {})
-                            };
-                        }),
-                    })),
-                };
-
-                setAlbum(fullAlbum);
+                const album = unifiedAlbumToContextAlbum(unifiedAlbum);
+                setAlbum(album);
             } catch (err: any) {
                 console.error('Error loading shared album:', err);
                 setError(err.message || 'Failed to load album');

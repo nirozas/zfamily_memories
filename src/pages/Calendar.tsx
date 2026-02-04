@@ -226,8 +226,8 @@ export function Calendar() {
                                         {date.getDate()}
                                     </span>
 
-                                    <div className="flex flex-col gap-1 w-full overflow-hidden">
-                                        {dayEvents.slice(0, 4).map((evt, i) => {
+                                    <div className="flex flex-col gap-0.5 w-full overflow-hidden mt-1 px-0.5">
+                                        {dayEvents.slice(0, 5).map((evt, i) => {
                                             const start = new Date(evt.date.getFullYear(), evt.date.getMonth(), evt.date.getDate());
                                             const end = evt.endDate
                                                 ? new Date(evt.endDate.getFullYear(), evt.endDate.getMonth(), evt.endDate.getDate())
@@ -238,23 +238,34 @@ export function Calendar() {
                                             const isEnd = current.getTime() === end.getTime();
                                             const isSingleDay = start.getTime() === end.getTime();
 
+                                            // Handle multi-day strip appearance
+                                            const isMonday = date.getDay() === 1;
+
                                             return (
-                                                <div
+                                                <button
                                                     key={i}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navToEvent(evt);
+                                                    }}
                                                     className={cn(
-                                                        "h-1.5 md:h-2 w-full text-[0px]",
-                                                        isSingleDay ? "rounded-full mx-auto w-1.5 md:w-2" : "",
-                                                        !isSingleDay && isStart ? "rounded-l-full ml-1" : "",
-                                                        !isSingleDay && isEnd ? "rounded-r-full mr-1" : "",
-                                                        !isSingleDay && !isStart && !isEnd ? "rounded-none" : ""
+                                                        "h-5 w-full text-[9px] font-bold px-1.5 flex items-center transition-all hover:brightness-95 active:scale-95 z-10",
+                                                        isSingleDay ? "rounded-md" : "",
+                                                        !isSingleDay && isStart ? "rounded-l-md" : "",
+                                                        !isSingleDay && isEnd ? "rounded-r-md" : "",
+                                                        evt.type === 'album' ? "text-blue-900" : "text-red-900"
                                                     )}
                                                     style={{ backgroundColor: evt.color }}
                                                     title={evt.title}
-                                                />
+                                                >
+                                                    <span className="truncate">
+                                                        {(isSingleDay || isStart || isMonday) && evt.title}
+                                                    </span>
+                                                </button>
                                             );
                                         })}
-                                        {dayEvents.length > 4 && (
-                                            <span className="text-[8px] text-gray-400 text-center leading-none">+{dayEvents.length - 4}</span>
+                                        {dayEvents.length > 5 && (
+                                            <span className="text-[8px] text-gray-400 font-bold px-2">+{dayEvents.length - 5} more</span>
                                         )}
                                     </div>
                                 </div>

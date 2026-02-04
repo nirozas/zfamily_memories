@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
-import { Card } from '../ui/Card';
 import { Calendar, MapPin, Eye, BookOpen } from 'lucide-react';
 import { ActionToolbar } from '../ui/ActionToolbar';
+import { motion } from 'framer-motion';
 
 interface AlbumCardProps {
     id: string;
@@ -81,90 +81,102 @@ export function AlbumCard(props: AlbumCardProps) {
     })();
 
     return (
-        <div className="relative group h-[420px] transition-all duration-500 hover:-translate-y-2">
-            <Link to={`/album/${id}`} className="block h-full">
-                <Card className="relative h-full overflow-hidden p-0 border-none shadow-2xl bg-zinc-900 rounded-2xl group/card">
+        <div className="relative group h-[440px] transition-all duration-700 hover-lift active:scale-[0.98]">
+            <Link to={`/album/${id}`} className="block h-full no-underline">
+                <div className="relative h-full overflow-hidden bg-zinc-950 rounded-[2.5rem] border border-white/5 shadow-2xl group/card ring-1 ring-black/5">
 
-                    {/* 1. First Page (Front Page) Rendering */}
+                    {/* 1. Dynamic Background & Glow */}
                     <div className="absolute inset-0 z-0">
                         {displayCover ? (
                             <>
                                 <img
                                     src={displayCover}
                                     alt={title}
-                                    className="w-full h-full object-cover transition-transform duration-1000 group-hover/card:scale-110"
+                                    className="w-full h-full object-cover opacity-80 transition-all duration-1000 group-hover/card:scale-110 group-hover/card:opacity-100 group-hover/card:rotate-1"
                                 />
-                                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent z-10" />
-                                <div className="absolute inset-0 bg-gradient-to-br from-catalog-accent/20 to-transparent mix-blend-overlay z-10" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent z-10" />
+                                <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-zinc-950 to-transparent z-15" />
+                                <div className="absolute inset-0 bg-catalog-accent/5 mix-blend-overlay z-10" />
                             </>
                         ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-900">
-                                <BookOpen className="w-16 h-16 text-white/10 mb-4" />
-                                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/20">Empty Archive</span>
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-900">
+                                <BookOpen className="w-12 h-12 text-white/5 mb-4" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.4em] text-white/10 font-outfit">Archive Protected</span>
                             </div>
                         )}
                     </div>
 
-                    {/* Content Layer */}
-                    <div className="relative z-20 h-full flex flex-col justify-end p-6 text-white">
+                    {/* 2. Interactive Shine Effect */}
+                    <div className="absolute inset-0 z-20 opacity-0 group-hover/card:opacity-100 transition-opacity duration-1000 pointer-events-none overflow-hidden">
+                        <div className="absolute -top-[100%] -left-[100%] w-[300%] h-[300%] bg-gradient-to-br from-white/10 via-transparent to-transparent rotate-12 transform group-hover/card:animate-shine" />
+                    </div>
 
-                        {/* Top Badge */}
-                        <div className="absolute top-6 left-6 flex items-center gap-2">
-                            <span className="px-3 py-1 bg-catalog-accent/90 backdrop-blur-md text-[9px] font-bold text-white rounded-full uppercase tracking-widest shadow-lg">
+                    {/* Content Layer */}
+                    <div className="relative z-30 h-full flex flex-col justify-between p-7 text-white font-outfit">
+
+                        {/* Top Badges */}
+                        <div className="flex items-center justify-between">
+                            <motion.div
+                                initial={{ opacity: 0, x: -10 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                className="px-4 py-1.5 glass backdrop-blur-3xl text-[9px] font-black text-white rounded-full uppercase tracking-[0.2em] border border-white/10 shadow-lg"
+                            >
                                 {albumCategory}
-                            </span>
+                            </motion.div>
+                            {pageCount > 0 && (
+                                <div className="p-2 glass rounded-xl border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                                    <BookOpen className="w-3.5 h-3.5 text-catalog-accent" />
+                                </div>
+                            )}
                         </div>
 
-                        {/* Visual View Hint */}
-                        <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-opacity duration-500 pointer-events-none">
-                            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-xl px-6 py-3 rounded-full border border-white/20 shadow-2xl transform scale-90 group-hover/card:scale-100 transition-transform">
-                                <Eye className="w-5 h-5 text-white" />
-                                <span className="text-xs font-bold uppercase tracking-widest">Open Library</span>
+                        {/* Middle Action Indicator */}
+                        <div className="flex items-center justify-center opacity-0 group-hover/card:opacity-100 transition-all duration-500 scale-90 group-hover/card:scale-100 pointer-events-none">
+                            <div className="glass-dark px-7 py-4 rounded-3xl border border-white/10 shadow-3xl">
+                                <div className="flex items-center gap-3">
+                                    <Eye className="w-5 h-5 text-catalog-accent" />
+                                    <span className="text-sm font-black uppercase tracking-widest text-white/90">View Gallery</span>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Info Section - Now with specific requested order */}
-                        <div className="space-y-4 transform transition-transform duration-500 group-hover/card:translate-y-[-10px]">
-                            <div className="space-y-2">
-                                {/* Position 1: Title */}
-                                <h3 className="font-serif text-3xl leading-tight group-hover/card:text-catalog-accent transition-colors">
+                        {/* Footer Info Area */}
+                        <div className="space-y-5">
+                            <div className="space-y-1">
+                                <h3 className="text-3xl font-black leading-tight tracking-premium group-hover/card:text-catalog-accent transition-colors duration-300">
                                     {title}
                                 </h3>
 
-                                {/* Position 2: Number of Pages (under the title) */}
-                                <div className="flex items-center gap-4 text-[11px] text-white/80 uppercase tracking-[0.2em] font-bold">
-                                    <div className="flex items-center gap-1.5">
-                                        <Calendar className="w-3.5 h-3.5 text-catalog-accent" />
+                                <div className="flex items-center gap-4 text-[10px] text-white/40 uppercase tracking-[0.25em] font-black">
+                                    <div className="flex items-center gap-2">
+                                        <Calendar className="w-3 h-3 text-catalog-accent/50" />
                                         <span>{formattedDate}</span>
                                     </div>
-                                    <div className="w-1 h-1 bg-white/30 rounded-full" />
-                                    <span>{pageCount} Pages</span>
+                                    <div className="w-1.5 h-1.5 bg-white/20 rounded-full" />
+                                    <span>{pageCount} Chapters</span>
                                 </div>
-
-                                {/* Position 3: Location (under the number of pages) */}
-                                {loc && (
-                                    <div className="pb-2"> {/* Added padding to create space before the ActionToolbar */}
-                                        <button
-                                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/10 backdrop-blur-md rounded-lg border border-white/10 text-[10px] uppercase tracking-widest hover:bg-white/20 transition-all cursor-pointer group/loc max-w-full"
-                                            onClick={(e) => {
-                                                e.preventDefault();
-                                                e.stopPropagation();
-                                                window.open(`/map?location=${encodeURIComponent(loc)}`, '_blank');
-                                            }}
-                                        >
-                                            <MapPin className="w-3 h-3 text-catalog-accent group-hover/loc:scale-125 transition-transform" />
-                                            <span className="truncate">{loc}</span>
-                                        </button>
-                                    </div>
-                                )}
                             </div>
+
+                            {loc && (
+                                <button
+                                    className="flex items-center gap-2 px-3 py-2 glass-dark rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-widest hover:bg-white/10 transition-all group/loc max-w-full truncate"
+                                    onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        window.open(`/map?location=${encodeURIComponent(loc)}`, '_blank');
+                                    }}
+                                >
+                                    <MapPin className="w-3 h-3 text-catalog-accent animate-bounce" />
+                                    <span className="truncate opacity-60 group-hover/loc:opacity-100 transition-opacity">{loc}</span>
+                                </button>
+                            )}
                         </div>
                     </div>
-                </Card>
+                </div>
             </Link>
 
-            {/* Position 4: Always Visible Premium Footer Actions (at the bottom) */}
-            <div className="absolute bottom-4 right-4 z-30 transition-transform duration-500">
+            {/* Premium Floating Toolbar */}
+            <div className="absolute top-[28%] -right-3 z-40 translate-x-12 group-hover:translate-x-0 opacity-0 group-hover:opacity-100 transition-all duration-500 delay-100">
                 <ActionToolbar
                     onEdit={onEdit}
                     onDelete={onDelete}
@@ -172,7 +184,7 @@ export function AlbumCard(props: AlbumCardProps) {
                     onShare={onShare}
                     onPrint={onPrint}
                     variant="dark"
-                    className="bg-black/40 backdrop-blur-2xl px-4 py-2 rounded-full border border-white/10 shadow-2xl flex gap-3 interactive-toolbar"
+                    className="flex flex-col gap-2 glass-dark p-2 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-4xl"
                 />
             </div>
         </div>

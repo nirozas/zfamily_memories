@@ -3,7 +3,7 @@ import { type LayoutBox } from '../../contexts/AlbumContext';
 import { MediaRenderer } from './MediaRenderer';
 import { cn } from '../../lib/utils';
 import { getClipPathStyle } from '../../lib/assetUtils';
-import { Lock, RotateCw } from 'lucide-react';
+import { Lock, RotateCw, Move } from 'lucide-react';
 
 interface LayoutFrameProps {
     box: LayoutBox;
@@ -16,6 +16,7 @@ interface LayoutFrameProps {
     onPointerDown?: (e: React.PointerEvent) => void;
     onDoubleClick?: () => void;
     onContextMenu?: (e: React.MouseEvent) => void;
+    onTextChange?: (text: string) => void;
     className?: string;
 }
 
@@ -34,10 +35,11 @@ export const LayoutFrame = memo(function LayoutFrame({
     onPointerDown,
     onDoubleClick,
     onContextMenu,
+    onTextChange,
     className
 }: LayoutFrameProps) {
 
-    const config = box.content?.config || {};
+    const config = { ...(box.content?.config || {}), onTextChange } as any;
     const isLocked = config.isLocked;
 
     // Strict Z-Index Hierarchy
@@ -89,6 +91,7 @@ export const LayoutFrame = memo(function LayoutFrame({
             onContextMenu={onContextMenu}
         >
             <MediaRenderer
+                id={box.id}
                 type={box.content?.type || 'image'}
                 url={box.content?.url}
                 content={box.content?.text}
@@ -106,6 +109,18 @@ export const LayoutFrame = memo(function LayoutFrame({
                 <>
                     {/* Selection Border */}
                     <div className="absolute inset-0 border-2 border-catalog-accent z-[99] pointer-events-none rounded-sm shadow-[0_0_8px_rgba(194,65,12,0.3)]" />
+
+                    {/* Drag Handle (Move Indicator) */}
+                    {!isLocked && (
+                        <div
+                            className="absolute -top-10 left-0 w-8 h-8 bg-catalog-accent text-white rounded-lg flex items-center justify-center cursor-move shadow-xl z-[102] pointer-events-auto"
+                            style={{ transform: `scale(${1 / zoom})` }}
+                            onPointerDown={onPointerDown}
+                            title="Drag to reposition"
+                        >
+                            <Move className="w-4 h-4" />
+                        </div>
+                    )}
 
                     {/* Lock Indicator */}
                     {isLocked && (
@@ -130,24 +145,48 @@ export const LayoutFrame = memo(function LayoutFrame({
                         </div>
                     )}
 
-                    {/* 8-Point Pro Resize Engine */}
+                    {/* Corner Resize Handles - Larger circles for proportional resize */}
                     {!isLocked && [
                         { h: 'nw', c: 'nw-resize', t: 0, l: 0 },
-                        { h: 'n', c: 'n-resize', t: 0, l: 50 },
                         { h: 'ne', c: 'ne-resize', t: 0, l: 100 },
-                        { h: 'e', c: 'e-resize', t: 50, l: 100 },
                         { h: 'se', c: 'se-resize', t: 100, l: 100 },
-                        { h: 's', c: 's-resize', t: 100, l: 50 },
-                        { h: 'sw', c: 'sw-resize', t: 100, l: 0 },
-                        { h: 'w', c: 'w-resize', t: 50, l: 0 }
+                        { h: 'sw', c: 'sw-resize', t: 100, l: 0 }
                     ].map((handle) => (
                         <div
                             key={handle.h}
-                            className="absolute w-3 h-3 bg-white border-2 border-catalog-accent rounded-full z-[101] shadow-md hover:bg-catalog-accent hover:scale-125 transition-all pointer-events-auto"
+                            className="absolute w-4 h-4 bg-white border-2 border-catalog-accent rounded-full z-[101] shadow-lg hover:bg-catalog-accent hover:scale-150 transition-all pointer-events-auto ring-2 ring-white/50"
                             style={{
                                 top: `${handle.t}%`,
                                 left: `${handle.l}%`,
                                 cursor: handle.c,
+                                transform: `translate(-50%, -50%) scale(${1 / zoom})`
+                            }}
+                            onPointerDown={(e) => {
+                                e.stopPropagation();
+                                const ev = e as any;
+                                ev.handleType = handle.h;
+                                onPointerDown?.(ev);
+                            }}
+                        />
+                    ))}
+
+                    {/* Side Stretch Handles - Rectangles for directional stretching */}
+                    {!isLocked && [
+                        { h: 'n', c: 'n-resize', t: 0, l: 50, isVertical: false },
+                        { h: 'e', c: 'e-resize', t: 50, l: 100, isVertical: true },
+                        { h: 's', c: 's-resize', t: 100, l: 50, isVertical: false },
+                        { h: 'w', c: 'w-resize', t: 50, l: 0, isVertical: true }
+                    ].map((handle) => (
+                        <div
+                            key={handle.h}
+                            className="absolute bg-white border-2 border-catalog-accent z-[101] shadow-md hover:bg-catalog-accent hover:scale-125 transition-all pointer-events-auto"
+                            style={{
+                                top: `${handle.t}%`,
+                                left: `${handle.l}%`,
+                                cursor: handle.c,
+                                width: handle.isVertical ? '3px' : '20px',
+                                height: handle.isVertical ? '20px' : '3px',
+                                borderRadius: '2px',
                                 transform: `translate(-50%, -50%) scale(${1 / zoom})`
                             }}
                             onPointerDown={(e) => {
