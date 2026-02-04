@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { X, Check, RotateCw, RotateCcw, Move, Target, AlertTriangle, Scissors, Loader2 } from 'lucide-react';
 import { Slider } from '../ui/Slider';
 import { cn } from '../../lib/utils';

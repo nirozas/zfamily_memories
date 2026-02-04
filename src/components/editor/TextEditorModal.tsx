@@ -1,10 +1,10 @@
 
 import { useState, useEffect } from 'react';
-import { EditorCanvas } from './EditorCanvas'; // Or wherever your editor modal is
+
 import { Dialog, DialogContent } from '../ui/Dialog';
 import { RichTextEditor } from './RichTextEditor';
 import { Button } from '../ui/Button';
-import { useAlbum } from '../../contexts/AlbumContext';
+
 
 interface TextEditorModalProps {
     isOpen: boolean;
