@@ -17,6 +17,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         if (p.startsWith('/media')) return 'theme-lavender';
         if (p.startsWith('/events') || p.startsWith('/event')) return 'theme-peach';
         if (p.startsWith('/map')) return 'theme-lemon';
+        if (p.startsWith('/stacks')) return 'theme-rose';
         if (p.startsWith('/profile') || p.startsWith('/settings')) return 'theme-rose';
 
         return 'theme-rose';

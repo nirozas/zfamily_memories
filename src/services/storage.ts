@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import imageCompression from 'browser-image-compression';
 
 export const storageService = {
     async uploadFile(
@@ -8,6 +9,35 @@ export const storageService = {
         onProgress?: (progress: { loaded: number; total: number }) => void
     ): Promise<{ url: string | null; error: string | null }> {
         try {
+            let fileToUpload: File | Blob = file;
+
+            // Reject videos that exceed Supabase's 50MB limit with a helpful message
+            const MAX_VIDEO_SIZE_MB = 50;
+            if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) {
+                return {
+                    url: null,
+                    error: `Video is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is ${MAX_VIDEO_SIZE_MB} MB. Please compress the video before uploading.`
+                };
+            }
+
+            // Compress images larger than 1MB (skip videos — not compressible this way)
+            if (file.type.startsWith('image/') && file.size > 1024 * 1024) {
+                try {
+                    const options = {
+                        maxSizeMB: 1,
+                        maxWidthOrHeight: 1920,
+                        useWebWorker: true,
+                        onProgress: () => {
+                            // Compression progress — unused
+                        }
+                    };
+                    fileToUpload = await imageCompression(file, options);
+                    console.log(`Compressed image from ${(file.size / 1024 / 1024).toFixed(2)}MB to ${(fileToUpload.size / 1024 / 1024).toFixed(2)}MB`);
+                } catch (compressError) {
+                    console.error('Compression failed, uploading original:', compressError);
+                }
+            }
+
             // Clean up the prefix and generate a unique filename
             const cleanPrefix = pathPrefix.replace(/\/+$/, '').replace(/^\/+/, '');
             const timestamp = Date.now();
@@ -20,7 +50,7 @@ export const storageService = {
 
             const { error } = await supabase.storage
                 .from(bucket)
-                .upload(filePath, file, {
+                .upload(filePath, fileToUpload, {
                     cacheControl: '3600',
                     upsert: false
                 });

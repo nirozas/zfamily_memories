@@ -67,12 +67,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         // Get initial session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(session?.user ?? null);
-            setGoogleAccessToken(session?.provider_token ?? null);
-            if (session?.user) {
-                fetchProfile(session.user.id);
+        supabase.auth.getSession().then(async ({ data: { session } }) => {
+            let activeSession = session;
+
+            // Fix #7: provider_token (Google) is NOT re-emitted on session restore after page refresh.
+            // Attempt a session refresh to recover it.
+            if (activeSession && !activeSession.provider_token) {
+                try {
+                    const { data: refreshData } = await supabase.auth.refreshSession();
+                    if (refreshData.session) activeSession = refreshData.session;
+                } catch (e) {
+                    console.warn('[Auth] Could not refresh session to get Google token:', e);
+                }
+            }
+
+            setSession(activeSession);
+            setUser(activeSession?.user ?? null);
+            setGoogleAccessToken(activeSession?.provider_token ?? null);
+            if (activeSession?.user) {
+                fetchProfile(activeSession.user.id);
             }
             setLoading(false);
         }).catch(() => {
@@ -165,6 +178,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const signInWithGoogle = async () => {
+        // Set a flag to redirect to the Media page after connecting to Google Photos
+        localStorage.setItem('authRedirect', '/media');
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useContext } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, ChevronDown, LogOut, MapPin, Image as ImageIcon, Clock, Camera } from 'lucide-react';
+import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, ChevronDown, LogOut, MapPin, Image as ImageIcon, Clock, Camera, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { AlbumContext } from '../../contexts/AlbumContext';
@@ -8,7 +8,7 @@ import { CloudUpload, CheckCircle2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export function TopHeader() {
-    const { user, signOut, googleAccessToken, signInWithGoogle } = useAuth();
+    const { user, signOut, googleAccessToken, signInWithGoogle, profile } = useAuth();
     const albumContext = useContext(AlbumContext);
     const saveStatus = albumContext?.saveStatus || 'idle';
     const [isOpen, setIsOpen] = useState(false);
@@ -27,12 +27,14 @@ export function TopHeader() {
         { icon: CalendarIcon, label: 'Calendar', href: '/calendar', color: 'bg-pastel-blue/30' },
         { icon: Clock, label: 'Timeline', href: '/events', color: 'bg-pastel-indigo/30' },
         { icon: BookOpen, label: 'Albums', href: '/library', color: 'bg-pastel-orange/30' },
-        { icon: ImageIcon, label: 'Media', href: '/media', color: 'bg-pastel-yellow/30' },
         { icon: MapPin, label: 'Traveling Map', href: '/map', color: 'bg-pastel-green/30' },
+        { icon: Sparkles, label: 'Memories', href: '/stacks', color: 'bg-pastel-red/30' },
+        { icon: ImageIcon, label: 'Media', href: '/media', color: 'bg-pastel-yellow/30' },
     ];
 
-    const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
+    const userName = profile?.full_name || user?.user_metadata?.name || user?.email?.split('@')[0] || 'User';
     const userInitial = userName.charAt(0).toUpperCase();
+    const avatarUrl = profile?.avatar_url || null;
 
     // Close dropdowns on click outside
     useEffect(() => {
@@ -178,7 +180,11 @@ export function TopHeader() {
                                 </span>
                             </div>
                             <div className="h-8 w-8 rounded-full bg-catalog-accent/10 border border-catalog-accent/20 flex items-center justify-center overflow-hidden transform transition-transform group-hover:rotate-12">
-                                <span className="font-outfit text-xs font-black text-catalog-accent">{userInitial}</span>
+                                {avatarUrl ? (
+                                    <img src={avatarUrl} alt={userName} className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="font-outfit text-xs font-black text-catalog-accent">{userInitial}</span>
+                                )}
                             </div>
                         </button>
 

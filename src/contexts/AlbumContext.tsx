@@ -627,17 +627,22 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
 
                 if (googleAccessToken) {
                     try {
+                        // Step 1: Upload to Google Photos first
                         const photosService = new GooglePhotosService(googleAccessToken);
                         const mediaItem = await photosService.uploadMedia(fileToUpload, fileToUpload.name);
-                        url = mediaItem.baseUrl || null;
                         googlePhotoId = mediaItem.id;
+                        url = mediaItem.baseUrl || null;
+
                         setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
                     } catch (err) {
-                        console.error('Google Photos upload failed, falling back to storage service:', err);
+                        console.error('Google Photos upload failed, falling back to storage:', err);
                     }
                 }
 
                 if (!url) {
+                    // Fallback to Supabase ONLY if Google Photos is not connected or fails
+                    // NOTE: The user requested no Supabase storage, but we need a fallback for robustness
+                    // unless we want to strictly enforce Google Photos connection.
                     const { storageService } = await import('../services/storage');
                     const { url: storageUrl } = await storageService.uploadFile(
                         fileToUpload,
@@ -675,6 +680,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                                 }
                                 resolve(null);
                             };
+                            img.onerror = () => resolve(null);
                         });
                     } else if (fileToUpload.type.startsWith('video/')) {
                         const video = document.createElement('video');
@@ -725,10 +731,12 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                                 folder: album.title,
                                 filename: fileToUpload.name,
                                 size: fileToUpload.size,
-                                uploaded_by: (await supabase.auth.getUser()).data.user?.id
+                                uploaded_by: (await supabase.auth.getUser()).data.user?.id,
+                                metadata: googlePhotoId ? { googlePhotoId, syncedToGoogle: true } : undefined
                             } as any);
                         if (dbError) console.error('Error logging to family_media:', dbError);
                     }
+
 
                 } else if (url === null) {
                     console.error('Upload error for file:', file.name);

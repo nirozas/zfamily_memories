@@ -5,7 +5,6 @@ import {
     Folder,
     Camera,
     Image as ImageIcon,
-    Video,
     Upload,
     Trash2,
     Search,
@@ -21,10 +20,16 @@ import {
     CheckSquare,
     FolderPlus,
     Link as LinkIcon,
+    Sparkles,
+    Play,
+    Maximize2,
 } from 'lucide-react';
 import { UrlInputModal } from '../components/media/UrlInputModal';
-import { GooglePhotosService } from '../services/googlePhotos';
+import { CreateStackModal } from '../components/media/CreateStackModal';
+import { GooglePhotosService, type GoogleMediaItem } from '../services/googlePhotos';
 import { GooglePhotosSelector } from '../components/media/GooglePhotosSelector';
+import { ImagePortal } from '../components/viewer/ImagePortal';
+import { VideoPortal } from '../components/viewer/VideoPortal';
 import { cn } from '../lib/utils';
 
 interface MediaItem {
@@ -47,44 +52,63 @@ type SystemCategory = 'background' | 'sticker' | 'frame' | 'ribbon';
 
 import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 
-function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab }: any) {
-    const { url: resolvedUrl } = useGooglePhotosUrl(item.metadata?.googlePhotoId, item.url);
-    const displayUrl = resolvedUrl || item.url;
-    const isGoogle = !!item.metadata?.googlePhotoId;
+function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview }: any) {
+    const isGoogleUrl = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com'));
+    // For the grid, we always want a thumbnail image, even for videos
+    const googleSuffix = '=w400-h400-c';
+    const cleanBaseUrl = isGoogleUrl ? GooglePhotosService.getCleanUrl(item.url) : item.url;
+    const initialUrl = isGoogleUrl ? `${cleanBaseUrl}${googleSuffix}` : item.url;
+    const isGoogle = !!item.metadata?.googlePhotoId || isGoogleUrl;
+    const { url: resolvedUrl } = useGooglePhotosUrl(item.metadata?.googlePhotoId, initialUrl);
+    const displayUrl = resolvedUrl || initialUrl;
 
     return (
         <div key={item.id} className={cn("group relative bg-white border rounded-xl overflow-hidden transition-all duration-200", viewMode === 'list' ? "flex items-center p-3 gap-4 h-20 hover:border-catalog-accent/50" : "aspect-[10/11] hover:shadow-lg hover:-translate-y-1 hover:border-catalog-accent/50", selectedItems.has(item.id) ? "ring-2 ring-catalog-accent border-catalog-accent bg-catalog-accent/5" : "border-gray-200")} onClick={(e) => {
             if (!(e.target as HTMLElement).closest('.action-btn')) {
+                // Default to select if clicking the card generally
                 onToggleSelect(item.id);
             }
         }}>
             <div className={cn("bg-gray-100 overflow-hidden relative", viewMode === 'list' ? "w-14 h-14 rounded-lg flex-shrink-0" : "h-[75%]")}>
-                {item.type === 'video' ? (
-                    <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                        <Video className="w-8 h-8 text-white/50" />
-                    </div>
-                ) : (
-                    <div className="w-full h-full relative">
-                        {item.category === 'background' && item.url.startsWith('#') ? (
-                            <div className="w-full h-full" style={{ backgroundColor: item.url }} />
-                        ) : (
+                <div className="w-full h-full relative">
+                    {item.category === 'background' && item.url.startsWith('#') ? (
+                        <div className="w-full h-full" style={{ backgroundColor: item.url }} />
+                    ) : (
+                        <>
                             <img
-                                src={(displayUrl && (displayUrl.includes('googleusercontent.com') || displayUrl.includes('photoslibrary.googleapis.com')))
-                                    ? `${displayUrl}=w400-h400-c`
-                                    : displayUrl}
+                                src={displayUrl}
                                 alt={item.filename}
                                 className={cn("w-full h-full", item.category === 'sticker' || item.category === 'frame' ? "object-contain p-2" : "object-cover")}
-                                referrerPolicy="no-referrer"
+                                crossOrigin="anonymous"
                             />
-                        )}
-                    </div>
-                )}
+                            {item.type === 'video' && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/20">
+                                    <div className="bg-white/90 p-2 rounded-full shadow-lg">
+                                        <Play className="w-4 h-4 text-catalog-accent fill-current" />
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
                 {isGoogle && (
                     <div className="absolute top-2 right-2 z-10">
                         <Camera className="w-3 h-3 text-white drop-shadow-md" />
                     </div>
                 )}
-                <div className={cn("absolute inset-0 bg-black/40 transition-opacity flex items-center justify-center opacity-0 group-hover:opacity-100", selectedItems.has(item.id) && "opacity-100 bg-catalog-accent/20")}>
+                <div className={cn("absolute inset-0 bg-black/40 transition-opacity flex flex-col items-center justify-center opacity-0 group-hover:opacity-100", selectedItems.has(item.id) && "opacity-100 bg-catalog-accent/20")}>
+                    {/* Preview Button */}
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onPreview(item);
+                        }}
+                        className="action-btn mb-3 p-3 bg-white/20 hover:bg-white/40 backdrop-blur-md rounded-full text-white transform transition-all hover:scale-110 active:scale-95 border border-white/20"
+                        title={item.type === 'video' ? 'Play Video' : 'View Full Screen'}
+                    >
+                        {item.type === 'video' ? <Play className="w-6 h-6 fill-white" /> : <Maximize2 className="w-6 h-6" />}
+                    </button>
+
                     <div className={cn("w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all", selectedItems.has(item.id) ? "bg-catalog-accent border-catalog-accent scale-110" : "border-white bg-transparent")}>
                         {selectedItems.has(item.id) && <Check className="w-3.5 h-3.5 text-white" />}
                     </div>
@@ -160,6 +184,9 @@ export function MediaLibrary() {
     const [currentFolder, setCurrentFolder] = useState<string>('All');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+    const [previewingImage, setPreviewingImage] = useState<string | null>(null);
+    const [previewingVideo, setPreviewingVideo] = useState<string | null>(null);
+    const [previewingVideoPoster, setPreviewingVideoPoster] = useState<string | undefined>(undefined);
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'date' | 'name' | 'size'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -173,6 +200,7 @@ export function MediaLibrary() {
     const [isGoogleSelectorOpen, setIsGoogleSelectorOpen] = useState(false);
     const [showSourceModal, setShowSourceModal] = useState(false);
     const [showUrlInput, setShowUrlInput] = useState(false);
+    const [isCreateStackModalOpen, setIsCreateStackModalOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const handleSourceSelect = (source: 'upload' | 'google' | 'url') => {
@@ -180,96 +208,68 @@ export function MediaLibrary() {
         if (source === 'upload') {
             handleUploadClick();
         } else if (source === 'google') {
+            if (!googleAccessToken) {
+                signInWithGoogle();
+                return;
+            }
             setIsGoogleSelectorOpen(true);
         } else if (source === 'url') {
             setShowUrlInput(true);
         }
     };
 
-    const handleUrlImport = async (url: string) => {
+    const processRemoteAsset = async (asset: string | GoogleMediaItem, source: 'url' | 'google' | 'library' = 'url') => {
+        const url = typeof asset === 'string' ? asset : (asset.mediaFile?.baseUrl || asset.baseUrl || '');
+        const googleId = typeof asset === 'string' ? undefined : asset.id;
+        const originalFilename = typeof asset === 'string' ? `imported-url-${Date.now()}` : asset.filename;
+        const originalMimeType = typeof asset === 'string' ? undefined : (asset.mediaFile?.mimeType || asset.mimeType);
+
         if (!url) return;
-        setShowUrlInput(false);
-        setUploadProgress({ current: 0, total: 1 });
 
         try {
-            // Download as blob
-            const response = await fetch(url);
-            const blob = await response.blob();
-            // Try to guess mime type or default
-            const mimeType = blob.type || 'image/jpeg';
-            const ext = mimeType.split('/')[1] || 'jpg';
-            const filename = `imported-url-${Date.now()}.${ext}`;
-            const file = new File([blob], filename, { type: mimeType });
+            const photosService = googleAccessToken ? new GooglePhotosService(googleAccessToken) : undefined;
+            let blob: Blob;
+            let mimeType: string;
+            let filename: string;
 
-            await performUpload([file]);
+            if (source === 'google' && photosService && typeof asset !== 'string') {
+                // If it's already a Google Photo, we can just use the metadata.
+                await performUpload([], googleId, 'google', url, originalFilename, originalMimeType);
+                return;
+            } else {
+                // For direct URL import, fetch the URL. Use proxy if it's a Google URL.
+                const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com');
+                const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(url, googleAccessToken) : url;
+
+                const response = await fetch(fetchUrl);
+                blob = await response.blob();
+                mimeType = blob.type || originalMimeType || 'image/jpeg';
+                const ext = mimeType.split('/')[1] || 'jpg';
+                filename = `${originalFilename}.${ext}`;
+            }
+
+            const file = new File([blob], filename, { type: mimeType });
+            await performUpload([file], googleId, source === 'library' ? 'upload' : source);
 
         } catch (error: any) {
-            console.error('URL Import failed:', error);
-            alert(`Failed to import from URL: ${error.message}`);
-        } finally {
-            setUploadProgress(null);
+            console.error(`Remote asset import failed from ${source}:`, error);
+            alert(`Failed to import from ${source}: ${error.message}`);
         }
     };
 
-    async function handleGooglePhotosImport(items: any[], targetFolder: string) {
+
+    async function handleGooglePhotosImport(items: GoogleMediaItem[]) {
         if (!familyId || items.length === 0) return;
 
         setIsGoogleSelectorOpen(false);
+        setShowUrlInput(false); // Ensure URL input is closed if it was open
         setUploadProgress({ current: 0, total: items.length });
 
-        const { storageService } = await import('../services/storage');
-        const photosService = new GooglePhotosService(googleAccessToken);
-
+        // Process sequentially
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             setUploadProgress({ current: i + 1, total: items.length });
-
-            try {
-                // Workflow #1: Pull from Google Photos to Website
-                const baseUrl = item.mediaFile?.baseUrl || item.baseUrl;
-                const mimeType = item.mediaFile?.mimeType || item.mimeType || 'image/jpeg';
-                const filename = item.filename || `google-photo-${item.id}.${mimeType.split('/')[1]}`;
-
-                const blob = await photosService.downloadMediaItem(baseUrl);
-                const file = new File([blob], filename, { type: mimeType });
-
-                const { url: storageUrl, error: uploadError } = await storageService.uploadFile(
-                    file,
-                    'album-assets',
-                    `family/${familyId}/`
-                );
-
-                if (uploadError) {
-                    throw new Error(`Cloud storage upload failed: ${uploadError}`);
-                }
-
-                if (storageUrl) {
-                    console.log(`[Import] Uploaded to storage: ${storageUrl}`);
-                    const { error: insertError } = await supabase.from('family_media').insert({
-                        family_id: familyId,
-                        url: storageUrl,
-                        type: mimeType.startsWith('video') ? 'video' : 'image',
-                        filename: filename,
-                        size: blob.size,
-                        folder: targetFolder,
-                        category: 'general',
-                        uploaded_by: user?.id,
-                        metadata: {
-                            googlePhotoId: item.id,
-                            importedAt: new Date().toISOString()
-                        }
-                    } as any);
-
-                    if (insertError) {
-                        throw new Error(`Database record creation failed: ${insertError.message}`);
-                    }
-
-                    console.log(`[Import] Successfully saved ${filename} to database.`);
-                }
-            } catch (err: any) {
-                console.error(`Failed to import item ${item.id}:`, err);
-                alert(`Import failed for item: ${err.message}`);
-            }
+            await processRemoteAsset(item, 'google');
         }
 
         setUploadProgress(null);
@@ -445,8 +445,15 @@ export function MediaLibrary() {
         fileInputRef.current?.click();
     }
 
-    async function performUpload(files: FileList | File[]) {
-        if (!files || files.length === 0) return;
+    async function performUpload(
+        files: FileList | File[],
+        googlePhotoId?: string,
+        source: 'upload' | 'google' | 'url' = 'upload',
+        manualUrl?: string,
+        manualFilename?: string,
+        manualMimeType?: string
+    ) {
+        if ((!files || files.length === 0) && source !== 'google') return;
 
         if (activeTab === 'system' && !isAdmin) {
             alert("Only admins can add to System Assets.");
@@ -462,65 +469,74 @@ export function MediaLibrary() {
         }
 
         const { storageService } = await import('../services/storage');
-        setUploadProgress({ current: 0, total: files.length });
+        if (source === 'upload' && files instanceof FileList) {
+            setUploadProgress({ current: 0, total: files.length });
+        }
 
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            setUploadProgress({ current: i + 1, total: files.length });
+        const itemsToProcess = source === 'google' ? [null] : Array.from(files);
 
-            let bucket: 'event-assets' | 'album-assets' | 'system-assets';
-            let path = '';
-
-            if (activeTab === 'system') {
-                bucket = 'system-assets';
-                path = `${systemCategory}/`;
-            } else {
-                bucket = 'album-assets';
-                path = `family/${familyId}/`;
+        for (let i = 0; i < itemsToProcess.length; i++) {
+            const file = itemsToProcess[i] as File | null;
+            if (source === 'upload' && files instanceof FileList) {
+                setUploadProgress({ current: i + 1, total: files.length });
             }
 
-            let storageUrl: string | null = null;
-            let googlePhotoId: string | undefined;
+            let storageUrl: string | null = manualUrl ?? null;
+            let currentGooglePhotoId: string | undefined = googlePhotoId;
+            let finalType: 'video' | 'image' = 'image';
+            let finalFilename = manualFilename || (file ? file.name : 'google-photo');
+            let finalSize = file ? file.size : 0;
 
-            // Step 1: Upload to Supabase (Website Storage) - Always required
-            const { url: supabaseUrl, error: storageError } = await storageService.uploadFile(file, bucket, path);
-            storageUrl = supabaseUrl;
-
-            if (storageError) {
-                console.error('Internal storage upload failed:', storageError);
-                continue; // Skip if internal upload fails
-            }
-
-            // Step 2: Workflow #2 - Parallel Sync to Google Photos if connected
-            if (activeTab === 'uploads' && googleAccessToken) {
+            if (activeTab === 'uploads') {
+                // EXCLUSIVELY GOOGLE PHOTOS FOR FAMILY MEDIA
                 try {
-                    const photosService = new GooglePhotosService(googleAccessToken);
-                    const mediaItem = await photosService.uploadMedia(file, file.name);
-                    googlePhotoId = mediaItem.id;
-                } catch (err) {
-                    console.error('Google Photos sync failed:', err);
-                    // We continue anyway since we have the internal storage URL
-                }
-            }
+                    if (source === 'google' && googlePhotoId && manualUrl) {
+                        storageUrl = manualUrl;
+                        finalType = (manualMimeType?.startsWith('video') || manualUrl.includes('video')) ? 'video' : 'image';
+                    } else if (file) {
+                        if (!googleAccessToken) {
+                            alert("Please connect Google Photos to upload media.");
+                            break;
+                        }
+                        const photosService = new GooglePhotosService(googleAccessToken);
+                        const mediaItem = await photosService.uploadMedia(file, file.name);
+                        currentGooglePhotoId = mediaItem.id;
+                        storageUrl = mediaItem.baseUrl ?? null;
+                        finalType = file.type.startsWith('video') ? 'video' : 'image';
+                    }
 
-            if (storageUrl) {
-                if (activeTab === 'uploads' && familyId) {
-                    await supabase.from('family_media').insert({
-                        family_id: familyId,
-                        url: storageUrl,
-                        type: file.type.startsWith('video') ? 'video' : 'image',
-                        filename: file.name,
-                        size: file.size,
-                        folder: uploadFolder,
-                        category: 'general',
-                        uploaded_by: user?.id,
-                        metadata: googlePhotoId ? { googlePhotoId, syncedToGoogle: true } : undefined
-                    } as any);
+                    if (storageUrl && familyId) {
+                        await supabase.from('family_media').insert({
+                            family_id: familyId,
+                            url: storageUrl,
+                            type: finalType,
+                            filename: finalFilename,
+                            size: finalSize,
+                            folder: uploadFolder,
+                            category: 'general',
+                            uploaded_by: user?.id,
+                            metadata: currentGooglePhotoId ? { googlePhotoId: currentGooglePhotoId, syncedToGoogle: true } : null
+                        } as any);
+                    }
+                } catch (err: any) {
+                    console.error('Upload to Google Photos failed:', err);
+                    alert(`Upload failed: ${err.message || 'Error uploading to Google Photos'}`);
                 }
-                else if (activeTab === 'system' && isAdmin) {
+            } else if (activeTab === 'system' && isAdmin && file) {
+                // SYSTEM ASSETS STILL USE SUPABASE
+                const bucket = 'system-assets';
+                const path = `${systemCategory}/`;
+                const { url: supabaseUrl, error: storageError } = await storageService.uploadFile(file, bucket, path);
+
+                if (storageError) {
+                    console.error('Internal storage upload failed:', storageError);
+                    continue;
+                }
+
+                if (supabaseUrl) {
                     await supabase.from('library_assets').insert({
                         category: systemCategory,
-                        url: storageUrl,
+                        url: supabaseUrl,
                         name: file.name,
                         tags: uploadTags,
                         is_premium: false
@@ -532,6 +548,7 @@ export function MediaLibrary() {
         setUploadProgress(null);
         await fetchMedia();
     }
+
 
     async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
         if (e.target.files) {
@@ -782,11 +799,7 @@ export function MediaLibrary() {
                                         <button
                                             onClick={async (e) => {
                                                 e.stopPropagation();
-                                                if (!confirm(`Delete folder "${folder}" and all ${folderItems.length} items inside?`)) return;
-
-                                                // Use handleDelete to ensure cloud deletion logic is shared
                                                 await handleDelete(folderItems.map(i => i.id));
-
                                                 if (currentFolder === folder) setCurrentFolder('All');
                                             }}
                                             className="opacity-0 group-hover/folder:opacity-100 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
@@ -838,7 +851,7 @@ export function MediaLibrary() {
                             <span className="font-medium">Select All</span>
                         </button>
                         <div className="h-4 w-px bg-gray-300" />
-                        <span className="font-medium text-gray-900">{displayedItems.length}</span> items
+                        <span className="font-medium text-gray-900">{displayedItems.length} items</span>
                         {selectedItems.size > 0 && <span className="px-2 py-0.5 bg-catalog-accent/10 text-catalog-accent rounded-full text-xs font-medium">{selectedItems.size} selected</span>}
                     </div>
 
@@ -850,6 +863,12 @@ export function MediaLibrary() {
                                 </button>
                                 <button onClick={() => handleDelete(Array.from(selectedItems))} className="flex items-center gap-1.5 text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
                                     <Trash2 className="w-4 h-4" /> Delete ({selectedItems.size})
+                                </button>
+                                <button
+                                    onClick={() => setIsCreateStackModalOpen(true)}
+                                    className="flex items-center gap-1.5 bg-catalog-accent text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-lg shadow-catalog-accent/20 hover:scale-105 transition-all"
+                                >
+                                    <Sparkles className="w-4 h-4" /> Create Memory
                                 </button>
                             </>
                         )}
@@ -937,6 +956,31 @@ export function MediaLibrary() {
                                     handleDelete={handleDelete}
                                     isAdmin={isAdmin}
                                     activeTab={activeTab}
+                                    onPreview={(item: any) => {
+                                        const isGoogle = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com'));
+                                        const cleanUrl = GooglePhotosService.getCleanUrl(item.url);
+                                        let finalUrl = item.url;
+                                        let posterUrl = undefined;
+
+                                        if (isGoogle) {
+                                            const videoSuffix = '=dv';
+                                            const thumbSuffix = '=w2048'; // High res thumb
+
+                                            if (item.type === 'video') {
+                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl + videoSuffix, googleAccessToken);
+                                                posterUrl = GooglePhotosService.getProxyUrl(cleanUrl + thumbSuffix, googleAccessToken);
+                                            } else {
+                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl + thumbSuffix, googleAccessToken);
+                                            }
+                                        }
+
+                                        if (item.type === 'video') {
+                                            setPreviewingVideo(finalUrl);
+                                            setPreviewingVideoPoster(posterUrl);
+                                        } else {
+                                            setPreviewingImage(finalUrl);
+                                        }
+                                    }}
                                 />
                             ))}
                         </div>
@@ -963,14 +1007,25 @@ export function MediaLibrary() {
                     </div>
                 </div>
             )}
-            {googleAccessToken && (
+            {isGoogleSelectorOpen && (
                 <GooglePhotosSelector
+                    googleAccessToken={googleAccessToken || ''}
                     isOpen={isGoogleSelectorOpen}
-                    googleAccessToken={googleAccessToken}
                     onClose={() => setIsGoogleSelectorOpen(false)}
-                    onSelect={handleGooglePhotosImport}
                     folders={folders}
-                    onReauth={signInWithGoogle}
+                    onSelect={handleGooglePhotosImport}
+                />
+            )}
+
+            {isCreateStackModalOpen && (
+                <CreateStackModal
+                    isOpen={isCreateStackModalOpen}
+                    onClose={() => setIsCreateStackModalOpen(false)}
+                    initialSelected={media.filter(m => selectedItems.has(m.id))}
+                    onCreated={() => {
+                        setIsCreateStackModalOpen(false);
+                        setSelectedItems(new Set());
+                    }}
                 />
             )}
 
@@ -978,7 +1033,7 @@ export function MediaLibrary() {
                 <UrlInputModal
                     isOpen={showUrlInput}
                     onClose={() => setShowUrlInput(false)}
-                    onSubmit={handleUrlImport}
+                    onSubmit={(url) => processRemoteAsset(url, 'url')}
                 />
             )}
 
@@ -1038,6 +1093,24 @@ export function MediaLibrary() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {previewingImage && (
+                <ImagePortal
+                    imageUrl={previewingImage}
+                    onClose={() => setPreviewingImage(null)}
+                />
+            )}
+
+            {previewingVideo && (
+                <VideoPortal
+                    videoUrl={previewingVideo}
+                    posterUrl={previewingVideoPoster}
+                    onClose={() => {
+                        setPreviewingVideo(null);
+                        setPreviewingVideoPoster(undefined);
+                    }}
+                />
             )}
         </div>
     );

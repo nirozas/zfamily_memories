@@ -7,12 +7,23 @@ export function AuthCallback() {
 
     useEffect(() => {
         const handleAuthCallback = async () => {
-            const { error } = await supabase.auth.getSession();
+            const { data: { session }, error } = await supabase.auth.getSession();
             if (error) {
                 console.error('Error in auth callback:', error);
                 navigate('/login?error=auth_callback_failed');
             } else {
-                navigate('/');
+                // If we got a Google refresh token, save it for proxying
+                if (session?.provider_refresh_token && session.user) {
+                    await (supabase.from('user_google_credentials' as any) as any).upsert({
+                        user_id: session.user.id,
+                        refresh_token: session.provider_refresh_token,
+                        updated_at: new Date().toISOString()
+                    });
+                }
+
+                const target = localStorage.getItem('authRedirect');
+                localStorage.removeItem('authRedirect');
+                navigate(target || '/');
             }
         };
 

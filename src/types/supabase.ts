@@ -310,7 +310,8 @@ export type Database = {
                 Row: {
                     id: string;
                     album_id: string | null;
-                    event_id: string | null; // Added event_id
+                    event_id: string | null;
+                    stack_id: string | null; // Added stack_id
                     token: string;
                     created_by: string | null;
                     created_at: string;
@@ -321,6 +322,7 @@ export type Database = {
                     id?: string;
                     album_id?: string | null;
                     event_id?: string | null;
+                    stack_id?: string | null;
                     token: string;
                     created_by?: string | null;
                     created_at?: string;
@@ -331,6 +333,7 @@ export type Database = {
                     id?: string;
                     album_id?: string | null;
                     event_id?: string | null;
+                    stack_id?: string | null;
                     token?: string;
                     created_by?: string | null;
                     created_at?: string;
@@ -419,6 +422,53 @@ export type Database = {
                     updated_at?: string
                 }
             }
+            stacks: {
+                Row: {
+                    id: string;
+                    family_id: string;
+                    user_id: string | null;
+                    title: string;
+                    description: string | null;
+                    cover_url: string | null;
+                    music_url: string | null;
+                    music_name: string | null;
+                    media_items: Json;
+                    participants: string[] | null;
+                    hashtags: string[] | null;
+                    created_at: string;
+                    updated_at: string;
+                }
+                Insert: {
+                    id?: string;
+                    family_id: string;
+                    user_id?: string | null;
+                    title: string;
+                    description?: string | null;
+                    cover_url?: string | null;
+                    music_url?: string | null;
+                    music_name?: string | null;
+                    media_items: Json;
+                    participants?: string[] | null;
+                    hashtags?: string[] | null;
+                    created_at?: string;
+                    updated_at?: string;
+                }
+                Update: {
+                    id?: string;
+                    family_id?: string;
+                    user_id?: string | null;
+                    title?: string;
+                    description?: string | null;
+                    cover_url?: string | null;
+                    music_url?: string | null;
+                    music_name?: string | null;
+                    media_items?: Json;
+                    participants?: string[] | null;
+                    hashtags?: string[] | null;
+                    created_at?: string;
+                    updated_at?: string;
+                }
+            }
         }
         Views: {}
         Functions: {
@@ -429,6 +479,10 @@ export type Database = {
             is_share_link_valid: {
                 Args: { token_param: string }
                 Returns: boolean
+            }
+            get_shared_stack: {
+                Args: { token_param: string }
+                Returns: Json
             }
             duplicate_album_v2: {
                 Args: { source_album_id: string; new_title: string }

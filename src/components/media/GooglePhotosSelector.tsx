@@ -103,18 +103,53 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
     const [newFolderName, setNewFolderName] = useState('');
 
     const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+    const [isWaitingForUser, setIsWaitingForUser] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        // Only auto-fetch if we have an active session
-        if (isOpen && googleAccessToken && activeSessionId) {
+        // Only auto-fetch if we have an active session and NOT currently waiting for user to finish picking
+        if (isOpen && googleAccessToken && activeSessionId && !isWaitingForUser) {
             fetchMedia();
         } else if (isOpen && googleAccessToken && !activeSessionId) {
             // If open but no session, clear list and stop loading
             setMediaItems([]);
             setIsLoading(false);
         }
-    }, [isOpen, googleAccessToken, pageToken, activeSessionId]);
+    }, [isOpen, googleAccessToken, pageToken, activeSessionId, isWaitingForUser]);
+
+    // Polling Mechanism (Option B)
+    useEffect(() => {
+        let intervalId: any;
+
+        if (isOpen && googleAccessToken && activeSessionId && isWaitingForUser) {
+            // Start polling every 3 seconds
+            intervalId = setInterval(async () => {
+                try {
+                    const service = new GooglePhotosService(googleAccessToken);
+                    const response = await service.listMediaItems(activeSessionId, 48);
+
+                    if (response.mediaItems && response.mediaItems.length > 0) {
+                        setMediaItems(response.mediaItems);
+                        setIsWaitingForUser(false);
+                        setError(null);
+                        clearInterval(intervalId);
+                    }
+                } catch (err: any) {
+                    if (err.message !== 'PENDING_USER_ACTION') {
+                        // Real error, stop polling
+                        setError(err.message);
+                        setIsWaitingForUser(false);
+                        clearInterval(intervalId);
+                    }
+                    // If it's PENDING_USER_ACTION, just keep polling silently
+                }
+            }, 3000);
+        }
+
+        return () => {
+            if (intervalId) clearInterval(intervalId);
+        };
+    }, [isOpen, googleAccessToken, activeSessionId, isWaitingForUser]);
 
     // Handle internal visibility changes (return to tab)
     useEffect(() => {
@@ -140,6 +175,8 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
     const handleStartPicking = async () => {
         setIsLoading(true);
         setError(null);
+        setMediaItems([]);
+        setIsWaitingForUser(false);
         try {
             const service = new GooglePhotosService(googleAccessToken);
             const session = await service.createPickerSession();
@@ -147,13 +184,15 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
             // 1. Open the Google Picker UI in a new window/tab
             window.open(session.pickerUri, '_blank');
 
-            // 2. Save sessionId to state
+            // 2. Enter "Waiting State" — do NOT fetch yet.
+            //    The user must finish selecting in the Google window first.
+            //    Polling will start automatically via the useEffect watching isWaitingForUser.
             setActiveSessionId(session.id);
-
-            // We'll wait a bit then fetch, or let the user click "Refresh"
+            setIsWaitingForUser(true);
         } catch (err: any) {
             console.error('Error starting Google Picker:', err);
             setError(err.message || 'Failed to start selection session');
+        } finally {
             setIsLoading(false);
         }
     };
@@ -167,22 +206,25 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
             const service = new GooglePhotosService(googleAccessToken);
             const response = await service.listMediaItems(activeSessionId, 48, pageToken);
 
-            if (response.mediaItems) {
+            if (response.mediaItems && response.mediaItems.length > 0) {
                 setMediaItems(response.mediaItems);
+                setIsWaitingForUser(false); // ✅ Exit waiting state on success
             } else {
                 setMediaItems([]);
+                // If user clicked "Fetch Now" but still no items, stay in waiting
+                setIsWaitingForUser(true);
             }
 
             setNextPageToken(response.nextPageToken);
         } catch (err: any) {
-            if (err.message.includes('USER_NOT_FINISHED')) {
-                // Not an "error", just a state
-                setError('USER_NOT_FINISHED');
-                // Keep mediaItems as empty so the "Awaiting Selection" banner shows
+            if (err.message.includes('PENDING_USER_ACTION')) {
+                // Still waiting — stay in waiting state, polling will continue
+                setIsWaitingForUser(true);
                 setMediaItems([]);
             } else {
                 console.error('Error fetching Google Photos:', err);
                 setError(err.message || 'Failed to connect to Google Photos library');
+                setIsWaitingForUser(false);
             }
         } finally {
             setIsLoading(false);
@@ -242,16 +284,31 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
 
                 {/* Sub-header / Actions */}
                 <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/50 flex flex-wrap items-center justify-between gap-4">
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-4">
                         <div className="text-sm text-gray-500 font-medium whitespace-nowrap">
                             {selectedItems.size > 0 ? (
                                 <span className="text-catalog-accent font-bold uppercase tracking-wider text-xs">
-                                    {selectedItems.size} items selected
+                                    {selectedItems.size} selected
                                 </span>
                             ) : (
                                 "Choose photos to import"
                             )}
                         </div>
+                        {mediaItems.length > 0 && (
+                            <button
+                                onClick={() => {
+                                    if (selectedItems.size === mediaItems.length) {
+                                        setSelectedItems(new Set());
+                                    } else {
+                                        setSelectedItems(new Set(mediaItems.map(i => i.id)));
+                                    }
+                                }}
+                                className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all
+                                           border-catalog-accent/30 text-catalog-accent hover:bg-catalog-accent hover:text-white"
+                            >
+                                {selectedItems.size === mediaItems.length ? 'Deselect All' : 'Select All'}
+                            </button>
+                        )}
 
                         {/* Folder Target Selector */}
                         <div className="flex items-center gap-2">
@@ -325,18 +382,37 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
 
                 {/* Grid / Content Area */}
                 <div className="flex-1 overflow-y-auto p-6 bg-gray-50/30">
-                    {/* Active Session Refresh Tip */}
-                    {activeSessionId && !isLoading && !error && mediaItems.length === 0 && (
-                        <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-center justify-between animate-in fade-in slide-in-from-top-4">
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600">
-                                    <Camera className="w-4 h-4" />
+                    {/* Waiting State (Manual Refresh Option A + Polling Status) */}
+                    {isWaitingForUser && (
+                        <div className="h-full flex flex-col items-center justify-center text-center gap-8 max-w-lg mx-auto py-12">
+                            <div className="relative">
+                                <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center animate-pulse">
+                                    <Camera className="w-12 h-12 text-blue-500" />
                                 </div>
-                                <p className="text-sm text-blue-800 font-medium">Have you finished selecting your photos?</p>
+                                <div className="absolute -bottom-2 -right-2 w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-lg border border-blue-50">
+                                    <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                                </div>
                             </div>
-                            <Button onClick={() => fetchMedia()} variant="glass" size="sm" className="bg-white border-blue-200 text-blue-700 shadow-sm font-bold text-[10px] uppercase tracking-widest px-4">
-                                Refresh Selection
-                            </Button>
+
+                            <div className="space-y-4">
+                                <h3 className="text-2xl font-serif italic text-gray-900">Selection in Progress...</h3>
+                                <p className="text-sm text-gray-500 font-medium leading-relaxed">
+                                    A Google window has opened for you to choose your photos.
+                                    <br />Once you finish selecting, return here!
+                                </p>
+
+                                <div className="pt-4 flex flex-col gap-3">
+                                    <Button
+                                        onClick={() => fetchMedia()}
+                                        className="h-12 px-10 font-black uppercase tracking-widest text-[11px] bg-blue-600 shadow-xl shadow-blue-200"
+                                    >
+                                        I've Selected My Photos - Fetch Now
+                                    </Button>
+                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest animate-pulse">
+                                        or just wait, we're checking every few seconds...
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     )}
 
@@ -359,29 +435,21 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900 mb-1">
-                                    {error.includes('INSUFFICIENT_PERMISSIONS') ? "Permission Required" : (error === 'USER_NOT_FINISHED' ? "Waiting for Selection" : "Connection Error")}
+                                    {error.includes('INSUFFICIENT_PERMISSIONS') ? "Permission Required" : "Connection Error"}
                                 </h3>
                                 <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-                                    {error === 'USER_NOT_FINISHED'
-                                        ? "Please finish picking photos in the Google window and click 'Done' before returning here."
-                                        : (error.includes('INSUFFICIENT_PERMISSIONS') ? "Photos access was not granted. Re-authorize to continue." : error)}
+                                    {error.includes('INSUFFICIENT_PERMISSIONS') ? "Photos access was not granted. Re-authorize to continue." : error}
                                 </p>
                                 <div className="flex flex-col gap-2">
-                                    {error === 'USER_NOT_FINISHED' ? (
-                                        <Button onClick={() => fetchMedia()} className="px-8 font-black uppercase tracking-widest text-[10px] bg-blue-600">
-                                            I've Selected My Photos - Refresh
-                                        </Button>
-                                    ) : (
-                                        <Button
-                                            onClick={() => error.includes('INSUFFICIENT_PERMISSIONS') && onReauth ? onReauth() : handleStartPicking()}
-                                            className={cn(
-                                                "px-8 font-black uppercase tracking-widest text-[10px]",
-                                                error.includes('INSUFFICIENT_PERMISSIONS') ? "bg-amber-600 hover:bg-amber-700" : ""
-                                            )}
-                                        >
-                                            {error.includes('INSUFFICIENT_PERMISSIONS') ? "Fix Permissions Now" : "Restart Selection"}
-                                        </Button>
-                                    )}
+                                    <Button
+                                        onClick={() => error.includes('INSUFFICIENT_PERMISSIONS') && onReauth ? onReauth() : handleStartPicking()}
+                                        className={cn(
+                                            "px-8 font-black uppercase tracking-widest text-[10px]",
+                                            error.includes('INSUFFICIENT_PERMISSIONS') ? "bg-amber-600 hover:bg-amber-700" : ""
+                                        )}
+                                    >
+                                        {error.includes('INSUFFICIENT_PERMISSIONS') ? "Fix Permissions Now" : "Restart Selection"}
+                                    </Button>
                                 </div>
                             </div>
                         </div>
@@ -425,6 +493,14 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
                                             className="w-full h-full object-cover transition-transform group-hover:scale-110"
                                             accessToken={googleAccessToken || ''}
                                         />
+
+                                        {/* Video Indicator */}
+                                        {(item.type === 'VIDEO' || item.mediaMetadata?.video || item.mediaFile?.video) && (
+                                            <div className="absolute top-2 right-2 bg-black/60 rounded-md px-2 py-1 flex items-center gap-1 backdrop-blur-sm z-10">
+                                                <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+                                                <span className="text-[9px] font-bold text-white uppercase tracking-widest">Video</span>
+                                            </div>
+                                        )}
 
                                         {/* Selection Overlay */}
                                         <div className={cn(

@@ -16,6 +16,7 @@ import { MediaPickerModal } from '../components/media/MediaPickerModal';
 import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload } from 'lucide-react';
 import type { Event, Profile } from '../types/supabase';
 import { motion } from 'framer-motion';
+import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=100&w=3840&auto=format&fit=crop';
 
@@ -28,7 +29,7 @@ export function Home() {
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
-    const [newMemberName, setNewMemberName] = useState('');
+    // newMemberName removed — replaced by invite code flow (Fix #4)
     const [heroImageUrl, setHeroImageUrl] = useState(DEFAULT_HERO_IMAGE);
     const [isUploadingHero, setIsUploadingHero] = useState(false);
     const [showCropper, setShowCropper] = useState<{ src: string } | null>(null);
@@ -41,12 +42,30 @@ export function Home() {
 
     const isAdmin = userRole === 'admin';
 
-    // Load hero image from localStorage on mount
+    useDocumentTitle('Home');
+
+    // Load hero image from DB (family_settings) on mount — persistent across devices
     useEffect(() => {
-        const savedHeroImage = localStorage.getItem(`family_hero_${familyId}`);
-        if (savedHeroImage) {
-            setHeroImageUrl(savedHeroImage);
-        }
+        const loadHeroImage = async () => {
+            if (!familyId) return;
+            try {
+                const { data } = await (supabase.from('family_settings' as any) as any)
+                    .select('hero_image_url')
+                    .eq('family_id', familyId)
+                    .maybeSingle();
+                if (data?.hero_image_url) {
+                    setHeroImageUrl(data.hero_image_url);
+                } else {
+                    // Fallback: migrate from localStorage if exists
+                    const cached = localStorage.getItem(`family_hero_${familyId}`);
+                    if (cached) setHeroImageUrl(cached);
+                }
+            } catch {
+                const cached = localStorage.getItem(`family_hero_${familyId}`);
+                if (cached) setHeroImageUrl(cached);
+            }
+        };
+        loadHeroImage();
     }, [familyId]);
 
     const handleHeroImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,7 +80,7 @@ export function Home() {
         reader.readAsDataURL(file);
     };
 
-    // Unified Handler for Hero Update
+    // Unified Handler for Hero Update — Fix #1 (DB) & Fix #6 (no double-upload)
     const processHeroUpdate = async (url: string | File, type: 'file' | 'url' = 'url') => {
         if (!familyId) return;
         setIsUploadingHero(true);
@@ -72,7 +91,7 @@ export function Home() {
 
             if (type === 'file') {
                 const file = url as File;
-                // Workflow #1: Upload to Google Photos if connected
+                // Workflow #1: Use Google Photos if connected
                 if (googleAccessToken) {
                     try {
                         const photosService = new GooglePhotosService(googleAccessToken);
@@ -80,28 +99,38 @@ export function Home() {
                         finalUrl = mediaItem.baseUrl || null;
                         googlePhotoId = mediaItem.id;
                     } catch (err) {
-                        console.error('Google Photos hero upload failed, falling back to local storage:', err);
+                        console.error('Google Photos hero upload failed, falling back to Supabase Storage:', err);
                     }
                 }
 
-                // Workflow #2: Fallback/Dual-save to Supabase Storage
-                const { url: storageUrl } = await storageService.uploadFile(
-                    file,
-                    'album-assets',
-                    `hero/${familyId}/${Date.now()}/`
-                );
-                if (storageUrl) finalUrl = storageUrl;
+                // Workflow #2: Fallback to Supabase Storage ONLY if Google Photos did not succeed
+                if (!finalUrl) {
+                    const { url: storageUrl } = await storageService.uploadFile(
+                        file,
+                        'album-assets',
+                        `hero/${familyId}/${Date.now()}/`
+                    );
+                    if (storageUrl) finalUrl = storageUrl;
+                }
             } else {
                 finalUrl = url as string;
             }
 
             if (finalUrl) {
-                localStorage.setItem(`family_hero_${familyId}`, finalUrl);
                 setHeroImageUrl(finalUrl);
+                // Also cache locally for instant display on next load
+                localStorage.setItem(`family_hero_${familyId}`, finalUrl);
 
-                // Optional: Register in media library too if it's a new upload or change
+                // Persist to DB so it works across devices (Fix #1)
+                await (supabase.from('family_settings' as any) as any).upsert({
+                    family_id: familyId,
+                    hero_image_url: finalUrl,
+                    updated_at: new Date().toISOString(),
+                }, { onConflict: 'family_id' });
+
+                // Register in media library
                 const { data: userData } = await supabase.auth.getUser();
-                await supabase.from('family_media').insert({
+                await (supabase.from('family_media') as any).insert({
                     family_id: familyId,
                     url: finalUrl,
                     type: 'image',
@@ -111,10 +140,9 @@ export function Home() {
                     size: type === 'file' ? (url as File).size : 0,
                     uploaded_by: userData.user?.id,
                     metadata: googlePhotoId ? { googlePhotoId } : undefined
-                } as any);
-
+                });
             } else {
-                alert('Failed to update hero image');
+                alert('Failed to update hero image.');
             }
         } catch (err) {
             console.error('Error uploading hero image:', err);
@@ -347,30 +375,33 @@ export function Home() {
         fetchData();
     }, [familyId]);
 
-    const handleAddMember = async () => {
-        if (!familyId || !newMemberName.trim()) return;
+    // Fix #4: Generate invite code instead of direct DB insert (which creates orphan rows)
+    const [inviteCode, setInviteCode] = useState<string | null>(null);
+    const [isGeneratingInvite, setIsGeneratingInvite] = useState(false);
 
+    const handleGenerateInvite = async () => {
+        if (!familyId) return;
+        setIsGeneratingInvite(true);
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .insert({
-                    family_id: familyId,
-                    full_name: newMemberName,
-                    role: 'viewer', // Default role for invited members
-                } as any)
-                .select()
-                .single();
+            // Generate a short, readable invite code
+            const code = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 7); // 7-day validity
+
+            const { error } = await (supabase.from('family_invites' as any) as any).insert({
+                family_id: familyId,
+                code,
+                expires_at: expiresAt.toISOString(),
+                created_by: (await supabase.auth.getUser()).data.user?.id,
+            });
 
             if (error) throw error;
-
-            if (data) {
-                setFamilyMembers([...familyMembers, data as any]);
-                setShowAddModal(false);
-                setNewMemberName('');
-            }
+            setInviteCode(code);
         } catch (error) {
-            console.error('Error adding member:', error);
-            alert('Failed to add member');
+            console.error('Error generating invite:', error);
+            alert('Failed to generate invite code. Please try again.');
+        } finally {
+            setIsGeneratingInvite(false);
         }
     };
 
@@ -706,53 +737,62 @@ export function Home() {
                             </div>
                         ))}
 
-                        {/* Add Member Button */}
-                        <button
-                            onClick={() => setShowAddModal(true)}
-                            className="flex flex-col items-center gap-3 group"
-                        >
-                            <div className="w-24 h-24 md:w-32 md:h-32 rounded-full border-2 border-dashed border-catalog-accent/30 flex items-center justify-center text-catalog-accent/50 group-hover:border-catalog-accent group-hover:text-catalog-accent group-hover:bg-catalog-accent/5 transition-all">
-                                <Plus className="w-8 h-8" />
-                            </div>
-                            <span className="font-sans text-sm font-medium text-catalog-accent/70 uppercase tracking-wider group-hover:text-catalog-accent">Add Member</span>
-                        </button>
+                        {/* Add Member Button — Fix #8: admin only */}
+                        {isAdmin && (
+                            <button
+                                onClick={() => { setShowAddModal(true); setInviteCode(null); }}
+                                className="flex flex-col items-center gap-3 group"
+                            >
+                                <div className="w-24 h-24 md:w-32 md:h-32 rounded-full border-2 border-dashed border-catalog-accent/30 flex items-center justify-center text-catalog-accent/50 group-hover:border-catalog-accent group-hover:text-catalog-accent group-hover:bg-catalog-accent/5 transition-all">
+                                    <Plus className="w-8 h-8" />
+                                </div>
+                                <span className="font-sans text-sm font-medium text-catalog-accent/70 uppercase tracking-wider group-hover:text-catalog-accent">Add Member</span>
+                            </button>
+                        )}
                     </div>
                 </section>
 
-                {/* Add Member Modal */}
+                {/* Invite Member Modal — Fix #4 */}
                 {showAddModal && (
                     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
-                        <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-8 space-y-6 animate-slide-up">
-                            <h3 className="text-3xl font-serif text-catalog-text text-center">Invite a Member</h3>
-                            <p className="text-catalog-text/60 text-center font-serif italic">
-                                Share the legacy. Enter their name to generate an invite.
-                            </p>
-                            <div className="space-y-4">
-                                <div className="space-y-2">
-                                    <label className="text-xs font-bold text-catalog-accent uppercase tracking-widest">Full Name</label>
-                                    <input
-                                        type="text"
-                                        value={newMemberName}
-                                        onChange={(e) => setNewMemberName(e.target.value)}
-                                        placeholder="e.g. Elias Zoabi"
-                                        className="w-full px-4 py-3 border border-catalog-accent/20 rounded-sm focus:outline-none focus:ring-2 focus:ring-catalog-accent/50 bg-white/50"
-                                    />
+                        <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 space-y-6 animate-in fade-in zoom-in-95 duration-300">
+                            <div className="text-center">
+                                <div className="w-14 h-14 bg-catalog-accent/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <Plus className="w-7 h-7 text-catalog-accent" />
                                 </div>
-                                <div className="flex gap-3 pt-4">
-                                    <button
-                                        onClick={() => setShowAddModal(false)}
-                                        className="flex-1 py-3 text-catalog-text/50 font-medium hover:text-catalog-text transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleAddMember}
-                                        className="flex-1 py-3 bg-catalog-accent text-white font-serif italic text-lg rounded-sm shadow-md hover:shadow-lg transition-all"
-                                    >
-                                        Send Invite
-                                    </button>
-                                </div>
+                                <h3 className="text-2xl font-outfit font-black text-catalog-text">Invite a Family Member</h3>
+                                <p className="text-catalog-text/60 text-sm mt-2">
+                                    Generate a secure invite code. Share it with the person you want to add — they'll use it when they sign up.
+                                </p>
                             </div>
+
+                            {!inviteCode ? (
+                                <div className="space-y-4 pt-2">
+                                    <button
+                                        onClick={handleGenerateInvite}
+                                        disabled={isGeneratingInvite}
+                                        className="w-full py-3 bg-catalog-accent text-white font-outfit font-bold rounded-xl shadow-md hover:brightness-105 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isGeneratingInvite ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
+                                        {isGeneratingInvite ? 'Generating...' : 'Generate Invite Code'}
+                                    </button>
+                                    <button onClick={() => setShowAddModal(false)} className="w-full py-2 text-catalog-text/50 hover:text-catalog-text text-sm transition-colors">Cancel</button>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    <div className="p-4 bg-catalog-accent/5 border border-catalog-accent/20 rounded-xl text-center">
+                                        <p className="text-xs font-bold uppercase tracking-widest text-catalog-accent/60 mb-2">Your Invite Code (valid 7 days)</p>
+                                        <p className="text-3xl font-outfit font-black text-catalog-accent tracking-[0.3em]">{inviteCode}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => { navigator.clipboard.writeText(inviteCode); alert('Invite code copied!'); }}
+                                        className="w-full py-3 bg-catalog-accent text-white font-outfit font-bold rounded-xl shadow-md hover:brightness-105 transition-all"
+                                    >
+                                        Copy Code
+                                    </button>
+                                    <button onClick={() => { setShowAddModal(false); setInviteCode(null); }} className="w-full py-2 text-catalog-text/50 hover:text-catalog-text text-sm transition-colors">Done</button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

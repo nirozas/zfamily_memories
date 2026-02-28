@@ -4,6 +4,7 @@ export interface GoogleMediaItem {
     mediaFile: {
         baseUrl: string;
         mimeType: string;
+        video?: any;
     };
     creationTime: string;
     // For compatibility with Library API during uploads
@@ -68,7 +69,8 @@ export class GooglePhotosService {
             }
 
             if (status === 'FAILED_PRECONDITION' || message.includes('PENDING_USER_ACTION')) {
-                throw new Error('USER_NOT_FINISHED');
+                // This is a race condition expected state - user hasn't finished selection
+                throw new Error('PENDING_USER_ACTION');
             }
 
             if (response.status === 403) {
@@ -190,90 +192,76 @@ export class GooglePhotosService {
         return result.mediaItem;
     }
 
-    /**
-     * Download a media item as a blob
-     */
-    async downloadMediaItem(baseUrl: string): Promise<Blob> {
-        // Picker API URLs (lh3.googleusercontent.com) usually support =d for download.
-        // Some might support ?download=true, but =d is safer for image CDN URLs.
+    static getCleanUrl(url: string | undefined | null): string {
+        if (!url) return '';
+        // Google Photos baseUrls are fragile. If they have a suffix starting with = or -, we strip it.
+        // This ensures that when we append =w400 or =dv, we don't end up with broken URLs.
+        return url.split('=')[0];
+    }
 
-        const constructUrls = (base: string) => {
-            const isLibrary = base.includes('photoslibrary.googleapis.com');
+    static getProxyUrl(googleUrl: string, token?: string | null, shareToken?: string | null): string {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        if (!googleUrl) return '';
 
-            // Strategy 1: Standard 'download' param equivalent
-            const primary = isLibrary ? `${base}=d` : `${base}=d`;
+        // DO NOT use getCleanUrl here.
+        // The caller constructs googleUrl precisely with the suffixes they need (=dv, =w400, etc).
+        let url = `${supabaseUrl}/functions/v1/get-google-media?url=${encodeURIComponent(googleUrl)}`;
+        if (token) {
+            url += `&token=${encodeURIComponent(token)}`;
+        }
+        if (shareToken) {
+            url += `&share_token=${encodeURIComponent(shareToken)}`;
+        }
+        return url;
+    }
 
-            // Strategy 2: High-res fetch
-            const highRes = isLibrary ? `${base}=w9999-h9999` : `${base}=w9999-h9999`;
+    async downloadMediaItem(itemOrUrl: GoogleMediaItem | string): Promise<Blob> {
+        const baseUrl = typeof itemOrUrl === 'string' ? itemOrUrl : (itemOrUrl.mediaFile?.baseUrl || itemOrUrl.baseUrl || '');
+        const cleanBaseUrl = GooglePhotosService.getCleanUrl(baseUrl);
 
-            // Strategy 3: Raw Base URL (sometimes just works for lh3 if public)
-            const raw = base;
+        const isVideo = typeof itemOrUrl === 'object' && (
+            itemOrUrl.mimeType?.startsWith('video') ||
+            itemOrUrl.mediaFile?.mimeType?.startsWith('video') ||
+            (baseUrl && baseUrl.includes('=dv'))
+        );
 
-            return { primary, highRes, raw };
-        };
+        const suffix = isVideo ? '=dv' : '=d';
+        const primary = `${cleanBaseUrl}${suffix}`;
+        const highRes = `${cleanBaseUrl}=w9999-h9999`;
 
-        const { primary, highRes, raw } = constructUrls(baseUrl);
-
-        const validateResponse = (res: Response) => {
-            const type = res.headers.get('content-type');
-            if (!res.ok) return false;
-            // Reject HTML/JSON responses
-            if (type && (type.includes('text/html') || type.includes('application/json'))) {
-                return false;
-            }
-            return true;
-        };
-
-        const fetchOptions: RequestInit = {
-            mode: 'cors',
-            referrerPolicy: 'no-referrer'
-        };
-
-        const tryFetch = async (url: string, useAuth = false) => {
-            const opts = { ...fetchOptions };
-            if (useAuth && this.accessToken) {
-                opts.headers = { 'Authorization': `Bearer ${this.accessToken}` };
-            }
+        const tryFetch = async (url: string) => {
             try {
-                const res = await fetch(url, opts);
-                if (validateResponse(res)) {
+                // IMPORTANT: Always use our proxy to bypass CORS
+                const proxyUrl = GooglePhotosService.getProxyUrl(url, this.accessToken);
+                const res = await fetch(proxyUrl);
+
+                if (res.ok) {
                     const blob = await res.blob();
                     if (blob.size > 0) return blob;
                 }
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+                // Ignore errors in attempts
+            }
             return null;
         };
 
         try {
-            // Sequence of attempts:
-            // 1. Primary (public)
+            // Try primary (usually with =d or =dv)
             let blob = await tryFetch(primary);
             if (blob) return blob;
 
-            // 2. High Res (public)
+            // Try raw baseUrl
+            blob = await tryFetch(baseUrl);
+            if (blob) return blob;
+
+            // Try high res fallback
             blob = await tryFetch(highRes);
             if (blob) return blob;
 
-            // 3. Raw (public)
-            blob = await tryFetch(raw);
-            if (blob) return blob;
-
-            // 4. Primary (Auth) - Only if we have token
-            if (this.accessToken) {
-                console.warn('[GooglePhotos] Public attempts failed. Retrying with Auth...');
-                blob = await tryFetch(primary, true);
-                if (blob) return blob;
-
-                // 5. Raw (Auth)
-                blob = await tryFetch(raw, true);
-                if (blob) return blob;
-            }
-
-            throw new Error('All download attempts failed to retrieve a valid media blob.');
-
+            throw new Error('All download attempts failed to retrieve a valid media blob via proxy.');
         } catch (error) {
             console.error('[GooglePhotos] Download failed:', error);
-            throw new Error('Failed to download media item from Google');
+            throw new Error('Failed to download media item from Google through proxy');
         }
     }
 }

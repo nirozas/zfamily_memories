@@ -164,7 +164,7 @@ export function EventEditor() {
 
     const handleUrlSubmit = async (url: string) => {
         setShowUrlInput(false);
-        await processRemoteAsset(url, undefined, 'url');
+        await processRemoteAsset(url, 'url');
     };
 
     const handleGooglePhotosSelect = async (items: GoogleMediaItem[]) => {
@@ -173,8 +173,7 @@ export function EventEditor() {
 
         // Process sequentially
         for (const item of items) {
-            const url = item.mediaFile?.baseUrl || item.baseUrl || '';
-            await processRemoteAsset(url, item.id, 'google');
+            await processRemoteAsset(item, 'google');
         }
     };
 
@@ -182,12 +181,14 @@ export function EventEditor() {
         setShowMediaPicker(false);
         if (!item) return;
 
-        // If video, we might want to check type. For now assuming item.url is valid.
         // We pass 'library' as source so we don't try to re-upload it.
-        await processRemoteAsset(item.url, undefined, 'library');
+        await processRemoteAsset(item.url, 'library');
     };
 
-    const processRemoteAsset = async (url: string, googleId?: string, source: 'url' | 'google' | 'library' = 'url') => {
+    const processRemoteAsset = async (asset: string | GoogleMediaItem, source: 'url' | 'google' | 'library' = 'url') => {
+        const url = typeof asset === 'string' ? asset : (asset.mediaFile?.baseUrl || asset.baseUrl || '');
+        const googleId = typeof asset === 'string' ? undefined : asset.id;
+
         if (!url) return;
         setUploading(true);
         try {
@@ -196,9 +197,9 @@ export function EventEditor() {
 
             // Try to persist to storage (mirrors Events.tsx logic)
             try {
-                if (googleAccessToken && source === 'google') {
+                if (googleAccessToken && source === 'google' && typeof asset !== 'string') {
                     const photosService = new GooglePhotosService(googleAccessToken);
-                    const blob = await photosService.downloadMediaItem(url);
+                    const blob = await photosService.downloadMediaItem(asset);
                     const file = new File([blob], `google_import_${Date.now()}.jpg`, { type: 'image/jpeg' });
                     const { url: storageUrl } = await storageService.uploadFile(file, 'event-assets', `events/${eventData.title}/`);
                     if (storageUrl) finalUrl = storageUrl;

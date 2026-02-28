@@ -5,6 +5,7 @@ import { X, Globe, Maximize2, Minimize2 } from 'lucide-react';
 
 interface VideoPortalProps {
     videoUrl: string | null;
+    posterUrl?: string;
     rotation?: number;
     onClose: () => void;
     onPlay?: () => void;
@@ -19,7 +20,7 @@ interface VideoPortalProps {
  * 3. Aspect Ratio Control: Special sizing for 90/270 degree rotations.
  * 4. Safe Exit: document.fullscreenElement monitoring for non-destructive esc.
  */
-export function VideoPortal({ videoUrl, rotation = 0, onClose, onPlay }: VideoPortalProps) {
+export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay }: VideoPortalProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -162,11 +163,12 @@ export function VideoPortal({ videoUrl, rotation = 0, onClose, onPlay }: VideoPo
                     <video
                         ref={videoRef}
                         src={videoUrl}
+                        poster={posterUrl}
                         controls={true}
                         autoPlay
                         playsInline
                         crossOrigin="anonymous"
-                        preload="metadata"
+                        preload="auto"
                         onPlay={(e) => {
                             e.stopPropagation();
                             window.dispatchEvent(new CustomEvent('globalPlay', { detail: videoUrl }));
