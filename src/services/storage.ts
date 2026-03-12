@@ -48,35 +48,28 @@ export const storageService = {
                 }
             }
 
-            // 2. Upload to appropriate storage
-            if (fileToUpload.type.startsWith('video/')) {
-                const { GoogleDriveService } = await import('./googleDrive');
-                const driveService = new GoogleDriveService(googleAccessToken);
-                const driveFolderId = await driveService.getOrCreateWebsiteFolder();
-                const driveFileId = await driveService.uploadFile(fileToUpload, driveFolderId);
-                const finalUrl = GoogleDriveService.getDirectUrl(driveFileId);
-                
-                if (onProgress) onProgress({ loaded: 100, total: 100 });
-                return { url: finalUrl, error: null, googlePhotoId: driveFileId };
-            } else {
-                const { GooglePhotosService } = await import('./googlePhotos');
-                const photosService = new GooglePhotosService(googleAccessToken);
+            // 2. Upload to Google Photos
+            const { GooglePhotosService } = await import('./googlePhotos');
+            const photosService = new GooglePhotosService(googleAccessToken);
 
-                if (onProgress) onProgress({ loaded: 50, total: 100 }); // Partial progress
+            if (onProgress) onProgress({ loaded: 50, total: 100 });
 
-                const mediaItem = await photosService.uploadMedia(fileToUpload);
+            const mediaItem = await photosService.uploadMedia(fileToUpload);
 
-                if (onProgress) onProgress({ loaded: 100, total: 100 });
+            if (onProgress) onProgress({ loaded: 100, total: 100 });
 
-                if (!mediaItem || !mediaItem.id) {
-                    throw new Error('No media item returned from Google Photos');
-                }
-
-                const baseUrl = mediaItem.mediaFile?.baseUrl || mediaItem.baseUrl || '';
-                const finalUrl = (mediaItem.type === 'VIDEO' || mediaItem.mediaMetadata?.video) ? `${baseUrl}=dv` : `${baseUrl}=w9999-h9999`;
-
-                return { url: finalUrl, error: null, googlePhotoId: mediaItem.id };
+            if (!mediaItem || !mediaItem.id) {
+                throw new Error('No media item returned from Google Photos');
             }
+
+            const baseUrl = mediaItem.mediaFile?.baseUrl || mediaItem.baseUrl || '';
+            const isVideoResult = mediaItem.type === 'VIDEO' || 
+                                mediaItem.mediaMetadata?.video || 
+                                fileToUpload.type.startsWith('video/');
+            
+            const finalUrl = isVideoResult ? `${baseUrl}=dv` : `${baseUrl}=w9999-h9999`;
+
+            return { url: finalUrl, error: null, googlePhotoId: mediaItem.id };
 
         } catch (error: any) {
             console.error('Storage upload error:', error);
@@ -101,12 +94,11 @@ export const storageService = {
 
     /**
      * Ensures a Google Photos item is persistent.
-     * If it's a video, it migrates it to Google Drive.
-     * If it's an image, it returns the baseUrl with a large size parameter.
+     * Simply returns the item's info. No more Drive migration.
      */
     async persistGoogleMedia(
         item: any,
-        googleAccessToken: string
+        _googleAccessToken: string
     ): Promise<{ url: string; googlePhotoId: string; type: 'image' | 'video' }> {
         const typeStr = (item.type || '').toUpperCase();
         const isVideo = typeStr === 'VIDEO'
@@ -115,47 +107,20 @@ export const storageService = {
             || (item.mediaFile?.mimeType?.toLowerCase().startsWith('video'));
 
         let finalUrl = item.mediaFile?.baseUrl || item.baseUrl || item.url || '';
-        let finalId = item.id;
+        const finalId = item.id;
 
-        if (isVideo && googleAccessToken) {
-            try {
-                const { GooglePhotosService } = await import('./googlePhotos');
-                const { GoogleDriveService } = await import('./googleDrive');
-                
-                const photosService = new GooglePhotosService(googleAccessToken);
-                // The item object might be from different pickers, ensure it's compatible
-                const photoItem = {
-                    id: item.id,
-                    baseUrl: item.mediaFile?.baseUrl || item.baseUrl || item.url || '',
-                    filename: item.filename || item.name || 'video.mp4',
-                    mimeType: item.mimeType || item.mediaFile?.mimeType || 'video/mp4'
-                };
-                
-                console.log(`[Storage] Migrating video ${item.id} to Drive. Source: ${photoItem.baseUrl.substring(0, 30)}...`);
-                const blob = await photosService.downloadMediaItem(photoItem as any);
-                const file = new File([blob], photoItem.filename, { type: blob.type || 'video/mp4' });
-
-                const driveService = new GoogleDriveService(googleAccessToken);
-                const driveFolderId = await driveService.getOrCreateWebsiteFolder();
-                const driveFileId = await driveService.uploadFile(file, driveFolderId);
-                
-                finalUrl = GoogleDriveService.getDirectUrl(driveFileId);
-                finalId = driveFileId;
-                console.log(`[Storage] Successfully migrated video to Drive: ${driveFileId}`);
-            } catch (err) {
-                console.error('[Storage] Failed to migrate video to Drive:', err);
-                // Fallback to proxy URL if migration fails
-                if (finalUrl && !finalUrl.includes('=dv') && !finalUrl.includes('drive.google.com')) {
-                    finalUrl += '=dv';
-                }
+        // For videos, suggest video-download param (=dv)
+        if (isVideo) {
+            if (finalUrl && !finalUrl.includes('=dv') && !finalUrl.includes('drive.google.com')) {
+                finalUrl = finalUrl.split('=')[0] + '=dv';
             }
         } else {
              // For images, suggest full resolution
              if (finalUrl && !finalUrl.includes('=w') && !finalUrl.includes('drive.google.com')) {
-                 finalUrl += '=w9999-h9999';
+                 finalUrl = finalUrl.split('=')[0] + '=w9999-h9999';
              }
         }
         
         return { url: finalUrl, googlePhotoId: finalId, type: isVideo ? 'video' : 'image' };
-    }
+    },
 };

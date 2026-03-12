@@ -344,6 +344,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             folder: targetFolder,
                             filename: item.filename || `gp_${item.id}`,
                             uploaded_by: user?.id,
+                            google_id: persistentId,
                             metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
                         })
                         .eq('id', (existing as any).id);
@@ -356,6 +357,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         folder: targetFolder,
                         filename: item.filename || `gp_${item.id}`,
                         uploaded_by: user?.id,
+                        google_id: persistentId,
                         metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
                     });
                 }

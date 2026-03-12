@@ -395,6 +395,7 @@ export type Database = {
                     filename: string | null
                     size: number | null
                     uploaded_by: string | null
+                    google_id: string | null
                     created_at: string
                     updated_at: string
                 }
@@ -408,6 +409,7 @@ export type Database = {
                     filename?: string | null
                     size?: number | null
                     uploaded_by?: string | null
+                    google_id?: string | null
                     created_at?: string
                     updated_at?: string
                 }
@@ -421,6 +423,7 @@ export type Database = {
                     filename?: string | null
                     size?: number | null
                     uploaded_by?: string | null
+                    google_id?: string | null
                     created_at?: string
                     updated_at?: string
                 }
