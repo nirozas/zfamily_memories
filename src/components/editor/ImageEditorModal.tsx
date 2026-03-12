@@ -189,7 +189,11 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
     };
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-2xl p-4 md:p-6 animate-in fade-in duration-300">
+        <div 
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-2xl p-4 md:p-6 animate-in fade-in duration-300"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+        >
             <div className="bg-gradient-to-br from-white to-catalog-stone/20 w-full max-w-[95vw] h-full max-h-[95vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-catalog-accent/20">
                 {/* Header */}
                 <div className="flex items-center justify-between px-10 py-6 border-b border-catalog-accent/10 bg-gradient-to-r from-catalog-stone/5 to-transparent backdrop-blur-sm">
@@ -280,7 +284,7 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
                     </div>
 
                     {/* Controls Sidebar */}
-                    <div className="w-[420px] border-l border-catalog-accent/10 bg-white flex flex-col overflow-hidden">
+                    <div className="w-[500px] shrink-0 border-l border-catalog-accent/10 bg-white flex flex-col overflow-hidden">
                         {/* Tabs */}
                         <div className="flex border-b border-catalog-accent/10 bg-catalog-stone/5 p-2 gap-1">
                             {[

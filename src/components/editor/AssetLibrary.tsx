@@ -1,8 +1,11 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { useAlbum } from '../../contexts/AlbumContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { GooglePhotosService } from '../../services/googlePhotos';
+import { GoogleDriveService } from '../../services/googleDrive';
+import type { SystemAssetCategory } from '../../services/googleDrive';
 import { cn } from '../../lib/utils';
 import {
     Upload,
@@ -22,25 +25,55 @@ import {
     Camera,
     Link as LinkIcon,
     X,
-    FolderOpen
+    FolderOpen,
+    AlertTriangle
 } from 'lucide-react';
+import { storageService } from '../../services/storage';
 import { UrlInputModal } from '../media/UrlInputModal';
 import { MediaPickerModal } from '../media/MediaPickerModal';
 
 // Helper for library thumbnails (not full assets)
-const getThumbnailUrl = (url: string, type: 'image' | 'video' = 'image') => {
-    if (!url || !url.includes('cloudinary.com')) return url;
-    const parts = url.split('/upload/');
-    if (parts.length === 2) {
-        if (type === 'video') {
-            // Get a frame as thumbnail for videos
-            const videoPath = parts[1].replace(/\.[^/.]+$/, ".jpg");
-            return `${parts[0]}/upload/f_auto,q_auto,w_300,c_limit,so_auto/${videoPath}`;
-        }
-        return `${parts[0]}/upload/f_auto,q_auto,w_300,c_limit/${parts[1]}`;
-    }
+const getThumbnailUrl = (url: string) => {
     return url;
 };
+
+function LibraryAssetItem({ item, usedAssetUrls, onSelect }: any) {
+    const isGoogle = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
+    // Use the hook to get a proxied thumbnail
+    const { url: displayUrl } = useGooglePhotosUrl(undefined, item.url, null, true);
+
+    return (
+        <div
+            onClick={() => onSelect(item)}
+            className="group flex flex-col gap-1 cursor-pointer"
+        >
+            <div className={cn(
+                "relative aspect-square rounded-lg overflow-hidden bg-white shadow-sm group-hover:shadow-md transition-all border",
+                usedAssetUrls.has(item.url) ? "border-blue-500 ring-1 ring-blue-500/50" : "border-gray-100 group-hover:border-blue-300"
+            )}>
+                <img src={displayUrl} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />
+                {item.type === 'video' && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                        <Video className="w-5 h-5 text-white/70" />
+                    </div>
+                )}
+                <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <Plus className="w-5 h-5 text-blue-600" />
+                </div>
+                {isGoogle && (
+                    <div className="absolute top-1 left-1">
+                        <Camera className="w-3 h-3 text-white drop-shadow-md opacity-70" />
+                    </div>
+                )}
+            </div>
+            {item.name && (
+                <p className="text-[9px] text-gray-400 truncate px-1 group-hover:text-blue-500 transition-colors">
+                    {item.name}
+                </p>
+            )}
+        </div>
+    );
+}
 
 // Helper to get assets by category
 async function fetchLibraryAssets(category: string, familyId?: string) {
@@ -88,20 +121,22 @@ async function fetchLibraryAssets(category: string, familyId?: string) {
     return assets;
 }
 
-type Tab = 'uploads' | 'backgrounds' | 'stickers' | 'frames' | 'ribbons' | 'layouts' | 'google_photos';
+type Tab = 'uploads' | 'backgrounds' | 'stickers' | 'frames' | 'ribbons' | 'layouts' | 'google_photos' | 'amazon_photos';
 
 export function AssetLibrary() {
     const { album, uploadMedia, moveFromLibrary, isSaving, addAsset, currentPageIndex, uploadProgress } = useAlbum();
     const { googleAccessToken, signInWithGoogle, userRole } = useAuth();
-    const isAdmin = userRole === 'admin';
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
     const [activeTab, setActiveTab] = useState<Tab>('uploads');
     const [libraryAssets, setLibraryAssets] = useState<any[]>([]);
     const [isLoadingAssets, setIsLoadingAssets] = useState(false);
+    const [isAdminUploading, setIsAdminUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
     const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video'>('all');
     const [sortBy, setSortBy] = useState<'name' | 'uploaded'>('uploaded');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [searchQuery, setSearchQuery] = useState('');
+    const [refreshTick, setRefreshTick] = useState(0);
 
     const [viewMode, setViewMode] = useState<'grid' | 'folders'>('folders');
     const [currentFolder, setCurrentFolder] = useState<string | null>(null);
@@ -114,13 +149,16 @@ export function AssetLibrary() {
     const [showMediaPicker, setShowMediaPicker] = useState(false);
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const triggerRefresh = useCallback(() => setRefreshTick(t => t + 1), []);
 
-    const handleSourceSelect = (source: 'upload' | 'google' | 'url' | 'library') => {
+    const handleSourceSelect = (source: 'upload' | 'google' | 'amazon' | 'url' | 'library') => {
         setShowSourceModal(false);
         if (source === 'upload') {
             fileInputRef.current?.click();
         } else if (source === 'google') {
             setActiveTab('google_photos');
+        } else if (source === 'amazon') {
+            setActiveTab('amazon_photos');
         } else if (source === 'url') {
             setShowUrlInput(true);
         } else if (source === 'library') {
@@ -128,22 +166,214 @@ export function AssetLibrary() {
         }
     };
 
+    // Amazon Photos batch import state
+    const [amazonUrlInput, setAmazonUrlInput] = useState('');
+    const [amazonFolderName, setAmazonFolderName] = useState('');
+    const [isImportingAmazon, setIsImportingAmazon] = useState(false);
+    const [amazonImportError, setAmazonImportError] = useState('');
+    const [amazonImportedItems, setAmazonImportedItems] = useState<any[]>([]);
+    const [amazonBatchProgress, setAmazonBatchProgress] = useState<{ done: number; total: number } | null>(null);
+
+    // Bulk System Asset URL Import State
+    const [bulkSystemUrlInput, setBulkSystemUrlInput] = useState('');
+    const [isImportingBulkSystem, setIsImportingBulkSystem] = useState(false);
+    const [bulkSystemError, setBulkSystemError] = useState('');
+    const [bulkSystemProgress, setBulkSystemProgress] = useState<{ done: number; total: number } | null>(null);
+    const [showBulkSystemInput, setShowBulkSystemInput] = useState<Tab | null>(null);
+
+    const processAmazonUrl = (url: string): { processedUrl: string; type: 'image' | 'video'; filename: string } | null => {
+        const trimmed = url.trim();
+        if (!trimmed || !trimmed.startsWith('http')) return null;
+        const isVideo = /\.(mp4|mov|avi|mkv|webm|m4v)/i.test(trimmed) ||
+            trimmed.includes('video') || trimmed.includes('Video');
+        const type: 'image' | 'video' = isVideo ? 'video' : 'image';
+        const filename = trimmed.split('/').pop()?.split('?')[0] || (isVideo ? 'Amazon Video' : 'Amazon Photo');
+        return { processedUrl: trimmed, type, filename };
+    };
+
+    const handleAmazonBatchImport = async () => {
+        if (!amazonUrlInput.trim()) return;
+        if (!album?.family_id) { setAmazonImportError('No active family context.'); return; }
+
+        // Parse all lines — filter blanks and invalid URLs
+        const lines = amazonUrlInput.split('\n').map(l => l.trim()).filter(Boolean);
+        const validUrls = lines.map(processAmazonUrl).filter((r): r is NonNullable<typeof r> => r !== null);
+
+        if (validUrls.length === 0) {
+            setAmazonImportError('No valid URLs found. Make sure each URL starts with http.');
+            return;
+        }
+
+        const folderName = amazonFolderName.trim() || (album?.title ? `Albums/${album.title.trim()}` : 'Amazon Photos');
+        setIsImportingAmazon(true);
+        setAmazonImportError('');
+        setAmazonBatchProgress({ done: 0, total: validUrls.length });
+
+        const { data: userData } = await supabase.auth.getUser();
+        const newItems: any[] = [];
+        let failCount = 0;
+
+        for (let i = 0; i < validUrls.length; i++) {
+            const item = validUrls[i];
+            try {
+                // Check if already exists to avoid 400 error if onConflict 'url' requires unique constraint missing in DB
+                const { data: existing } = await (supabase
+                    .from('family_media') as any)
+                    .select('id')
+                    .eq('url', item.processedUrl)
+                    .maybeSingle();
+
+                let error;
+                if (existing) {
+                    const { error: updateErr } = await (supabase
+                        .from('family_media') as any)
+                        .update({
+                            filename: item.filename,
+                            folder: folderName,
+                            metadata: { source: 'amazon_photos', folder: folderName }
+                        })
+                        .eq('id', (existing as any).id);
+                    error = updateErr;
+                } else {
+                    const { error: insertErr } = await (supabase
+                        .from('family_media') as any)
+                        .insert({
+                            family_id: album.family_id,
+                            url: item.processedUrl,
+                            type: item.type,
+                            filename: item.filename,
+                            folder: folderName,
+                            category: 'uploads',
+                            uploaded_by: userData?.user?.id,
+                            metadata: { source: 'amazon_photos', folder: folderName }
+                        });
+                    error = insertErr;
+                }
+                if (error) { failCount++; continue; }
+                newItems.push({
+                    id: `amazon-${Date.now()}-${i}`,
+                    url: item.processedUrl,
+                    type: item.type,
+                    name: item.filename,
+                    folder: folderName,
+                    is_amazon: true
+                });
+            } catch {
+                failCount++;
+            }
+            setAmazonBatchProgress({ done: i + 1, total: validUrls.length });
+        }
+
+        setAmazonImportedItems(prev => [...newItems, ...prev]);
+        setAmazonUrlInput('');
+        setAmazonBatchProgress(null);
+        setIsImportingAmazon(false);
+        if (failCount > 0) setAmazonImportError(`${failCount} URL(s) failed to import.`);
+        triggerRefresh();
+    };
+
+
+    const handleBulkSystemUrlImport = async (category: Tab) => {
+        if (!bulkSystemUrlInput.trim() || !googleAccessToken) return;
+
+        // Parse URLs (supports one per line)
+        const lines = bulkSystemUrlInput.split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+        if (lines.length === 0) {
+            setBulkSystemError('No valid URLs found. Make sure each URL starts with http.');
+            return;
+        }
+
+        setIsImportingBulkSystem(true);
+        setBulkSystemError('');
+        setBulkSystemProgress({ done: 0, total: lines.length });
+
+        const driveService = new GoogleDriveService(googleAccessToken);
+        
+        // Map Tab plural to SystemAssetCategory singular
+        const sysCategory = category.replace(/s$/, '') as any;
+
+        let failCount = 0;
+
+        for (let i = 0; i < lines.length; i++) {
+            const url = lines[i];
+            try {
+                // 1. Download the file
+                // Use the proxy if it's a known restricted domain, though for general web we try direct
+                const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com');
+                const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(url, googleAccessToken) : url;
+                
+                const response = await fetch(fetchUrl);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const blob = await response.blob();
+                const filename = url.split('/').pop()?.split('?')[0] || `${sysCategory}-${Date.now()}`;
+                const file = new File([blob], filename, { type: blob.type || 'image/png' });
+
+                // 2. Upload to Drive (Permanent)
+                const driveUrl = await driveService.uploadSystemAsset(file, sysCategory);
+
+                if (driveUrl) {
+                    // 3. Save to Supabase using singular category
+                    const categoryMap: Record<string, string> = {
+                        'backgrounds': 'background',
+                        'stickers': 'sticker',
+                        'frames': 'frame',
+                        'ribbons': 'ribbon'
+                    };
+                    const dbCategory = categoryMap[category] || category;
+
+                    await (supabase.from('library_assets') as any).insert({
+                        category: dbCategory,
+                        url: driveUrl,
+                        name: file.name,
+                        tags: [],
+                        is_premium: false
+                    });
+                } else {
+                    failCount++;
+                }
+            } catch (err) {
+                console.error(`Bulk system fetch failed for ${url}:`, err);
+                failCount++;
+            }
+            setBulkSystemProgress({ done: i + 1, total: lines.length });
+        }
+
+        setIsImportingBulkSystem(false);
+        setBulkSystemUrlInput('');
+        setBulkSystemProgress(null);
+        setShowBulkSystemInput(null);
+        if (failCount > 0) {
+            alert(`${failCount} URL(s) failed to import. Check console for details.`);
+        }
+        triggerRefresh();
+    };
+
     const handleUrlImport = async (url: string) => {
         if (!url) return;
         setShowUrlInput(false);
-
         try {
-            // Show fake progress start
-            // Note: uploadMedia handles real progress updates via valid file
-            const response = await fetch(url);
-            const blob = await response.blob();
-            const mimeType = blob.type || 'image/jpeg';
-            const ext = mimeType.split('/')[1] || 'jpg';
-            const filename = `imported-url-${Date.now()}.${ext}`;
-            const file = new File([blob], filename, { type: mimeType });
-
-            await uploadMedia([file], 'general');
-            await uploadMedia([file], 'general');
+            if (album?.family_id) {
+                let processedUrl = url;
+                if (processedUrl.includes('dropbox.com')) {
+                    processedUrl = processedUrl.replace('dl=0', 'raw=1');
+                    if (!processedUrl.includes('raw=1')) {
+                        processedUrl += (processedUrl.includes('?') ? '&' : '?') + 'raw=1';
+                    }
+                }
+                const { error: dbError } = await supabase.from('family_media').insert({
+                    family_id: album.family_id,
+                    url: processedUrl,
+                    type: 'image',
+                    filename: processedUrl.split('/').pop()?.split('?')[0] || 'Linked Image',
+                    category: 'uploads',
+                    folder: album.title ? `Albums/${album.title.trim()}` : 'Links',
+                } as any);
+                if (dbError) throw dbError;
+                triggerRefresh();
+            } else {
+                alert("Need an active family context to save linked media");
+            }
         } catch (error: any) {
             console.error('URL Import failed:', error);
             alert(`Failed to import from URL: ${error.message}`);
@@ -162,7 +392,7 @@ export function AssetLibrary() {
     };
 
 
-    // Fetch assets when tab changes or an upload finishes
+    // Fetch assets when tab changes, an upload finishes, or refreshTick changes
     useEffect(() => {
         const loadAssets = async () => {
             const curAlbum = album;
@@ -243,7 +473,7 @@ export function AssetLibrary() {
             setIsLoadingAssets(false);
         };
         loadAssets();
-    }, [activeTab, album?.family_id, isSaving, album?.unplacedMedia?.length, googleAccessToken, searchQuery]);
+    }, [activeTab, album?.family_id, isSaving, album?.unplacedMedia?.length, googleAccessToken, searchQuery, refreshTick]);
 
     if (!album) return null;
     const currentPage = album.pages[currentPageIndex];
@@ -266,35 +496,34 @@ export function AssetLibrary() {
             };
             const category = categoryMap[activeTab];
 
-            // Special handling for ADMINS uploading to System Categories
+            // Special handling for ADMINS uploading to System Categories → Google Drive
             if (activeTab !== 'uploads' && isAdmin) {
-                const { storageService } = await import('../../services/storage');
-
-                // Show fake loading/progress via isSaving state if possible, or just alert?
-                // Since we don't control isSaving directly easily without triggering context, we might rely on a local loading state or toast.
-                // For now, let's just do it silently or log.
-
-                for (const file of files) {
-                    const { url } = await storageService.uploadFile(file, 'system-assets', `${category}/`);
-                    if (url) {
-                        await (supabase.from('library_assets') as any).insert({
-                            category: category,
-                            url: url,
-                            name: file.name,
-                            tags: [],
-                            is_premium: false
-                        });
-                    }
+                if (!googleAccessToken) {
+                    alert('Google sign-in required to upload system assets to Drive.');
+                    return;
                 }
-
-                // Trigger refresh
-                // activeTab toggle to force reload? or just rely on react?
-                // setLibraryAssets won't auto update unless we re-fetch.
-                setActiveTab(prev => prev); // dummy update or we could refetch
-                // Ideally call a refetch function, but useEffect depends on activeTab.
-                // Let's toggle slightly or set activeTab to same value to trigger effect? 
-                // React might bail out. Let's toggle isLoadingAssets or something.
-                setSearchQuery(q => q + ' '); setSearchQuery(q => q.trim()); // Hacky re-trigger
+                setIsAdminUploading(true);
+                try {
+                    const driveService = new GoogleDriveService(googleAccessToken);
+                    for (const file of files) {
+                        const stableUrl = await driveService.uploadSystemAsset(file, category as SystemAssetCategory);
+                        if (stableUrl) {
+                            await (supabase.from('library_assets') as any).insert({
+                                category,
+                                url: stableUrl,
+                                name: file.name,
+                                tags: [],
+                                is_premium: false
+                            });
+                        }
+                    }
+                } catch (err: any) {
+                    console.error('Admin Drive upload failed:', err);
+                    alert(`Upload failed: ${err.message}`);
+                } finally {
+                    setIsAdminUploading(false);
+                    triggerRefresh(); // Reliably re-fetch assets
+                }
             } else {
                 // Regular User Upload (Family Media)
                 await uploadMedia(files, category);
@@ -383,16 +612,41 @@ export function AssetLibrary() {
             if (item.is_google && album.family_id) {
                 const saveToSupabase = async () => {
                     const { data: userData } = await supabase.auth.getUser();
-                    await supabase.from('family_media').upsert({
-                        family_id: album.family_id,
-                        url: item.url,
-                        type: item.type,
-                        filename: item.name,
-                        folder: album.title, // Folder for the album
-                        category: 'google_photos',
-                        uploaded_by: userData?.user?.id,
-                        metadata: { googlePhotoId: item.id }
-                    } as any, { onConflict: 'url' });
+                    const albumFolder = album.title ? `Albums/${album.title.trim()}` : 'Albums';
+                    
+                    const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = 
+                        await storageService.persistGoogleMedia(item, googleAccessToken!);
+
+                    // Check if already exists to avoid 400 error on PostgREST upsert
+                    const { data: existing } = await (supabase
+                        .from('family_media') as any)
+                        .select('id')
+                        .eq('url', persistentUrl)
+                        .maybeSingle();
+
+                    if (existing) {
+                        await (supabase.from('family_media') as any)
+                            .update({
+                                type: persistentType,
+                                filename: item.name,
+                                folder: albumFolder,
+                                category: 'google_photos',
+                                uploaded_by: userData?.user?.id,
+                                metadata: { googlePhotoId: persistentId, source: 'google_photos' }
+                            })
+                            .eq('id', (existing as any).id);
+                    } else {
+                        await (supabase.from('family_media') as any).insert({
+                            family_id: album.family_id,
+                            url: persistentUrl,
+                            type: persistentType,
+                            filename: item.name,
+                            folder: albumFolder,
+                            category: 'google_photos',
+                            uploaded_by: userData?.user?.id,
+                            metadata: { googlePhotoId: persistentId, source: 'google_photos' }
+                        });
+                    }
                 };
                 saveToSupabase();
             }
@@ -429,8 +683,91 @@ export function AssetLibrary() {
         }
     };
 
+    const renderAdminBulkControls = () => {
+        if (!isAdmin) return null;
+        const displayCategory = activeTab.replace(/s$/, '').toUpperCase();
+        
+        return (
+            <div className="col-span-full space-y-2 mb-4 px-1">
+                {showBulkSystemInput === activeTab ? (
+                    <div className="p-3 bg-gray-50 rounded-xl border border-catalog-accent/20 space-y-3 animate-in slide-in-from-top-2 duration-200">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-catalog-accent flex items-center gap-2">
+                                <LinkIcon className="w-3 h-3" />
+                                Bulk {displayCategory} Fetch
+                            </span>
+                            <button onClick={() => setShowBulkSystemInput(null)} className="text-gray-400 hover:text-gray-600">
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <p className="text-[9px] text-gray-500 leading-tight">Paste URLs (one per line). We'll download them and save permanently to your Google Drive.</p>
+                        <textarea
+                            value={bulkSystemUrlInput}
+                            onChange={e => {
+                                setBulkSystemUrlInput(e.target.value);
+                                setBulkSystemError('');
+                            }}
+                            placeholder={`https://example.com/asset1.png\nhttps://example.com/asset2.png`}
+                            className="w-full p-2 text-[10px] bg-white border border-gray-200 rounded-lg focus:ring-1 focus:ring-catalog-accent/30 outline-none font-mono"
+                            rows={4}
+                        />
+                        {bulkSystemError && (
+                            <div className="p-2 bg-red-50 border border-red-100 rounded-lg flex items-start gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <AlertTriangle className="w-3 h-3 text-red-500 shrink-0 mt-0.5" />
+                                <span className="text-[9px] text-red-600 font-medium leading-tight">{bulkSystemError}</span>
+                            </div>
+                        )}
+                        {bulkSystemProgress && (
+                            <div className="space-y-1">
+                                <div className="flex justify-between text-[8px] font-bold text-catalog-accent uppercase tracking-tighter">
+                                    <span>Importing Assets...</span>
+                                    <span>{bulkSystemProgress.done} / {bulkSystemProgress.total}</span>
+                                </div>
+                                <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                                    <div 
+                                        className="h-full bg-catalog-accent transition-all duration-300" 
+                                        style={{ width: `${(bulkSystemProgress.done / bulkSystemProgress.total) * 100}%` }} 
+                                    />
+                                </div>
+                            </div>
+                        )}
+                        <button
+                            onClick={() => handleBulkSystemUrlImport(activeTab)}
+                            disabled={isImportingBulkSystem || !bulkSystemUrlInput.trim()}
+                            className="w-full py-2.5 bg-catalog-accent text-white rounded-lg text-[9px] font-black uppercase tracking-widest flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-50 shadow-sm"
+                        >
+                            {isImportingBulkSystem ? <Loader2 className="w-3 h-3 animate-spin"/> : <LinkIcon className="w-3 h-3" />}
+                            {isImportingBulkSystem ? 'Processing Batch...' : 'Fetch & Save to Drive'}
+                        </button>
+                    </div>
+                ) : (
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="flex-1 border border-dashed border-catalog-accent/20 rounded-xl py-3 text-center cursor-pointer hover:bg-catalog-accent/5 transition-all bg-white flex flex-col items-center justify-center gap-1.5 group"
+                        >
+                            <div className="p-2 bg-catalog-stone/10 rounded-full group-hover:scale-110 transition-transform">
+                                <Upload className="w-4 h-4 text-catalog-accent" />
+                            </div>
+                            <span className="text-[9px] text-catalog-accent font-black uppercase tracking-wider">Device Upload</span>
+                        </button>
+                        <button
+                            onClick={() => setShowBulkSystemInput(activeTab)}
+                            className="flex-1 border border-dashed border-catalog-accent/20 rounded-xl py-3 text-center cursor-pointer hover:bg-catalog-accent/5 transition-all bg-white flex flex-col items-center justify-center gap-1.5 group"
+                        >
+                            <div className="p-2 bg-catalog-stone/10 rounded-full group-hover:scale-110 transition-transform">
+                                <LinkIcon className="w-4 h-4 text-catalog-accent" />
+                            </div>
+                            <span className="text-[9px] text-catalog-accent font-black uppercase tracking-wider">Bulk URL Fetch</span>
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
     return (
-        <div className="flex flex-col h-full bg-white border-r border-catalog-accent/10 w-80">
+        <div className="hidden sm:flex flex-col h-full bg-white border-r border-catalog-accent/10 w-64 md:w-80 shrink-0">
             {/* Tabs */}
             <div className="flex flex-wrap bg-catalog-stone/10 border-b border-catalog-accent/10">
                 <button
@@ -467,7 +804,14 @@ export function AssetLibrary() {
                     onClick={() => setActiveTab('google_photos')}
                     className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'google_photos' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-blue-500 hover:bg-white/50")}
                 >
-                    <Camera className="w-4 h-4" /> Photos
+                    <Camera className="w-4 h-4" /> G.Photos
+                </button>
+                <button
+                    onClick={() => setActiveTab('amazon_photos')}
+                    className={cn("flex-1 min-w-[33%] py-2 px-1 flex flex-col items-center gap-0.5 text-[10px] font-bold uppercase tracking-widest border-b-2 transition-colors", activeTab === 'amazon_photos' ? "border-catalog-accent text-catalog-accent bg-white" : "border-transparent text-orange-500 hover:bg-white/50")}
+                >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+                    A.Photos
                 </button>
             </div>
 
@@ -478,6 +822,14 @@ export function AssetLibrary() {
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
             >
+                {/* Admin Drive Upload Overlay */}
+                {isAdminUploading && (
+                    <div className="absolute inset-0 z-50 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 pointer-events-none">
+                        <Loader2 className="w-8 h-8 text-catalog-accent animate-spin" />
+                        <p className="text-[10px] font-black text-catalog-accent uppercase tracking-widest">Uploading to Drive...</p>
+                    </div>
+                )}
+
                 {/* Drag Overlay */}
                 {isDragging && (
                     <div className="absolute inset-0 z-50 bg-catalog-accent/10 backdrop-blur-[2px] flex flex-col items-center justify-center pointer-events-none border-2 border-dashed border-catalog-accent m-2 rounded-xl animate-in fade-in zoom-in duration-200">
@@ -715,7 +1067,7 @@ export function AssetLibrary() {
                                                         >
                                                             {item.type === 'video' ? (
                                                                 <div className="w-full h-full relative">
-                                                                    <img src={getThumbnailUrl(item.url, 'video') || undefined} alt="" className="w-full h-full object-cover" />
+                                                                    <img src={getThumbnailUrl(item.url) || undefined} alt="" className="w-full h-full object-cover" />
                                                                     <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/30 transition-colors">
                                                                         <Video className="w-5 h-5 text-white drop-shadow-md" />
                                                                     </div>
@@ -775,14 +1127,14 @@ export function AssetLibrary() {
                                     <Camera className="w-10 h-10 text-blue-500" />
                                 </div>
                                 <div className="space-y-2">
-                                    <h3 className="text-sm font-bold text-gray-900 uppercase">Google Photos Access</h3>
-                                    <p className="text-xs text-gray-500">Sign in with Google to browse and use your photos directly in the album.</p>
+                                    <h3 className="text-sm font-bold text-gray-900 uppercase">Google Access</h3>
+                                    <p className="text-xs text-gray-500">Sign in with Google to browse and use your photos and Drive files directly in the album.</p>
                                 </div>
                                 <button
                                     onClick={() => signInWithGoogle()}
                                     className="px-6 py-2 bg-blue-600 text-white text-xs font-bold uppercase rounded-full hover:bg-blue-700 transition-colors shadow-md shadow-blue-200"
                                 >
-                                    Enable Sync
+                                    Connect to Google
                                 </button>
                             </div>
                         ) : (
@@ -791,7 +1143,7 @@ export function AssetLibrary() {
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
                                     <input
                                         type="text"
-                                        placeholder="Search your Google Photos..."
+                                        placeholder="Search Google Library..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         onKeyDown={(e) => {
@@ -812,24 +1164,13 @@ export function AssetLibrary() {
                                 ) : (
                                     <div className={cn("grid gap-2", gridCols === 2 ? "grid-cols-2" : (gridCols === 3 ? "grid-cols-3" : "grid-cols-4"))}>
                                         {libraryAssets.map((item) => (
-                                            <div
+                                            <LibraryAssetItem
                                                 key={item.id}
-                                                onClick={() => handleAssetClick(item, 'google_photos')}
-                                                className="group flex flex-col gap-1 cursor-pointer"
-                                            >
-                                                <div className={cn(
-                                                    "relative aspect-square rounded-lg overflow-hidden bg-white shadow-sm group-hover:shadow-md transition-all border",
-                                                    usedAssetUrls.has(item.url) ? "border-blue-500 ring-1 ring-blue-500/50" : "border-gray-100 group-hover:border-blue-300"
-                                                )}>
-                                                    <img src={item.url + '=w400-h400-c'} alt="" className="w-full h-full object-cover" />
-                                                    <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                                        <Plus className="w-5 h-5 text-blue-600" />
-                                                    </div>
-                                                    <div className="absolute top-1 left-1">
-                                                        <Camera className="w-3 h-3 text-white drop-shadow-md opacity-70" />
-                                                    </div>
-                                                </div>
-                                            </div>
+                                                item={item}
+                                                usedAssetUrls={usedAssetUrls}
+                                                onSelect={(it: any) => handleAssetClick(it, 'google_photos')}
+                                                gridCols={gridCols}
+                                            />
                                         ))}
                                     </div>
                                 )}
@@ -838,19 +1179,171 @@ export function AssetLibrary() {
                     </div>
                 )}
 
+                {/* AMAZON PHOTOS TAB */}
+                {activeTab === 'amazon_photos' && (
+                    <div className="space-y-4">
+                        {/* Header */}
+                        <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-orange-50 to-amber-50 rounded-xl border border-orange-100">
+                            <div className="p-2.5 bg-orange-100 rounded-full shrink-0">
+                                <svg className="w-5 h-5 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <p className="text-[11px] font-black text-orange-900 uppercase tracking-wide">Amazon Photos — Batch Import</p>
+                                <p className="text-[9px] text-orange-600/70">Paste multiple URLs · saved as a named folder in your library</p>
+                            </div>
+                        </div>
+
+                        {/* How-to instructions */}
+                        <div className="bg-white border border-orange-100 rounded-xl p-3 space-y-2.5">
+                            <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">How to get photo URLs from a folder</p>
+                            {[
+                                { n: '1', text: 'Open your Amazon Photos folder in a browser' },
+                                { n: '2', text: 'Press F12 → Network tab → filter by "Img" or "Media"' },
+                                { n: '3', text: 'Scroll the folder so all photos load, then right-click a request → "Copy URL"' },
+                                { n: '4', text: 'OR: Right-click each photo → "Open image in new tab" → copy URL from address bar' },
+                                { n: '5', text: 'Paste all URLs below (one per line) and set a folder name' },
+                            ].map(step => (
+                                <div key={step.n} className="flex items-start gap-2">
+                                    <span className="shrink-0 w-4 h-4 rounded-full bg-orange-100 text-orange-600 text-[7px] font-black flex items-center justify-center mt-0.5">{step.n}</span>
+                                    <span className="text-[9px] text-gray-600 leading-snug">{step.text}</span>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Folder Name Input */}
+                        <div className="space-y-1">
+                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest px-1">Folder Name (in your Media Library)</label>
+                            <input
+                                type="text"
+                                value={amazonFolderName}
+                                onChange={e => setAmazonFolderName(e.target.value)}
+                                placeholder="e.g. Disney Trip 2024, Summer Family..."
+                                className="w-full px-3 py-2 text-[10px] bg-white border border-orange-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300/40 placeholder:text-gray-300 transition-all"
+                            />
+                        </div>
+
+                        {/* Multi-URL Textarea */}
+                        <div className="space-y-1">
+                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest px-1 flex items-center justify-between">
+                                <span>Photo / Video URLs <span className="text-orange-400">(one per line)</span></span>
+                                {amazonUrlInput.trim() && (
+                                    <span className="text-orange-500 normal-case font-bold">
+                                        {amazonUrlInput.split('\n').map(l => l.trim()).filter(l => l.startsWith('http')).length} URL(s)
+                                    </span>
+                                )}
+                            </label>
+                            <textarea
+                                value={amazonUrlInput}
+                                onChange={e => { setAmazonUrlInput(e.target.value); setAmazonImportError(''); }}
+                                placeholder={`https://m.media-amazon.com/images/...jpg\nhttps://m.media-amazon.com/images/...jpg\nhttps://m.media-amazon.com/images/...mp4`}
+                                rows={6}
+                                className="w-full px-3 py-2 text-[9px] bg-white border border-orange-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-300/40 resize-y font-mono placeholder:font-sans placeholder:text-gray-300 transition-all leading-relaxed"
+                            />
+                        </div>
+
+                        {/* Error */}
+                        {amazonImportError && (
+                            <p className="text-[9px] text-red-500 font-bold px-1 flex items-center gap-1">
+                                <span>⚠</span> {amazonImportError}
+                            </p>
+                        )}
+
+                        {/* Progress Bar */}
+                        {amazonBatchProgress && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between px-1">
+                                    <span className="text-[9px] font-black text-orange-600 uppercase tracking-wider">Importing...</span>
+                                    <span className="text-[9px] font-bold text-orange-500">{amazonBatchProgress.done} / {amazonBatchProgress.total}</span>
+                                </div>
+                                <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-orange-500 transition-all duration-300 rounded-full"
+                                        style={{ width: `${(amazonBatchProgress.done / amazonBatchProgress.total) * 100}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Import Button */}
+                        <button
+                            onClick={handleAmazonBatchImport}
+                            disabled={!amazonUrlInput.trim() || isImportingAmazon}
+                            className="w-full py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-orange-200 disabled:to-orange-100 disabled:cursor-not-allowed text-white text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 shadow-md shadow-orange-200"
+                        >
+                            {isImportingAmazon ? (
+                                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Importing batch...</>
+                            ) : (
+                                <>
+                                    <Plus className="w-3.5 h-3.5" />
+                                    Import {amazonUrlInput.trim() ? `${amazonUrlInput.split('\n').map(l => l.trim()).filter(l => l.startsWith('http')).length} ` : ''}URLs as "{amazonFolderName.trim() || 'Amazon Photos'}"
+                                </>
+                            )}
+                        </button>
+
+                        {/* Imported Items This Session */}
+                        {amazonImportedItems.length > 0 && (
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between px-1">
+                                    <p className="text-[8px] font-black text-gray-400 uppercase tracking-widest">Imported This Session</p>
+                                    <span className="text-[8px] font-bold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full border border-orange-100">
+                                        {amazonImportedItems.length} item{amazonImportedItems.length !== 1 ? 's' : ''}
+                                    </span>
+                                </div>
+                                <div className={cn("grid gap-2", gridCols === 2 ? "grid-cols-2" : (gridCols === 3 ? "grid-cols-3" : "grid-cols-4"))}>
+                                    {amazonImportedItems.map(item => (
+                                        <div
+                                            key={item.id}
+                                            onClick={() => handleAssetClick(item, 'uploads')}
+                                            className="group flex flex-col gap-1 cursor-pointer"
+                                        >
+                                            <div
+                                                draggable
+                                                onDragStart={e => { e.dataTransfer.setData('asset', JSON.stringify({ url: item.url, type: item.type || 'image' })); }}
+                                                className="relative aspect-square rounded-lg overflow-hidden bg-orange-50 border border-orange-200 group-hover:border-orange-400 shadow-sm group-hover:shadow-md transition-all"
+                                            >
+                                                {item.type === 'video' ? (
+                                                    <div className="w-full h-full flex items-center justify-center">
+                                                        <Video className="w-6 h-6 text-orange-400" />
+                                                    </div>
+                                                ) : (
+                                                    <img
+                                                        src={item.url}
+                                                        alt={item.name}
+                                                        className="w-full h-full object-cover"
+                                                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                                                    />
+                                                )}
+                                                <div className="absolute inset-0 bg-orange-500/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                                    <Plus className="w-5 h-5 text-orange-600" />
+                                                </div>
+                                                <div className="absolute top-1 left-1 bg-orange-500/80 rounded-sm p-0.5">
+                                                    <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13z"/></svg>
+                                                </div>
+                                            </div>
+                                            <span className="text-[8px] font-bold text-orange-700/70 truncate px-0.5 text-center">{item.name}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Tip */}
+                        <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-100">
+                            <p className="text-[8px] text-amber-600 font-black uppercase tracking-widest mb-1">💡 Pro Tip</p>
+                            <p className="text-[9px] text-amber-700/70 leading-relaxed">
+                                After import, your photos appear in the <strong>Media</strong> tab under the folder name you set. They're saved as URL references — no storage used.
+                            </p>
+                        </div>
+                    </div>
+                )}
+
+
                 {/* BACKGROUNDS TAB */}
                 {activeTab === 'backgrounds' && (
                     <div className="grid grid-cols-2 gap-2">
-                        {isAdmin && (
-                            <div
-                                onClick={() => fileInputRef.current?.click()}
-                                className="col-span-2 border border-dashed border-catalog-accent/30 rounded-lg p-4 text-center cursor-pointer hover:bg-catalog-accent/5 transition-all mb-2 bg-white"
-                            >
-                                <Upload className="w-5 h-5 text-catalog-accent/60 mx-auto mb-1" />
-                                <p className="text-[9px] text-catalog-accent font-bold uppercase tracking-tight">Add System Background</p>
-                                <input ref={fileInputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleFileChange} />
-                            </div>
-                        )}
+                        {renderAdminBulkControls()}
                         <div className="col-span-2 flex items-center gap-2 mb-2">
                             <select
                                 value={sortBy}
@@ -902,6 +1395,7 @@ export function AssetLibrary() {
                 {/* STICKERS TAB */}
                 {activeTab === 'stickers' && (
                     <div className="grid grid-cols-3 gap-2">
+                        {renderAdminBulkControls()}
                         {libraryAssets
                             .filter(a => {
                                 if (!searchQuery) return true;
@@ -932,6 +1426,7 @@ export function AssetLibrary() {
                 {/* FRAMES TAB */}
                 {activeTab === 'frames' && (
                     <div className="grid grid-cols-2 gap-3">
+                        {renderAdminBulkControls()}
                         {libraryAssets
                             .filter(a => {
                                 if (!searchQuery) return true;
@@ -964,6 +1459,7 @@ export function AssetLibrary() {
                 {/* RIBBONS TAB */}
                 {activeTab === 'ribbons' && (
                     <div className="grid grid-cols-1 gap-2">
+                        {renderAdminBulkControls()}
                         {libraryAssets
                             .filter(a => {
                                 if (!searchQuery) return true;
@@ -1043,8 +1539,22 @@ export function AssetLibrary() {
                                     <Camera className="w-5 h-5" />
                                 </div>
                                 <div className="flex-1">
-                                    <div className="font-bold text-gray-900 text-sm">Google Photos</div>
-                                    <div className="text-xs text-gray-500">From library</div>
+                                    <div className="font-bold text-gray-900 text-sm">Google Library</div>
+                                    <div className="text-xs text-gray-500">Photos and Drive files</div>
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => handleSourceSelect('amazon')}
+                                className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group"
+                            >
+                                <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7z"/>
+                                    </svg>
+                                </div>
+                                <div className="flex-1">
+                                    <div className="font-bold text-gray-900 text-sm">Amazon Photos</div>
+                                    <div className="text-xs text-gray-500">Paste photo/video URLs</div>
                                 </div>
                             </button>
                             <button

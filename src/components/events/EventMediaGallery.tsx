@@ -144,6 +144,17 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
         return () => clearInterval(timer);
     }, [isPlaying, page, mode]);
 
+    // Keyboard navigation for carousel
+    useEffect(() => {
+        if (mode !== 'carousel') return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowRight') paginate(1);
+            if (e.key === 'ArrowLeft') paginate(-1);
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [mode, page]);
+
     const variants = {
         enter: (direction: number) => ({
             x: direction > 0 ? '100%' : '-100%',
@@ -182,25 +193,34 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
 
     const renderCarousel = () => {
         const activeIndex = ((page % assets.length) + assets.length) % assets.length;
+        const activeAsset = assets[activeIndex];
+
+        // Inline a mini component to handle the hook for the active slide
+        const SlideImage = ({ asset, direction, page, activeIndex }: any) => {
+            const { url: resolvedUrl } = useGooglePhotosUrl(asset.googlePhotoId, asset.url);
+            return (
+                <motion.img
+                    key={page}
+                    src={resolvedUrl || asset.url}
+                    custom={direction}
+                    variants={variants}
+                    initial="enter"
+                    animate="center"
+                    exit="exit"
+                    transition={{
+                        x: { type: "spring", stiffness: 300, damping: 30 },
+                        opacity: { duration: 0.2 }
+                    }}
+                    className="absolute inset-0 w-full h-full object-contain cursor-zoom-in"
+                    onClick={() => openLightbox(activeIndex, lightboxImages)}
+                />
+            );
+        };
 
         return (
             <div className="relative mt-16 w-full max-w-5xl mx-auto aspect-[16/9] bg-black rounded-xl overflow-hidden shadow-2xl group">
                 <AnimatePresence initial={false} custom={direction}>
-                    <motion.img
-                        key={page}
-                        src={assets[activeIndex].url}
-                        custom={direction}
-                        variants={variants}
-                        initial="enter"
-                        animate="center"
-                        exit="exit"
-                        transition={{
-                            x: { type: "spring", stiffness: 300, damping: 30 },
-                            opacity: { duration: 0.2 }
-                        }}
-                        className="absolute inset-0 w-full h-full object-contain cursor-zoom-in"
-                        onClick={() => openLightbox(activeIndex, lightboxImages)}
-                    />
+                    <SlideImage asset={activeAsset} direction={direction} page={page} activeIndex={activeIndex} />
                 </AnimatePresence>
 
                 {/* Controls */}

@@ -6,60 +6,9 @@ import { type Asset } from '../contexts/AlbumContext';
  * Precisely inserts Cloudinary transformations into a URL without breaking the path.
  * It is designed to be idempotent and safe against multiple calls.
  */
-export const getTransformedUrl = (url: string, asset: Asset) => {
-    if (!url || !url.includes('cloudinary.com')) return url;
-
-    // 1. Isolate the base and the path
-    const parts = url.split('/upload/');
-    if (parts.length < 2) return url;
-
-    const baseUrl = parts[0];
-    const fullPath = parts[parts.length - 1];
-
-    // 2. Parse existing segments
-    const segments = fullPath.split('/');
-
-    // Filter out our own transformations to avoid recursive growth
-    // We only remove segments that were definitively added by this studio logic.
-    const cleanSegments = segments.filter(segment => {
-        // Keep the filename (always has a dot extension and is usually at the end)
-        if (segment.includes('.')) return true;
-
-        // Keep version numbers (v123456789)
-        if (segment.match(/^v\d+$/)) return true;
-
-        // Strip out our specific studio segments
-        const isStudioTransform =
-            segment.includes('e_make_transparent') ||
-            segment.includes('f_auto') ||
-            segment.includes('q_auto') ||
-            segment.includes('co_rgb');
-
-        return !isStudioTransform;
-    });
-
-    // 3. Build the NEW transformation chain
-    // We group f_auto and q_auto together for efficiency
-    const newTransforms: string[] = ['f_auto,q_auto'];
-
-    // Chroma Key (Transparency) logic
-    const tolerance = asset.chromaKeyTolerance || 30;
-    const colors = asset.chromaKeyColors || (asset.chromaKeyColor ? [asset.chromaKeyColor] : []);
-
-    if (colors.length > 0) {
-        colors.forEach(color => {
-            const hex = color.replace('#', '');
-            // Correct Cloudinary syntax: co_rgb:<hex>,e_make_transparent:<tolerance>
-            newTransforms.push(`co_rgb:${hex},e_make_transparent:${tolerance}`);
-        });
-    }
-
-    // 4. Reconstruct the URL
-    // Format: baseUrl/upload/trans1/trans2/version/filename.jpg
-    const transformPath = newTransforms.join('/');
-    const finalPath = cleanSegments.join('/');
-
-    return `${baseUrl}/upload/${transformPath}/${finalPath}`;
+export const getTransformedUrl = (url: string, _asset: Asset) => {
+    // We used Cloudinary transformations here, but now we return the URL as is.
+    return url;
 };
 
 /**

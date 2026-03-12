@@ -37,11 +37,34 @@ export function AlbumCard(props: AlbumCardProps) {
     const displayCover = cover_url || (() => {
         if (!pages || pages.length === 0) return null;
         const findImageInPage = (page: any) => {
+            // Priority 0: Background Image (Unified or Legacy)
+            if (page.backgroundImage || page.background_image) {
+                return page.backgroundImage || page.background_image;
+            }
+            if (page.background_config?.imageUrl) {
+                return page.background_config.imageUrl;
+            }
+            if (typeof page.background_config === 'string') {
+                try {
+                    const config = JSON.parse(page.background_config);
+                    if (config.imageUrl) return config.imageUrl;
+                } catch (e) {}
+            }
+
             // Check nested layout boxes
             if (page.layout_json) {
-                const boxes = Array.isArray(page.layout_json) ? page.layout_json : [];
-                const box = boxes.find((b: any) => b.content?.url && (b.content.type === 'image' || b.content.type === 'video'));
-                if (box) return box.content.url;
+                let assetsArray: any[] = [];
+                if (Array.isArray(page.layout_json)) {
+                    assetsArray = page.layout_json;
+                } else if (page.layout_json && typeof page.layout_json === 'object' && Array.isArray(page.layout_json.assets)) {
+                    assetsArray = page.layout_json.assets;
+                }
+                
+                const box = assetsArray.find((b: any) => 
+                    (b.content?.url && (b.content.type === 'image' || b.content.type === 'video')) ||
+                    (b.url && (b.type === 'image' || b.type === 'video'))
+                );
+                if (box) return box.content?.url || box.url;
             }
             // Check flat assets
             if (page.assets) {

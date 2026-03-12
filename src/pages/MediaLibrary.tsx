@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import {
@@ -16,13 +16,16 @@ import {
     Check,
     Palette,
     Sticker,
-    Square,
     CheckSquare,
-    FolderPlus,
+    Square,
     Link as LinkIcon,
     Sparkles,
     Play,
     Maximize2,
+    Plus,
+    ChevronRight,
+    Home,
+    FolderOpen,
 } from 'lucide-react';
 import { UrlInputModal } from '../components/media/UrlInputModal';
 import { CreateStackModal } from '../components/media/CreateStackModal';
@@ -30,6 +33,7 @@ import { GooglePhotosService, type GoogleMediaItem } from '../services/googlePho
 import { GooglePhotosSelector } from '../components/media/GooglePhotosSelector';
 import { ImagePortal } from '../components/viewer/ImagePortal';
 import { VideoPortal } from '../components/viewer/VideoPortal';
+import { GoogleDriveService } from '../services/googleDrive';
 import { cn } from '../lib/utils';
 
 interface MediaItem {
@@ -53,14 +57,11 @@ type SystemCategory = 'background' | 'sticker' | 'frame' | 'ribbon';
 import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 
 function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview }: any) {
-    const isGoogleUrl = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com'));
-    // For the grid, we always want a thumbnail image, even for videos
-    const googleSuffix = '=w400-h400-c';
-    const cleanBaseUrl = isGoogleUrl ? GooglePhotosService.getCleanUrl(item.url) : item.url;
-    const initialUrl = isGoogleUrl ? `${cleanBaseUrl}${googleSuffix}` : item.url;
+    const isGoogleUrl = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
+    const initialUrl = item.url;
     const isGoogle = !!item.metadata?.googlePhotoId || isGoogleUrl;
-    const { url: resolvedUrl } = useGooglePhotosUrl(item.metadata?.googlePhotoId, initialUrl);
-    const displayUrl = resolvedUrl || initialUrl;
+    // For the grid, we always want a thumbnail image, even for videos
+    const { url: displayUrl } = useGooglePhotosUrl(item.metadata?.googlePhotoId, initialUrl, null, true);
 
     return (
         <div key={item.id} className={cn("group relative bg-white border rounded-xl overflow-hidden transition-all duration-200", viewMode === 'list' ? "flex items-center p-3 gap-4 h-20 hover:border-catalog-accent/50" : "aspect-[10/11] hover:shadow-lg hover:-translate-y-1 hover:border-catalog-accent/50", selectedItems.has(item.id) ? "ring-2 ring-catalog-accent border-catalog-accent bg-catalog-accent/5" : "border-gray-200")} onClick={(e) => {
@@ -70,27 +71,50 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
             }
         }}>
             <div className={cn("bg-gray-100 overflow-hidden relative", viewMode === 'list' ? "w-14 h-14 rounded-lg flex-shrink-0" : "h-[75%]")}>
-                <div className="w-full h-full relative">
-                    {item.category === 'background' && item.url.startsWith('#') ? (
-                        <div className="w-full h-full" style={{ backgroundColor: item.url }} />
-                    ) : (
-                        <>
-                            <img
-                                src={displayUrl}
-                                alt={item.filename}
-                                className={cn("w-full h-full", item.category === 'sticker' || item.category === 'frame' ? "object-contain p-2" : "object-cover")}
-                                crossOrigin="anonymous"
-                            />
-                            {item.type === 'video' && (
-                                <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/20">
-                                    <div className="bg-white/90 p-2 rounded-full shadow-lg">
-                                        <Play className="w-4 h-4 text-catalog-accent fill-current" />
+                        <div className="w-full h-full relative group/thumb">
+                            {item.type === 'video' ? (
+                                <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
+                                    {/* Try showing the proxied image thumbnail first if it's an external Google URL */}
+                                    {isGoogleUrl ? (
+                                        <img
+                                            src={displayUrl}
+                                            alt={item.filename}
+                                            className="w-full h-full object-cover"
+                                            crossOrigin="anonymous"
+                                            onError={(e) => {
+                                                // If the image fails, show a video element fallback
+                                                e.currentTarget.style.display = 'none';
+                                                const vid = e.currentTarget.parentElement?.querySelector('video');
+                                                if (vid) vid.style.display = 'block';
+                                            }}
+                                        />
+                                    ) : null}
+                                    
+                                    {/* Video element as fallback or for local uploads */}
+                                    <video
+                                        src={`${item.url}#t=0.1`}
+                                        className={cn("w-full h-full object-cover", isGoogleUrl ? "hidden" : "block")}
+                                        muted
+                                        playsInline
+                                        preload="metadata"
+                                        crossOrigin="anonymous"
+                                    />
+                                    
+                                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/20 pointer-events-none">
+                                        <div className="bg-white/90 p-2 rounded-full shadow-lg">
+                                            <Play className="w-4 h-4 text-catalog-accent fill-current" />
+                                        </div>
                                     </div>
                                 </div>
+                            ) : (
+                                <img
+                                    src={displayUrl}
+                                    alt={item.filename}
+                                    className={cn("w-full h-full", item.category === 'sticker' || item.category === 'frame' ? "object-contain p-2" : "object-cover")}
+                                    crossOrigin="anonymous"
+                                />
                             )}
-                        </>
-                    )}
-                </div>
+                        </div>
                 {isGoogle && (
                     <div className="absolute top-2 right-2 z-10">
                         <Camera className="w-3 h-3 text-white drop-shadow-md" />
@@ -175,13 +199,12 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
 
 export function MediaLibrary() {
     const { familyId, user, userRole, googleAccessToken, signInWithGoogle } = useAuth();
-    const isAdmin = userRole === 'admin';
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
     const [activeTab, setActiveTab] = useState<LibraryTab>('uploads');
     const [systemCategory, setSystemCategory] = useState<SystemCategory>('background');
 
     const [media, setMedia] = useState<MediaItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [currentFolder, setCurrentFolder] = useState<string>('All');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [previewingImage, setPreviewingImage] = useState<string | null>(null);
@@ -200,21 +223,36 @@ export function MediaLibrary() {
     const [isGoogleSelectorOpen, setIsGoogleSelectorOpen] = useState(false);
     const [showSourceModal, setShowSourceModal] = useState(false);
     const [showUrlInput, setShowUrlInput] = useState(false);
+    const [showAmazonInput, setShowAmazonInput] = useState(false);
     const [isCreateStackModalOpen, setIsCreateStackModalOpen] = useState(false);
+    const [currentPath, setCurrentPath] = useState<string>('/'); // Hierarchical path
+    
+    // Amazon Photos states
+    const [amazonFolderName, setAmazonFolderName] = useState<string>('');
+    const [amazonUrlInput, setAmazonUrlInput] = useState<string>('');
+    const [isImportingAmazon, setIsImportingAmazon] = useState(false);
+    const [amazonBatchProgress, setAmazonBatchProgress] = useState<{ done: number, total: number } | null>(null);
+    const [amazonImportError, setAmazonImportError] = useState<string>('');
+
+
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleSourceSelect = (source: 'upload' | 'google' | 'url') => {
+    const handleSourceSelect = (source: 'upload' | 'google' | 'url' | 'amazon') => {
         setShowSourceModal(false);
         if (source === 'upload') {
             handleUploadClick();
         } else if (source === 'google') {
             if (!googleAccessToken) {
-                signInWithGoogle();
+                if (confirm('Connect to Google to browse your Photos and Drive?')) {
+                    signInWithGoogle();
+                }
                 return;
             }
             setIsGoogleSelectorOpen(true);
         } else if (source === 'url') {
             setShowUrlInput(true);
+        } else if (source === 'amazon') {
+            setShowAmazonInput(true);
         }
     };
 
@@ -227,29 +265,18 @@ export function MediaLibrary() {
         if (!url) return;
 
         try {
-            const photosService = googleAccessToken ? new GooglePhotosService(googleAccessToken) : undefined;
-            let blob: Blob;
-            let mimeType: string;
-            let filename: string;
+            // For URLs, we download and re-upload to our primary Google Photos storage to ensure persistence
+            const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com');
+            const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(url, googleAccessToken) : url;
 
-            if (source === 'google' && photosService && typeof asset !== 'string') {
-                // If it's already a Google Photo, we can just use the metadata.
-                await performUpload([], googleId, 'google', url, originalFilename, originalMimeType);
-                return;
-            } else {
-                // For direct URL import, fetch the URL. Use proxy if it's a Google URL.
-                const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com');
-                const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(url, googleAccessToken) : url;
-
-                const response = await fetch(fetchUrl);
-                blob = await response.blob();
-                mimeType = blob.type || originalMimeType || 'image/jpeg';
-                const ext = mimeType.split('/')[1] || 'jpg';
-                filename = `${originalFilename}.${ext}`;
-            }
+            const response = await fetch(fetchUrl);
+            const blob = await response.blob();
+            const mimeType = blob.type || originalMimeType || 'image/jpeg';
+            const ext = mimeType.split('/')[1] || 'jpg';
+            const filename = `${originalFilename}.${ext}`;
 
             const file = new File([blob], filename, { type: mimeType });
-            await performUpload([file], googleId, source === 'library' ? 'upload' : source);
+            await performUpload([file], googleId, 'upload');
 
         } catch (error: any) {
             console.error(`Remote asset import failed from ${source}:`, error);
@@ -262,19 +289,133 @@ export function MediaLibrary() {
         if (!familyId || items.length === 0) return;
 
         setIsGoogleSelectorOpen(false);
-        setShowUrlInput(false); // Ensure URL input is closed if it was open
+        setShowUrlInput(false);
         setUploadProgress({ current: 0, total: items.length });
 
-        // Process sequentially
+        const { storageService } = await import('../services/storage');
+
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
             setUploadProgress({ current: i + 1, total: items.length });
-            await processRemoteAsset(item, 'google');
+
+            try {
+                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = 
+                    await storageService.persistGoogleMedia(item, googleAccessToken!);
+
+                // Check if already exists to avoid 400 error on PostgREST upsert
+                const { data: existing } = await (supabase
+                    .from('family_media') as any)
+                    .select('id')
+                    .eq('url', persistentUrl)
+                    .maybeSingle();
+
+                if (existing) {
+                    await (supabase.from('family_media') as any)
+                        .update({
+                            type: persistentType,
+                            folder: uploadFolder,
+                            category: 'general',
+                            uploaded_by: user?.id,
+                            filename: item.filename || 'google-photo',
+                            metadata: { syncedToGooglePhotos: true, isExternal: true, googlePhotoId: persistentId, source: 'google_photos' }
+                        })
+                        .eq('id', (existing as any).id);
+                } else {
+                    await (supabase.from('family_media') as any).insert({
+                        family_id: familyId,
+                        url: persistentUrl,
+                        type: persistentType,
+                        folder: uploadFolder,
+                        category: 'general',
+                        uploaded_by: user?.id,
+                        filename: item.filename || 'google-photo',
+                        metadata: { syncedToGooglePhotos: true, isExternal: true, googlePhotoId: persistentId, source: 'google_photos' }
+                    });
+                }
+            } catch (err) {
+                console.error('Failed to import Google Photo:', err);
+            }
         }
 
         setUploadProgress(null);
         await fetchMedia();
     }
+
+    const handleAmazonBatchImport = async () => {
+        if (!amazonUrlInput.trim() || !familyId) return;
+
+        const processAmazonUrl = (url: string) => {
+            const trimmed = url.trim();
+            if (!trimmed.startsWith('http')) return null;
+            const isVideo = trimmed.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i);
+            const type: 'image' | 'video' = isVideo ? 'video' : 'image';
+            const filename = trimmed.split('/').pop()?.split('?')[0] || (isVideo ? 'Amazon Video' : 'Amazon Photo');
+            return { processedUrl: trimmed, type, filename };
+        };
+
+        const lines = amazonUrlInput.split('\n').map(l => l.trim()).filter(Boolean);
+        const validUrls = lines.map(processAmazonUrl).filter((r): r is NonNullable<typeof r> => r !== null);
+
+        if (validUrls.length === 0) {
+            setAmazonImportError('No valid URLs found. Make sure each URL starts with http.');
+            return;
+        }
+
+        const folderName = amazonFolderName.trim() || 'Amazon Photos';
+        setIsImportingAmazon(true);
+        setAmazonImportError('');
+        setAmazonBatchProgress({ done: 0, total: validUrls.length });
+
+        let failCount = 0;
+        for (let i = 0; i < validUrls.length; i++) {
+            const item = validUrls[i];
+            try {
+                // Check if already exists to avoid 400 error if onConflict 'url' requires unique constraint
+                const { data: existing } = await supabase
+                    .from('family_media')
+                    .select('id')
+                    .eq('url', item.processedUrl)
+                    .maybeSingle();
+
+                let error;
+                if (existing) {
+                    const { error: updateErr } = await (supabase
+                        .from('family_media') as any)
+                        .update({
+                            filename: item.filename,
+                            folder: folderName,
+                            metadata: { source: 'amazon_photos', folder: folderName }
+                        })
+                        .eq('id', (existing as any).id);
+                    error = updateErr;
+                } else {
+                    const { error: insertErr } = await (supabase
+                        .from('family_media') as any)
+                        .insert({
+                            family_id: familyId,
+                            url: item.processedUrl,
+                            type: item.type,
+                            filename: item.filename,
+                            folder: folderName,
+                            category: 'general',
+                            uploaded_by: user?.id,
+                            metadata: { source: 'amazon_photos', folder: folderName }
+                        });
+                    error = insertErr;
+                }
+                
+                if (error) failCount++;
+            } catch { failCount++; }
+            setAmazonBatchProgress({ done: i + 1, total: validUrls.length });
+        }
+
+        setAmazonUrlInput('');
+        setAmazonBatchProgress(null);
+        setIsImportingAmazon(false);
+        setShowAmazonInput(false);
+        if (failCount > 0) alert(`${failCount} URL(s) failed to import.`);
+        await fetchMedia();
+    };
 
     useEffect(() => {
         if (!familyId) return;
@@ -369,16 +510,7 @@ export function MediaLibrary() {
             }
         });
 
-        // C. Home / Hero Image
-        // We check the local storage configuration for the current family hero
-        if (typeof window !== 'undefined' && familyId) {
-            const heroUrl = localStorage.getItem(`family_hero_${familyId}`);
-            if (heroUrl) {
-                usageMap[heroUrl] = (usageMap[heroUrl] || 0) + 1;
-            }
-        }
-
-        // D. Albums (Cover Images)
+        // C. Albums (Covers and Page Assets already in assetUsage)
         const { data: albumUsage } = await supabase
             .from('albums')
             .select('config');
@@ -401,6 +533,28 @@ export function MediaLibrary() {
 
         profileUsage?.forEach((p: any) => {
             if (p.avatar_url) usageMap[p.avatar_url] = (usageMap[p.avatar_url] || 0) + 1;
+        });
+
+        // E. Home / Hero Image (DB Settings)
+        const { data: familySettings } = await (supabase.from('family_settings' as any) as any)
+            .select('hero_image_url')
+            .eq('family_id', familyId!);
+        
+        familySettings?.forEach((s: any) => {
+            if (s.hero_image_url) usageMap[s.hero_image_url] = (usageMap[s.hero_image_url] || 0) + 1;
+        });
+
+        // F. Stacks (Media Items)
+        const { data: stackUsage } = await (supabase.from('stacks' as any) as any)
+            .select('media_items')
+            .eq('family_id', familyId!);
+
+        stackUsage?.forEach((stack: any) => {
+            if (Array.isArray(stack.media_items)) {
+                stack.media_items.forEach((m: any) => {
+                    if (m.url) usageMap[m.url] = (usageMap[m.url] || 0) + 1;
+                });
+            }
         });
 
 
@@ -436,14 +590,66 @@ export function MediaLibrary() {
         if (folder === '__new__') {
             const newFolder = prompt('Enter new folder name:');
             if (newFolder && newFolder.trim()) {
-                setUploadFolder(newFolder.trim());
+                const fullPath = (currentPath === '/' || currentPath === 'All')
+                    ? newFolder.trim()
+                    : `${currentPath}/${newFolder.trim()}`;
+                setUploadFolder(fullPath);
+                setCurrentPath(fullPath);
+                fileInputRef.current?.click();
             }
         } else {
             setUploadFolder(folder);
+            setCurrentPath(folder === '/' ? '/' : folder);
+            fileInputRef.current?.click();
         }
         setShowFolderPicker(false);
-        fileInputRef.current?.click();
     }
+
+    const Breadcrumbs = () => {
+        if (activeTab === 'system') return null;
+        const isRoot = currentPath === '/' || currentPath === 'All';
+        const parts = isRoot ? [] : currentPath.split('/').filter(Boolean);
+
+        return (
+            <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest mb-6 bg-white self-start px-4 py-2 rounded-full border border-gray-100 shadow-sm overflow-x-auto no-scrollbar max-w-full">
+                <button
+                    onClick={() => setCurrentPath('/')}
+                    className={cn(
+                        "flex items-center gap-1.5 hover:text-catalog-accent transition-all shrink-0",
+                        currentPath === '/' ? "text-catalog-accent" : "text-gray-400"
+                    )}
+                >
+                    <Home className="w-3.5 h-3.5" />
+                    <span>Vault</span>
+                </button>
+
+                {currentPath === 'All' && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        <ChevronRight className="w-3 h-3 text-gray-300" />
+                        <span className="text-catalog-accent">All Media</span>
+                    </div>
+                )}
+
+                {parts.map((part, i) => {
+                    const path = parts.slice(0, i + 1).join('/');
+                    return (
+                        <div key={path} className="flex items-center gap-1.5 shrink-0">
+                            <ChevronRight className="w-3 h-3 text-gray-300" />
+                            <button
+                                onClick={() => setCurrentPath(path)}
+                                className={cn(
+                                    "hover:text-catalog-accent transition-all",
+                                    i === parts.length - 1 ? "text-catalog-accent" : "text-gray-400"
+                                )}
+                            >
+                                {part}
+                            </button>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    };
 
     async function performUpload(
         files: FileList | File[],
@@ -482,27 +688,36 @@ export function MediaLibrary() {
             }
 
             let storageUrl: string | null = manualUrl ?? null;
-            let currentGooglePhotoId: string | undefined = googlePhotoId;
             let finalType: 'video' | 'image' = 'image';
             let finalFilename = manualFilename || (file ? file.name : 'google-photo');
             let finalSize = file ? file.size : 0;
 
             if (activeTab === 'uploads') {
-                // EXCLUSIVELY GOOGLE PHOTOS FOR FAMILY MEDIA
+                // EXCLUSIVELY GOOGLE DRIVE FOR FAMILY MEDIA
                 try {
                     if (source === 'google' && googlePhotoId && manualUrl) {
                         storageUrl = manualUrl;
                         finalType = (manualMimeType?.startsWith('video') || manualUrl.includes('video')) ? 'video' : 'image';
                     } else if (file) {
                         if (!googleAccessToken) {
-                            alert("Please connect Google Photos to upload media.");
+                            if (confirm('Google integration required for upload. Sign in with Google now?')) {
+                                signInWithGoogle();
+                            }
                             break;
                         }
-                        const photosService = new GooglePhotosService(googleAccessToken);
-                        const mediaItem = await photosService.uploadMedia(file, file.name);
-                        currentGooglePhotoId = mediaItem.id;
-                        storageUrl = mediaItem.baseUrl ?? null;
+
+                        const { url, error, googlePhotoId: storageId } = await storageService.uploadFile(
+                            file,
+                            'family-media',
+                            `vault/${familyId}/${uploadFolder}/`,
+                            undefined,
+                            googleAccessToken
+                        );
+
+                        if (error) throw new Error(error);
+                        storageUrl = url;
                         finalType = file.type.startsWith('video') ? 'video' : 'image';
+                        googlePhotoId = storageId;
                     }
 
                     if (storageUrl && familyId) {
@@ -515,32 +730,31 @@ export function MediaLibrary() {
                             folder: uploadFolder,
                             category: 'general',
                             uploaded_by: user?.id,
-                            metadata: currentGooglePhotoId ? { googlePhotoId: currentGooglePhotoId, syncedToGoogle: true } : null
+                            metadata: { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
                         } as any);
                     }
                 } catch (err: any) {
-                    console.error('Upload to Google Photos failed:', err);
-                    alert(`Upload failed: ${err.message || 'Error uploading to Google Photos'}`);
+                    console.error('Upload to Google Drive failed:', err);
+                    alert(`Upload failed: ${err.message || 'Error uploading to Google Drive'}`);
                 }
             } else if (activeTab === 'system' && isAdmin && file) {
-                // SYSTEM ASSETS STILL USE SUPABASE
-                const bucket = 'system-assets';
-                const path = `${systemCategory}/`;
-                const { url: supabaseUrl, error: storageError } = await storageService.uploadFile(file, bucket, path);
+                // SYSTEM ASSETS USE PERMANENT GOOGLE DRIVE STORAGE
+                try {
+                    const driveService = new GoogleDriveService(googleAccessToken!);
+                    const driveUrl = await driveService.uploadSystemAsset(file, systemCategory as any);
 
-                if (storageError) {
-                    console.error('Internal storage upload failed:', storageError);
-                    continue;
-                }
-
-                if (supabaseUrl) {
-                    await supabase.from('library_assets').insert({
-                        category: systemCategory,
-                        url: supabaseUrl,
-                        name: file.name,
-                        tags: uploadTags,
-                        is_premium: false
-                    } as any);
+                    if (driveUrl) {
+                        await supabase.from('library_assets').insert({
+                            category: systemCategory,
+                            url: driveUrl,
+                            name: file.name,
+                            tags: uploadTags,
+                            is_premium: false
+                        } as any);
+                    }
+                } catch (err: any) {
+                    console.error('System asset upload to Drive failed:', err);
+                    alert(`Failed to upload system asset: ${err.message}`);
                 }
             }
         }
@@ -656,16 +870,42 @@ export function MediaLibrary() {
         const table = activeTab === 'uploads' ? 'family_media' : 'library_assets';
         const field = activeTab === 'uploads' ? 'filename' : 'name';
         await (supabase.from(table as any) as any).update({ [field]: newName }).eq('id', id);
-        setMedia(prev => prev.map(m => m.id === id ? { ...m, filename: newName } : m));
+
+        // Optimistic update
+        setMedia(prev => prev.map(m => m.id === id ? { ...m, [field === 'filename' ? 'filename' : 'name']: newName } : m));
         setEditingItem(null);
     }
 
-    const folders = activeTab === 'uploads'
-        ? Array.from(new Set(media.map(m => m.folder || '/'))).sort()
-        : [];
+    const allFolders = Array.from(new Set(media.map(m => m.folder || '/'))).sort();
+
+    // Group folders by hierarchy based on currentPath
+    const subFolders = useMemo(() => {
+        if (activeTab === 'system') return [];
+
+        // Better logic: find UNIQUE first-level subfolders from currentPath
+        const childSet = new Set<string>();
+        allFolders.forEach(f => {
+            if (f === currentPath) return;
+            if (currentPath === '/') {
+                const firstPart = f.split('/')[0];
+                if (firstPart) childSet.add(firstPart);
+            } else if (f.startsWith(currentPath + '/')) {
+                const relative = f.substring(currentPath.length + 1);
+                const firstPart = relative.split('/')[0];
+                if (firstPart) childSet.add(firstPart);
+            }
+        });
+
+        return Array.from(childSet).sort().map(name => ({
+            name,
+            path: currentPath === '/' ? name : `${currentPath}/${name}`,
+            count: media.filter(m => m.folder === (currentPath === '/' ? name : `${currentPath}/${name}`) || (m.folder || '').startsWith((currentPath === '/' ? name : `${currentPath}/${name}`) + '/')).length
+        }));
+    }, [allFolders, currentPath, media, activeTab]);
 
     const displayedItems = media.filter(item => {
-        const matchesFolder = activeTab === 'system' || currentFolder === 'All' || (item.folder || '/') === currentFolder;
+        const itemFolder = item.folder || '/';
+        const matchesFolder = activeTab === 'system' || (currentPath === 'All' ? true : itemFolder === currentPath);
         const searchLower = searchQuery.toLowerCase();
         const matchesSearch = item.filename?.toLowerCase().includes(searchLower) || (item.tags || []).some(t => t.toLowerCase().includes(searchLower));
         const matchesType = filterType === 'all' || item.type === filterType;
@@ -674,7 +914,6 @@ export function MediaLibrary() {
         const multiplier = sortOrder === 'asc' ? 1 : -1;
         if (sortBy === 'name') return (a.filename || '').localeCompare(b.filename || '') * multiplier;
         if (sortBy === 'size') return ((a.size || 0) - (b.size || 0)) * multiplier;
-        // Default to date
         return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * multiplier;
     });
 
@@ -696,7 +935,7 @@ export function MediaLibrary() {
                     </h2>
 
                     <div className="flex p-1 bg-gray-100 rounded-lg">
-                        <button onClick={() => { setActiveTab('uploads'); setCurrentFolder('All'); }} className={cn("flex-1 py-1.5 text-xs font-medium rounded-md transition-all", activeTab === 'uploads' ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-900")}>
+                        <button onClick={() => { setActiveTab('uploads'); setCurrentPath('/'); }} className={cn("flex-1 py-1.5 text-xs font-medium rounded-md transition-all", activeTab === 'uploads' ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-900")}>
                             My Uploads
                         </button>
                         <button onClick={() => setActiveTab('system')} className={cn("flex-1 py-1.5 text-xs font-medium rounded-md transition-all", activeTab === 'system' ? "bg-white shadow text-gray-900" : "text-gray-500 hover:text-gray-900")}>
@@ -728,14 +967,14 @@ export function MediaLibrary() {
                                 {activeTab === 'system' ? 'Add Asset' : 'Add Media'}
                             </button>
 
-                            {/* Google Photos Connector */}
+                            {/* Google Connector */}
                             {activeTab === 'uploads' && !googleAccessToken && (
                                 <button
                                     onClick={() => signInWithGoogle()}
                                     className="w-full flex items-center justify-center gap-2 bg-white border border-gray-200 text-gray-700 py-2.5 rounded-lg hover:bg-gray-50 transition-all shadow-sm font-medium text-[10px] uppercase tracking-wider"
                                 >
                                     <span className="w-4 h-4 flex items-center justify-center font-bold text-blue-600 bg-blue-50 rounded">G</span>
-                                    Connect Google Photos
+                                    Connect to Google
                                 </button>
                             )}
 
@@ -743,7 +982,7 @@ export function MediaLibrary() {
                                 <div className="space-y-2 pt-2">
                                     <div className="flex items-center gap-2 px-3 py-2 bg-green-50 rounded-lg border border-green-100">
                                         <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                        <span className="text-[9px] font-black text-green-700 uppercase tracking-widest">Photos Connected</span>
+                                        <span className="text-[9px] font-black text-green-700 uppercase tracking-widest">Google Connected</span>
                                     </div>
                                     <button
                                         onClick={() => setIsGoogleSelectorOpen(true)}
@@ -762,63 +1001,28 @@ export function MediaLibrary() {
 
                 {activeTab === 'uploads' && (
                     <div className="flex-1 overflow-y-auto p-3 space-y-1">
-                        <button onClick={() => setCurrentFolder('All')} className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all", currentFolder === 'All' ? "bg-catalog-accent/10 text-catalog-accent font-semibold" : "text-gray-600 hover:bg-gray-50")}>
+                        <button onClick={() => setCurrentPath('All')} className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left", currentPath === 'All' ? "bg-catalog-accent/10 text-catalog-accent font-semibold" : "text-gray-600 hover:bg-gray-50")}>
                             <Grid className="w-4 h-4" /> All Media
                         </button>
 
                         <div className="flex items-center justify-between pt-4 pb-2 px-3">
-                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Folders</span>
-                            <button
-                                onClick={() => handleFolderSelection('__new__')}
-                                className="p-1 hover:bg-gray-100 rounded-md text-gray-500 hover:text-catalog-accent transition-colors"
-                                title="New Folder"
-                            >
-                                <FolderPlus className="w-3.5 h-3.5" />
-                            </button>
+                            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Hierarchy</span>
                         </div>
-                        {folders.map(folder => {
-                            const folderItems = media.filter(m => (m.folder || '/') === folder);
 
-                            return (
-                                <div key={folder} className="group/folder flex items-center">
-                                    <button
-                                        onClick={() => setCurrentFolder(folder)}
-                                        className={cn(
-                                            "flex-1 flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all truncate",
-                                            currentFolder === folder
-                                                ? "bg-catalog-accent/5 text-catalog-accent font-medium border border-catalog-accent/20"
-                                                : "text-gray-600 hover:bg-gray-50 border border-transparent"
-                                        )}
-                                    >
-                                        <Folder className={cn("w-4 h-4 flex-shrink-0", currentFolder === folder ? "fill-catalog-accent/20" : "text-gray-400")} />
-                                        <span className="truncate">{folder === '/' ? 'Unsorted' : folder}</span>
-                                        <span className="ml-auto text-xs opacity-50 bg-gray-100 px-1.5 rounded-full">{folderItems.length}</span>
-                                    </button>
-                                    {/* Delete folder button */}
-                                    {folder !== '/' && !folderItems.some(m => (m.usageCount || 0) > 0) && (
-                                        <button
-                                            onClick={async (e) => {
-                                                e.stopPropagation();
-                                                await handleDelete(folderItems.map(i => i.id));
-                                                if (currentFolder === folder) setCurrentFolder('All');
-                                            }}
-                                            className="opacity-0 group-hover/folder:opacity-100 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
-                                            title={`Delete folder "${folder}"`}
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                    )}
-                                    {folder !== '/' && folderItems.some(m => (m.usageCount || 0) > 0) && (
-                                        <div
-                                            className="opacity-0 group-hover/folder:opacity-50 p-1.5 text-gray-300 cursor-not-allowed"
-                                            title={`Cannot delete: Folder contains items currently in use`}
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
+                        {/* Recursive Sidebar View or just Root Folders */}
+                        {Array.from(new Set(media.map(m => (m.folder || '').split('/')[0]).filter(Boolean))).sort().map(root => (
+                            <button
+                                key={root}
+                                onClick={() => setCurrentPath(root)}
+                                className={cn(
+                                    "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all text-left",
+                                    currentPath.startsWith(root) ? "text-catalog-accent font-medium" : "text-gray-600 hover:bg-gray-50"
+                                )}
+                            >
+                                <Folder className={cn("w-4 h-4", currentPath.startsWith(root) ? "fill-catalog-accent/20" : "text-gray-400")} />
+                                <span className="truncate">{root}</span>
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>
@@ -929,13 +1133,64 @@ export function MediaLibrary() {
                 )}
                 {/* Grid / Content Area */}
                 <div className="flex-1 overflow-y-auto p-6 content-scrollbar">
+                    <Breadcrumbs />
 
                     {isLoading ? (
                         <div className="flex h-full items-center justify-center">
                             <Loader2 className="w-8 h-8 animate-spin text-catalog-accent/30" />
                         </div>
                     ) : (
-                        <div className={cn("grid gap-6", viewMode === 'grid' ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" : "grid-cols-1")}>
+                        <div className={cn("grid gap-6 pb-20", viewMode === 'grid' ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6" : "grid-cols-1")}>
+                            {/* Subfolders in Grid */}
+                            {currentPath !== 'All' && subFolders.map(folder => (
+                                <div
+                                    key={folder.path}
+                                    onClick={() => setCurrentPath(folder.path)}
+                                    className={cn(
+                                        "group relative bg-white border border-gray-100 rounded-xl p-4 flex flex-col items-center justify-center gap-3 cursor-pointer hover:shadow-xl hover:border-catalog-accent/50 hover:-translate-y-1 transition-all duration-300",
+                                        viewMode === 'list' && "flex-row h-16 py-2 px-4 justify-start"
+                                    )}
+                                >
+                                    <div className="w-12 h-12 bg-catalog-accent/5 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                                        <FolderOpen className="w-6 h-6 text-catalog-accent fill-catalog-accent/10" />
+                                    </div>
+                                    <div className={cn("text-center min-w-0", viewMode === 'list' && "text-left")}>
+                                        <p className="text-sm font-bold text-gray-900 truncate">{folder.name}</p>
+                                        <p className="text-[10px] text-gray-400 font-medium uppercase tracking-widest">{folder.count} items</p>
+                                    </div>
+                                </div>
+                            ))}
+
+                            {displayedItems.length === 0 && subFolders.length === 0 && currentPath !== 'All' ? (
+                                <div className="col-span-full py-24 flex flex-col items-center justify-center bg-white/40 border-2 border-dashed border-black/5 rounded-[2.5rem]">
+                                    <div className="w-20 h-20 bg-catalog-accent/5 rounded-[2rem] flex items-center justify-center mb-6">
+                                        <FolderOpen className="w-8 h-8 text-catalog-accent/30" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-catalog-text mb-2">This folder is empty</h3>
+                                    <p className="text-[11px] font-black text-catalog-text/40 uppercase tracking-[0.3em] mb-8">Upload media or create sub-folders</p>
+                                    <button
+                                        onClick={() => setShowSourceModal(true)}
+                                        className="px-8 py-3 bg-catalog-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 active:scale-95 transition-all"
+                                    >
+                                        Add Media
+                                    </button>
+                                </div>
+                            ) : displayedItems.length === 0 && currentPath === 'All' ? (
+                                <div className="col-span-full py-24 flex flex-col items-center justify-center bg-white/40 border-2 border-dashed border-black/5 rounded-[2.5rem]">
+                                    <div className="w-20 h-20 bg-catalog-accent/5 rounded-[2rem] flex items-center justify-center mb-6">
+                                        <ImageIcon className="w-8 h-8 text-catalog-accent/30" />
+                                    </div>
+                                    <h3 className="text-xl font-bold text-catalog-text mb-2">Your library is empty</h3>
+                                    <p className="text-[11px] font-black text-catalog-text/40 uppercase tracking-[0.3em] mb-8">Start by uploading some moments</p>
+                                    <button
+                                        onClick={() => setShowSourceModal(true)}
+                                        className="px-8 py-3 bg-catalog-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 active:scale-95 transition-all"
+                                    >
+                                        Add Media
+                                    </button>
+                                </div>
+                            ) : null}
+
                             {displayedItems.map(item => (
                                 <MediaGridItem
                                     key={item.id}
@@ -957,20 +1212,18 @@ export function MediaLibrary() {
                                     isAdmin={isAdmin}
                                     activeTab={activeTab}
                                     onPreview={(item: any) => {
-                                        const isGoogle = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com'));
+                                        const isGoogle = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
                                         const cleanUrl = GooglePhotosService.getCleanUrl(item.url);
                                         let finalUrl = item.url;
                                         let posterUrl = undefined;
 
                                         if (isGoogle) {
-                                            const videoSuffix = '=dv';
-                                            const thumbSuffix = '=w2048'; // High res thumb
-
                                             if (item.type === 'video') {
-                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl + videoSuffix, googleAccessToken);
-                                                posterUrl = GooglePhotosService.getProxyUrl(cleanUrl + thumbSuffix, googleAccessToken);
+                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
+                                                // Always try to get a poster via proxy for Google videos (Photos or Drive)
+                                                posterUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId, true);
                                             } else {
-                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl + thumbSuffix, googleAccessToken);
+                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
                                             }
                                         }
 
@@ -993,14 +1246,14 @@ export function MediaLibrary() {
                     <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
                         <h3 className="text-lg font-bold mb-4">Select Upload Folder</h3>
                         <div className="space-y-2">
-                            <button onClick={() => handleFolderSelection('__new__')} className="w-full flex items-center gap-2 px-4 py-3 border-2 border-dashed border-catalog-accent text-catalog-accent rounded-lg hover:bg-catalog-accent/5 transition-colors">
-                                <FolderPlus className="w-5 h-5" />
-                                <span className="font-medium">Create New Folder</span>
+                            <button onClick={() => handleFolderSelection('__new__')} className="w-full flex items-center gap-2 px-4 py-3 border-2 border-dashed border-catalog-accent text-catalog-accent rounded-lg hover:bg-catalog-accent/5 transition-colors text-left uppercase text-[10px] tracking-widest font-bold">
+                                <Plus className="w-4 h-4" />
+                                <span>Create Sub-folder</span>
                             </button>
-                            {folders.map(folder => (
-                                <button key={folder} onClick={() => handleFolderSelection(folder)} className="w-full flex items-center gap-2 px-4 py-3 border border-gray-200 rounded-lg hover:border-catalog-accent hover:bg-catalog-accent/5 transition-colors">
-                                    <Folder className="w-5 h-5 text-gray-400" />
-                                    <span>{folder === '/' ? 'Unsorted' : folder}</span>
+                            {allFolders.map(folder => (
+                                <button key={folder} onClick={() => handleFolderSelection(folder)} className="w-full flex items-center gap-2 px-4 py-3 border border-gray-200 rounded-lg hover:border-catalog-accent hover:bg-catalog-accent/5 transition-colors text-left group">
+                                    <Folder className="w-5 h-5 text-gray-400 group-hover:text-catalog-accent" />
+                                    <span className="text-sm">{folder === '/' ? 'Unsorted' : folder}</span>
                                 </button>
                             ))}
                         </div>
@@ -1012,8 +1265,9 @@ export function MediaLibrary() {
                     googleAccessToken={googleAccessToken || ''}
                     isOpen={isGoogleSelectorOpen}
                     onClose={() => setIsGoogleSelectorOpen(false)}
-                    folders={folders}
+                    folders={allFolders}
                     onSelect={handleGooglePhotosImport}
+                    onReauth={signInWithGoogle}
                 />
             )}
 
@@ -1035,6 +1289,90 @@ export function MediaLibrary() {
                     onClose={() => setShowUrlInput(false)}
                     onSubmit={(url) => processRemoteAsset(url, 'url')}
                 />
+            )}
+
+            {showAmazonInput && (
+                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setShowAmazonInput(false)}>
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                        <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+                            <h3 className="text-lg font-serif italic text-catalog-text flex items-center gap-2">
+                                <svg className="w-5 h-5 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+                                </svg>
+                                Amazon Photos / Bulk URL Import
+                            </h3>
+                            <button onClick={() => setShowAmazonInput(false)} className="p-1 hover:bg-gray-100 rounded-full text-gray-400">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto space-y-5">
+                            <div className="p-3 bg-amber-50 border border-amber-100 rounded-lg">
+                                <p className="text-[10px] text-amber-800 leading-relaxed italic">
+                                    Tip: To import an Amazon Photos folder, paste the direct image/video URLs here. You can find these by inspecting the network tab in your browser while viewing the folder.
+                                </p>
+                            </div>
+                            
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-gray-700">Folder Name</label>
+                                <input 
+                                    type="text" 
+                                    value={amazonFolderName}
+                                    onChange={e => setAmazonFolderName(e.target.value)}
+                                    placeholder="e.g. Amazon Import, Summer Trip 2024..."
+                                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all"
+                                />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-gray-700 flex justify-between">
+                                    <span>URLs (one per line)</span>
+                                    {amazonUrlInput.trim() && (
+                                        <span className="text-orange-600">
+                                            {amazonUrlInput.split('\n').filter(l => l.trim().startsWith('http')).length} detected
+                                        </span>
+                                    )}
+                                </label>
+                                <textarea 
+                                    value={amazonUrlInput}
+                                    onChange={e => setAmazonUrlInput(e.target.value)}
+                                    placeholder={`https://m.media-amazon.com/images/...jpg\nhttps://m.media-amazon.com/images/...mp4`}
+                                    rows={8}
+                                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all font-mono text-[10px]"
+                                />
+                            </div>
+
+                            {amazonImportError && <p className="text-xs font-medium text-red-500">⚠ {amazonImportError}</p>}
+
+                            {amazonBatchProgress && (
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-[10px] font-black uppercase text-orange-600">
+                                        <span>Importing batch...</span>
+                                        <span>{amazonBatchProgress.done} / {amazonBatchProgress.total}</span>
+                                    </div>
+                                    <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: `${(amazonBatchProgress.done / amazonBatchProgress.total) * 100}%` }} />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
+                            <button 
+                                onClick={() => setShowAmazonInput(false)}
+                                className="px-5 py-2 text-sm font-medium text-gray-600 hover:text-gray-900"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleAmazonBatchImport}
+                                disabled={isImportingAmazon || !amazonUrlInput.trim()}
+                                className="px-6 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 hover:scale-105 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-2"
+                            >
+                                {isImportingAmazon ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                                Start Import
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Source Selection Modal */}
@@ -1084,8 +1422,22 @@ export function MediaLibrary() {
                                             <LinkIcon className="w-5 h-5" />
                                         </div>
                                         <div>
-                                            <div className="font-bold text-gray-900 text-sm">Image Link</div>
-                                            <div className="text-xs text-gray-500">Paste a direct URL</div>
+                                            <div className="font-bold text-gray-900 text-sm">Direct Link</div>
+                                            <div className="text-xs text-gray-500">Paste single image/video URL</div>
+                                        </div>
+                                    </button>
+                                    <button
+                                        onClick={() => handleSourceSelect('amazon')}
+                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group"
+                                    >
+                                        <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform">
+                                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                                <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+                                            </svg>
+                                        </div>
+                                        <div>
+                                            <div className="font-bold text-gray-900 text-sm">Amazon / Bulk Import</div>
+                                            <div className="text-xs text-gray-500">Multiple URLs + Folder Mapping</div>
                                         </div>
                                     </button>
                                 </>

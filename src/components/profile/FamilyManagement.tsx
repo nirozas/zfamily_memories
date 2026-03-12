@@ -5,7 +5,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { Input } from '../ui/Input';
 import { Users, UserPlus, Shield, Copy, Check, Trash2, Mail, Edit3, Save, X, BookOpen, Calendar } from 'lucide-react';
-import { emailService } from '../../services/emailService';
+import emailService from '../../services/emailService';
 
 export function FamilyManagement() {
     const { user, familyId, userRole } = useAuth();
@@ -22,7 +22,7 @@ export function FamilyManagement() {
     const [manualEmail, setManualEmail] = useState('');
     const [manualRole, setManualRole] = useState<'member' | 'creator' | 'admin'>('member');
 
-    const isAdmin = userRole === 'admin';
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
     useEffect(() => {
         if (familyId) {
@@ -102,6 +102,7 @@ export function FamilyManagement() {
             fetchFamilyData();
             if (email) {
                 setManualEmail('');
+                console.log('DEBUG: emailService before call:', emailService);
                 emailService.sendInviteEmail(email, baseCode);
             }
         } catch (error: any) {

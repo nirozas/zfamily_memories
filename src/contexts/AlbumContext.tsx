@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
-import { GooglePhotosService } from '../services/googlePhotos';
 import { AlbumDataService } from '../services/albumDataService';
 import {
     unifiedAlbumToContextAlbum,
@@ -287,6 +286,7 @@ interface AlbumContextType {
     activeSlot: { pageId: string; index: number } | null;
     setActiveSlot: (slot: { pageId: string; index: number } | null) => void;
     clearPageMedia: (pageId: string) => void;
+    swapSlotAssets: (pageId: string, assetIdA: string, assetIdB: string) => void;
 }
 
 export const AlbumContext = createContext<AlbumContextType | undefined>(undefined);
@@ -428,6 +428,49 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             ...album,
             pages: album.pages.map(p => p.id === pageId ? { ...p, assets: [] } : p),
             updatedAt: new Date(),
+        });
+    }, [album]);
+
+    /**
+     * Swap two asset positions or slots within a page.
+     * If on a layout, swaps their slotId. In freeform mode, swaps x/y/width/height.
+     */
+    const swapSlotAssets = useCallback((pageId: string, assetIdA: string, assetIdB: string) => {
+        if (!album || album.config.isLocked) return;
+        setAlbum(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                pages: prev.pages.map(p => {
+                    if (p.id !== pageId) return p;
+                    const a = p.assets.find(x => x.id === assetIdA);
+                    const b = p.assets.find(x => x.id === assetIdB);
+                    if (!a || !b) return p;
+
+                    // Swap slotIds if in layout mode
+                    if (a.slotId !== undefined && b.slotId !== undefined) {
+                        return {
+                            ...p,
+                            assets: p.assets.map(asset => {
+                                if (asset.id === assetIdA) return { ...asset, slotId: b.slotId };
+                                if (asset.id === assetIdB) return { ...asset, slotId: a.slotId };
+                                return asset;
+                            })
+                        };
+                    }
+
+                    // Swap positions in freeform mode
+                    return {
+                        ...p,
+                        assets: p.assets.map(asset => {
+                            if (asset.id === assetIdA) return { ...asset, x: b.x, y: b.y, width: b.width, height: b.height };
+                            if (asset.id === assetIdB) return { ...asset, x: a.x, y: a.y, width: a.width, height: a.height };
+                            return asset;
+                        })
+                    };
+                }),
+                updatedAt: new Date()
+            };
         });
     }, [album]);
 
@@ -625,39 +668,22 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                 let url: string | null = null;
                 let googlePhotoId: string | undefined;
 
-                if (googleAccessToken) {
-                    try {
-                        // Step 1: Upload to Google Photos first
-                        const photosService = new GooglePhotosService(googleAccessToken);
-                        const mediaItem = await photosService.uploadMedia(fileToUpload, fileToUpload.name);
-                        googlePhotoId = mediaItem.id;
-                        url = mediaItem.baseUrl || null;
-
-                        setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
-                    } catch (err) {
-                        console.error('Google Photos upload failed, falling back to storage:', err);
-                    }
-                }
-
-                if (!url) {
-                    // Fallback to Supabase ONLY if Google Photos is not connected or fails
-                    // NOTE: The user requested no Supabase storage, but we need a fallback for robustness
-                    // unless we want to strictly enforce Google Photos connection.
-                    const { storageService } = await import('../services/storage');
-                    const { url: storageUrl } = await storageService.uploadFile(
-                        fileToUpload,
-                        'album-assets',
-                        `albums/${album.title}/`,
-                        (progress) => {
-                            const percent = Math.round((progress.loaded / progress.total) * 100);
-                            setUploadProgress(prev => ({
-                                ...prev,
-                                [file.name]: percent
-                            }));
-                        }
-                    );
-                    url = storageUrl;
-                }
+                const { storageService } = await import('../services/storage');
+                const { url: storageUrl, googlePhotoId: storagePhotoId } = await storageService.uploadFile(
+                    fileToUpload,
+                    'album-assets',
+                    `albums/${album.title}/`,
+                    (progress) => {
+                        const percent = Math.round((progress.loaded / progress.total) * 100);
+                        setUploadProgress(prev => ({
+                            ...prev,
+                            [file.name]: percent
+                        }));
+                    },
+                    googleAccessToken
+                );
+                url = storageUrl;
+                googlePhotoId = storagePhotoId;
 
                 if (url) {
                     // Load image to get dimensions
@@ -716,7 +742,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                         zIndex: 1,
                         pivot: { x: 0.5, y: 0.5 }, // Default to center
                         createdAt: new Date(),
-                        folder: album.title,
+                        folder: album.title ? `Albums/${album.title.trim()}` : 'Albums',
                         googlePhotoId
                     });
 
@@ -728,7 +754,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                                 url: url,
                                 type: fileToUpload.type.startsWith('video/') ? 'video' : 'image',
                                 category: category,
-                                folder: album.title,
+                                folder: album.title ? `Albums/${album.title.trim()}` : 'Albums',
                                 filename: fileToUpload.name,
                                 size: fileToUpload.size,
                                 uploaded_by: (await supabase.auth.getUser()).data.user?.id,
@@ -784,6 +810,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
 
         if (album.family_id) {
             const { supabase } = await import('../lib/supabase');
+            const albumFolder = album.title ? `Albums/${album.title.trim()}` : 'Albums';
             const { error: dbError } = await supabase
                 .from('family_media')
                 .insert({
@@ -791,6 +818,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                     url: url,
                     type: type,
                     category: category,
+                    folder: albumFolder,
                     filename: 'URL Asset',
                     uploaded_by: (await supabase.auth.getUser()).data.user?.id
                 } as any);
@@ -1280,7 +1308,8 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         toggleLayoutOutlines,
         activeSlot,
         setActiveSlot,
-        clearPageMedia
+        clearPageMedia,
+        swapSlotAssets
     };
 
     return (

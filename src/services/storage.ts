@@ -2,142 +2,160 @@ import { supabase } from '../lib/supabase';
 import imageCompression from 'browser-image-compression';
 
 export const storageService = {
+    /**
+     * Uploads a file to Google Photos (primary).
+     * @param file The file to upload
+     * @param _bucket Unused
+     * @param _pathPrefix Unused
+     * @param onProgress Optional progress callback
+     * @param googleAccessToken Required for Google Photos upload
+     */
     async uploadFile(
         file: File,
-        bucket: 'event-assets' | 'album-assets' | 'system-assets',
-        pathPrefix: string = '',
-        onProgress?: (progress: { loaded: number; total: number }) => void
-    ): Promise<{ url: string | null; error: string | null }> {
+        _bucket: string = 'album-assets',
+        _pathPrefix: string = '',
+        onProgress?: (progress: { loaded: number; total: number }) => void,
+        googleAccessToken?: string | null
+    ): Promise<{ url: string | null; error: string | null; googlePhotoId?: string }> {
+        if (!googleAccessToken) {
+            console.error('No Google Access Token provided. Sign in required.');
+            return { url: null, error: 'Authentication required for Google Photos storage.' };
+        }
+
         try {
-            let fileToUpload: File | Blob = file;
-
-            // Reject videos that exceed Supabase's 50MB limit with a helpful message
-            const MAX_VIDEO_SIZE_MB = 50;
-            if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024) {
-                return {
-                    url: null,
-                    error: `Video is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is ${MAX_VIDEO_SIZE_MB} MB. Please compress the video before uploading.`
-                };
-            }
-
-            // Compress images larger than 1MB (skip videos — not compressible this way)
-            if (file.type.startsWith('image/') && file.size > 1024 * 1024) {
+            // 1. Compress image or video if it is one
+            let fileToUpload = file;
+            if (file.type.startsWith('image/')) {
                 try {
                     const options = {
                         maxSizeMB: 1,
-                        maxWidthOrHeight: 1920,
-                        useWebWorker: true,
-                        onProgress: () => {
-                            // Compression progress — unused
-                        }
+                        maxWidthOrHeight: 2040,
+                        useWebWorker: true
                     };
                     fileToUpload = await imageCompression(file, options);
-                    console.log(`Compressed image from ${(file.size / 1024 / 1024).toFixed(2)}MB to ${(fileToUpload.size / 1024 / 1024).toFixed(2)}MB`);
-                } catch (compressError) {
-                    console.error('Compression failed, uploading original:', compressError);
+                } catch (e) {
+                    console.error('Image compression failed, using original:', e);
+                }
+            } else if (file.type.startsWith('video/')) {
+                try {
+                    const { videoCompressionService } = await import('./videoCompression');
+                    if (onProgress) onProgress({ loaded: 10, total: 100 });
+                    fileToUpload = await videoCompressionService.compressVideo(file, (p) => {
+                        if (onProgress) onProgress({ loaded: Math.min(10 + (p * 0.8), 90), total: 100 });
+                    });
+                } catch (e) {
+                    console.error('Video compression failed, using original:', e);
                 }
             }
 
-            // Clean up the prefix and generate a unique filename
-            const cleanPrefix = pathPrefix.replace(/\/+$/, '').replace(/^\/+/, '');
-            const timestamp = Date.now();
-            const randomString = Math.random().toString(36).substring(2, 8);
-            const fileName = `${timestamp}-${randomString}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-            const filePath = cleanPrefix ? `${cleanPrefix}/${fileName}` : fileName;
+            // 2. Upload to appropriate storage
+            if (fileToUpload.type.startsWith('video/')) {
+                const { GoogleDriveService } = await import('./googleDrive');
+                const driveService = new GoogleDriveService(googleAccessToken);
+                const driveFolderId = await driveService.getOrCreateWebsiteFolder();
+                const driveFileId = await driveService.uploadFile(fileToUpload, driveFolderId);
+                const finalUrl = GoogleDriveService.getDirectUrl(driveFileId);
+                
+                if (onProgress) onProgress({ loaded: 100, total: 100 });
+                return { url: finalUrl, error: null, googlePhotoId: driveFileId };
+            } else {
+                const { GooglePhotosService } = await import('./googlePhotos');
+                const photosService = new GooglePhotosService(googleAccessToken);
 
-            // Map buckets if necessary (e.g. if they have different names in Supabase)
-            // But based on BUCKET_SETUP.md, they are the same.
+                if (onProgress) onProgress({ loaded: 50, total: 100 }); // Partial progress
 
-            const { error } = await supabase.storage
-                .from(bucket)
-                .upload(filePath, fileToUpload, {
-                    cacheControl: '3600',
-                    upsert: false
-                });
+                const mediaItem = await photosService.uploadMedia(fileToUpload);
 
-            if (error) {
-                throw error;
+                if (onProgress) onProgress({ loaded: 100, total: 100 });
+
+                if (!mediaItem || !mediaItem.id) {
+                    throw new Error('No media item returned from Google Photos');
+                }
+
+                const baseUrl = mediaItem.mediaFile?.baseUrl || mediaItem.baseUrl || '';
+                const finalUrl = (mediaItem.type === 'VIDEO' || mediaItem.mediaMetadata?.video) ? `${baseUrl}=dv` : `${baseUrl}=w9999-h9999`;
+
+                return { url: finalUrl, error: null, googlePhotoId: mediaItem.id };
             }
 
-            // Get public URL
-            const { data: { publicUrl } } = supabase.storage
-                .from(bucket)
-                .getPublicUrl(filePath);
-
-            // Simulate progress since Supabase standard upload doesn't provide it easily
-            if (onProgress) {
-                onProgress({ loaded: file.size, total: file.size });
-            }
-
-            return { url: publicUrl, error: null };
         } catch (error: any) {
-            console.error('Upload error:', error);
-            return { url: null, error: error.message };
+            console.error('Storage upload error:', error);
+            return { url: null, error: error.message || 'Upload failed' };
         }
     },
 
-    async deleteFile(url: string): Promise<{ success: boolean; error: string | null }> {
-        try {
-            if (!url) return { success: false, error: 'No URL provided' };
-
-            // 1. Handle Cloudinary (Legacy)
-            if (url.includes('cloudinary.com')) {
-                const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-                const apiKey = import.meta.env.VITE_CLOUDINARY_API_KEY;
-                const apiSecret = import.meta.env.VITE_CLOUDINARY_API_SECRET;
-
-                if (!cloudName || !apiKey || !apiSecret) {
-                    console.warn('Cloudinary credentials missing for legacy deletion.');
-                    return { success: false, error: 'Cloudinary credentials missing' };
-                }
-
-                const regex = /\/upload\/(?:v\d+\/)?(.+)\.[^.]+$/;
-                const match = url.match(regex);
-                if (!match) return { success: false, error: 'Invalid Cloudinary URL' };
-                const publicId = match[1];
-
-                const timestamp = Math.round(new Date().getTime() / 1000);
-                const paramsToSign = `public_id=${publicId}&timestamp=${timestamp}${apiSecret}`;
-                const msgBuffer = new TextEncoder().encode(paramsToSign);
-                const hashBuffer = await crypto.subtle.digest('SHA-1', msgBuffer);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                const signature = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-                const formData = new FormData();
-                formData.append('public_id', publicId);
-                formData.append('api_key', apiKey);
-                formData.append('timestamp', timestamp.toString());
-                formData.append('signature', signature);
-
-                const response = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/destroy`, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-                return { success: data.result === 'ok', error: data.result === 'ok' ? null : (data.error?.message || 'Cloudinary deletion failed') };
+    async deleteFile(url: string): Promise<{ error: string | null }> {
+        // Fallback or legacy cleanup
+        if (url.includes('supabase.co')) {
+            const path = url.split('/storage/v1/object/public/')[1];
+            if (path) {
+                const parts = path.split('/');
+                const bucket = parts[0];
+                const filePath = parts.slice(1).join('/');
+                const { error } = await supabase.storage.from(bucket).remove([filePath]);
+                return { error: error?.message || null };
             }
-
-            // 2. Handle Supabase (New)
-            if (url.includes('supabase.co')) {
-                const urlObj = new URL(url);
-                const pathParts = urlObj.pathname.split('/public/');
-                if (pathParts.length >= 2) {
-                    const fullPath = pathParts[1];
-                    const bucketMatch = fullPath.match(/^([^/]+)\/(.+)$/);
-                    if (bucketMatch) {
-                        const bucket = bucketMatch[1];
-                        const filePath = bucketMatch[2];
-                        const { error } = await supabase.storage.from(bucket).remove([filePath]);
-                        return { success: !error, error: error ? error.message : null };
-                    }
-                }
-            }
-
-            return { success: false, error: 'Unsupported storage URL format' };
-        } catch (error: any) {
-            console.error('Delete error:', error);
-            return { success: false, error: error.message };
         }
+        return { error: null };
+    },
+
+    /**
+     * Ensures a Google Photos item is persistent.
+     * If it's a video, it migrates it to Google Drive.
+     * If it's an image, it returns the baseUrl with a large size parameter.
+     */
+    async persistGoogleMedia(
+        item: any,
+        googleAccessToken: string
+    ): Promise<{ url: string; googlePhotoId: string; type: 'image' | 'video' }> {
+        const typeStr = (item.type || '').toUpperCase();
+        const isVideo = typeStr === 'VIDEO'
+            || item.mimeType?.toLowerCase().startsWith('video')
+            || (item.mediaMetadata?.video)
+            || (item.mediaFile?.mimeType?.toLowerCase().startsWith('video'));
+
+        let finalUrl = item.mediaFile?.baseUrl || item.baseUrl || item.url || '';
+        let finalId = item.id;
+
+        if (isVideo && googleAccessToken) {
+            try {
+                const { GooglePhotosService } = await import('./googlePhotos');
+                const { GoogleDriveService } = await import('./googleDrive');
+                
+                const photosService = new GooglePhotosService(googleAccessToken);
+                // The item object might be from different pickers, ensure it's compatible
+                const photoItem = {
+                    id: item.id,
+                    baseUrl: item.mediaFile?.baseUrl || item.baseUrl || item.url || '',
+                    filename: item.filename || item.name || 'video.mp4',
+                    mimeType: item.mimeType || item.mediaFile?.mimeType || 'video/mp4'
+                };
+                
+                console.log(`[Storage] Migrating video ${item.id} to Drive. Source: ${photoItem.baseUrl.substring(0, 30)}...`);
+                const blob = await photosService.downloadMediaItem(photoItem as any);
+                const file = new File([blob], photoItem.filename, { type: blob.type || 'video/mp4' });
+
+                const driveService = new GoogleDriveService(googleAccessToken);
+                const driveFolderId = await driveService.getOrCreateWebsiteFolder();
+                const driveFileId = await driveService.uploadFile(file, driveFolderId);
+                
+                finalUrl = GoogleDriveService.getDirectUrl(driveFileId);
+                finalId = driveFileId;
+                console.log(`[Storage] Successfully migrated video to Drive: ${driveFileId}`);
+            } catch (err) {
+                console.error('[Storage] Failed to migrate video to Drive:', err);
+                // Fallback to proxy URL if migration fails
+                if (finalUrl && !finalUrl.includes('=dv') && !finalUrl.includes('drive.google.com')) {
+                    finalUrl += '=dv';
+                }
+            }
+        } else {
+             // For images, suggest full resolution
+             if (finalUrl && !finalUrl.includes('=w') && !finalUrl.includes('drive.google.com')) {
+                 finalUrl += '=w9999-h9999';
+             }
+        }
+        
+        return { url: finalUrl, googlePhotoId: finalId, type: isVideo ? 'video' : 'image' };
     }
 };

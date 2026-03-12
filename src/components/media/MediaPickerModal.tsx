@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Search, Image as ImageIcon, Video, Folder, CheckCircle, Check } from 'lucide-react';
+import { X, Search, Image as ImageIcon, Video, Folder, CheckCircle, Check, ChevronRight } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
@@ -40,7 +40,7 @@ export function MediaPickerModal({
     const [media, setMedia] = useState<MediaItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [currentFolder, setCurrentFolder] = useState<string>('All');
+    const [currentPath, setCurrentPath] = useState<string>('/');
 
     // Single select
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -71,11 +71,10 @@ export function MediaPickerModal({
         }
     };
 
-    const folders = Array.from(new Set(media.map(m => m.folder || 'Unsorted'))).sort();
 
     const filteredMedia = media.filter(item => {
         if (allowedTypes && !allowedTypes.includes(item.type)) return false;
-        if (currentFolder !== 'All' && (item.folder || 'Unsorted') !== currentFolder) return false;
+        if (currentPath !== 'All' && (item.folder || '/') !== currentPath) return false;
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
             return item.filename?.toLowerCase().includes(q) || item.tags?.some(t => t.toLowerCase().includes(q));
@@ -123,7 +122,7 @@ export function MediaPickerModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
+        <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[80vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-white z-10">
@@ -155,26 +154,26 @@ export function MediaPickerModal({
                     {/* Sidebar: Folders */}
                     <div className="w-48 border-r border-gray-100 bg-gray-50 overflow-y-auto p-2 space-y-1 hidden md:block">
                         <button
-                            onClick={() => setCurrentFolder('All')}
+                            onClick={() => setCurrentPath('All')}
                             className={cn(
                                 "w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-2",
-                                currentFolder === 'All' ? "bg-white shadow text-catalog-accent" : "text-gray-500 hover:text-gray-900"
+                                currentPath === 'All' ? "bg-white shadow text-catalog-accent" : "text-gray-500 hover:text-gray-900"
                             )}
                         >
                             <ImageIcon className="w-4 h-4" /> All Media
                         </button>
-                        <div className="pt-2 px-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Folders</div>
-                        {folders.map(folder => (
+                        <div className="pt-2 px-2 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Vault</div>
+                        {Array.from(new Set(media.map(m => (m.folder || '').split('/')[0]).filter(Boolean))).sort().map(root => (
                             <button
-                                key={folder}
-                                onClick={() => setCurrentFolder(folder)}
+                                key={root}
+                                onClick={() => setCurrentPath(root)}
                                 className={cn(
                                     "w-full text-left px-3 py-2 rounded-lg text-xs font-medium transition-colors truncate flex items-center gap-2",
-                                    currentFolder === folder ? "bg-white shadow text-catalog-accent" : "text-gray-500 hover:text-gray-900"
+                                    currentPath.startsWith(root) ? "bg-white shadow text-catalog-accent" : "text-gray-500 hover:text-gray-900"
                                 )}
                             >
                                 <Folder className="w-3.5 h-3.5" />
-                                <span className="truncate">{folder}</span>
+                                <span className="truncate">{root}</span>
                             </button>
                         ))}
                     </div>
@@ -197,15 +196,33 @@ export function MediaPickerModal({
 
                         {/* Grid */}
                         <div className="flex-1 overflow-y-auto p-4 content-scrollbar">
+                            <div className="mb-4 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest">
+                                <button onClick={() => setCurrentPath('/')} className={cn("hover:text-catalog-accent", currentPath === '/' ? "text-catalog-accent" : "text-gray-400")}>Vault</button>
+                                {currentPath !== '/' && currentPath !== 'All' && currentPath.split('/').filter(Boolean).map((p, i, arr) => (
+                                    <div key={i} className="flex items-center gap-1.5">
+                                        <ChevronRight className="w-2.5 h-2.5 text-gray-300" />
+                                        <button onClick={() => setCurrentPath(arr.slice(0, i + 1).join('/'))} className={cn("hover:text-catalog-accent", i === arr.length - 1 ? "text-catalog-accent" : "text-gray-400")}>{p}</button>
+                                    </div>
+                                ))}
+                            </div>
+
                             {isLoading ? (
                                 <div className="flex items-center justify-center h-full text-gray-400">Loading...</div>
-                            ) : filteredMedia.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-gray-400 opacity-50">
-                                    <ImageIcon className="w-12 h-12 mb-2" />
-                                    <p>No media found</p>
-                                </div>
                             ) : (
                                 <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
+                                    {/* Subfolders in Grid */}
+                                    {currentPath !== 'All' && Array.from(new Set(media.map(m => m.folder || '/').filter(f => f !== currentPath))).filter(f => {
+                                        if (currentPath === '/') return !f.includes('/');
+                                        return f.startsWith(currentPath + '/') && f.split('/').length === currentPath.split('/').length + 1;
+                                    }).map(f => {
+                                        const name = f.split('/').pop();
+                                        return (
+                                            <div key={f} onClick={() => setCurrentPath(f)} className="aspect-square rounded-lg border border-gray-100 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 transition-colors">
+                                                <Folder className="w-8 h-8 text-catalog-accent/20 fill-catalog-accent/5" />
+                                                <span className="text-[10px] font-bold text-gray-600 truncate px-2 w-full text-center">{name}</span>
+                                            </div>
+                                        );
+                                    })}
                                     {filteredMedia.map(item => {
                                         const isMultiSelected = selectedIds.has(item.id);
                                         const isSingleSelected = selectedId === item.id;
@@ -228,12 +245,18 @@ export function MediaPickerModal({
                                                         : "border-gray-100 hover:border-gray-300"
                                                 )}
                                             >
-                                                <img
-                                                    src={item.type === 'video' ? `https://res.cloudinary.com/demo/image/fetch/f_jpg/${item.url}` : item.url}
-                                                    alt={item.filename}
-                                                    className="w-full h-full object-cover"
-                                                    onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
-                                                />
+                                                <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                                                    {item.type === 'video' ? (
+                                                        <Video className="w-12 h-12 text-catalog-accent/20" />
+                                                    ) : (
+                                                        <img
+                                                            src={item.url}
+                                                            alt={item.filename}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
+                                                        />
+                                                    )}
+                                                </div>
                                                 {item.type === 'video' && (
                                                     <div className="absolute inset-0 flex items-center justify-center bg-black/20">
                                                         <Video className="w-8 h-8 text-white opacity-80" />

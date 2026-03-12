@@ -11,6 +11,7 @@ import type {
     UnifiedAsset,
     BackgroundConfig,
     AssetType,
+    LayoutSlot,
 } from '../types/album';
 import { getDefaultZIndex } from '../types/album';
 import type { Album, Page, Asset, LayoutBox } from '../contexts/AlbumContext';
@@ -160,6 +161,7 @@ export function unifiedPageToContextPage(unifiedPage: UnifiedPage, pageId: strin
         backgroundOpacity: unifiedPage.background.opacity,
         backgroundImage: unifiedPage.background.imageUrl,
         textLayers,
+        isSpreadLayout: unifiedPage.isSpreadLayout,
         pageStyles: {
             backgroundColor: unifiedPage.background.color || '#ffffff',
             backgroundOpacity: unifiedPage.background.opacity || 1,
@@ -337,10 +339,20 @@ export function contextPageToUnifiedPage(page: Page): UnifiedPage {
         imagePosition: 'center',
     };
 
+    // Build layout slots from layoutConfig
+    const layoutSlots: LayoutSlot[] = (page.layoutConfig || []).map(box => ({
+        id: box.id,
+        position: { x: box.left, y: box.top },
+        size: { width: box.width, height: box.height },
+        type: box.role === 'slot' ? 'photo' : 'any', // text role is handled separately as a layer usually
+    }));
+
     const unifiedPage: UnifiedPage = {
         pageNumber: page.pageNumber,
         background,
         layoutTemplate: page.layoutTemplate,
+        layoutSlots,
+        isSpreadLayout: page.isSpreadLayout,
         assets,
     };
 

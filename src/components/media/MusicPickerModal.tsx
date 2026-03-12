@@ -28,7 +28,7 @@ interface MusicPickerModalProps {
 
 export function MusicPickerModal({ onClose, onSelect }: MusicPickerModalProps) {
     const { userRole } = useAuth();
-    const isAdmin = userRole === 'admin';
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
     const [searchQuery, setSearchQuery] = useState('');
     const [tracks, setTracks] = useState<Track[]>([]);

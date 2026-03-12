@@ -4,8 +4,9 @@ import { supabase } from '../lib/supabase';
 import {
     ArrowLeft, Save, Share, X, Copy, Check, Settings as SettingsIcon, Tag,
     ChevronDown, ChevronRight, ChevronLeft, ChevronUp,
-    Layers, Bold, Underline, Pencil, Trash2,
-    Lock, Unlock, Eye, Plus, Undo, Redo, Maximize, MapPin, Image as ImageIcon, Droplets
+    Layers, Bold, Underline, Pencil, Trash2, Wand2, Scissors,
+    Lock, Unlock, Eye, Undo, Redo, Maximize, MapPin, Image as ImageIcon, Droplets, Shuffle, ArrowLeftRight,
+    FlipHorizontal, FlipVertical, RotateCw, Maximize2, Type
 } from 'lucide-react';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
 import { useAlbum } from '../contexts/AlbumContext';
@@ -57,7 +58,8 @@ function AlbumEditorContent() {
         isLoading,
         toggleLock,
         canUndo,
-        canRedo
+        canRedo,
+        swapSlotAssets
     } = useAlbum();
 
     // --- CONSOLIDATED STUDIO INITIALIZATION ---
@@ -159,6 +161,26 @@ function AlbumEditorContent() {
 
     // Layout logic removed
     const [editorMode, setEditorMode] = useState<'select' | 'mask' | 'pivot' | 'studio'>('select');
+    const [isRearrangeMode, setIsRearrangeMode] = useState(false);
+    const [rearrangeFirstId, setRearrangeFirstId] = useState<string | null>(null);
+
+    // Handle asset click during rearrange mode
+    const handleRearrangeClick = (assetId: string, pageId: string) => {
+        if (!isRearrangeMode) return false;
+        if (!rearrangeFirstId) {
+            setRearrangeFirstId(assetId);
+            return true;
+        }
+        // Swap the two assets
+        if (rearrangeFirstId !== assetId) {
+            swapSlotAssets(pageId, rearrangeFirstId, assetId);
+        }
+        setRearrangeFirstId(null);
+        setIsRearrangeMode(false);
+        return true;
+    };
+
+    const exitRearrangeMode = () => { setIsRearrangeMode(false); setRearrangeFirstId(null); };
     const [showLocationModal, setShowLocationModal] = useState(false);
     const [showMapModal, setShowMapModal] = useState(false);
     const [showCoverPicker, setShowCoverPicker] = useState(false);
@@ -188,15 +210,7 @@ function AlbumEditorContent() {
         setPan({ x: 0, y: 0 }); // Reset pan when fitting
     }, [album, currentPageIndex]);
 
-    const handleOpenMapEditor = (assetId: string) => {
-        setSelectedAssetId(assetId);
-        setShowMapModal(true);
-    };
 
-    const handleOpenLocationEditor = (assetId: string) => {
-        setSelectedAssetId(assetId);
-        setShowLocationModal(true);
-    };
 
     // --- CONSOLIDATED KEYBOARD SHORTCUTS ENGINE ---
     useEffect(() => {
@@ -470,7 +484,7 @@ function AlbumEditorContent() {
                                 </Button>
                             </div>
                         </div>
-
+                    
                         <div className="pt-2 flex justify-end">
                             <Button variant="ghost" onClick={() => setShowShareModal(false)}>
                                 Close
@@ -807,9 +821,8 @@ function AlbumEditorContent() {
                     </Button>
                 </div>
             </header>
-
-            {/* Studio Workspace */}
-            <div className="flex-1 flex overflow-hidden bg-catalog-bg/40">
+            
+            <div className="flex-1 flex overflow-hidden bg-catalog-bg/40 min-h-0">
                 {/* Left Sidebar: Assets & Media */}
                 <AssetLibrary />
 
@@ -835,9 +848,9 @@ function AlbumEditorContent() {
                 >
                     <div
                         onClick={(e) => e.stopPropagation()}
-                        className="h-16 border-b border-black/5 bg-white/40 backdrop-blur-md z-30 shrink-0 overflow-hidden flex items-center px-8 relative justify-between"
+                        className="h-16 border-b border-black/5 bg-white/40 backdrop-blur-md z-30 shrink-0 overflow-x-auto styling-scrollbar-thin flex items-center px-4 md:px-8 relative justify-between whitespace-nowrap"
                     >
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-4 shrink-0">
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -850,7 +863,7 @@ function AlbumEditorContent() {
                                     if (targetPageId) {
                                         addAsset(targetPageId, {
                                             type: 'text',
-                                            content: 'Narrative Verse',
+                                            content: 'Your story here...',
                                             x: 35,
                                             y: 35,
                                             width: 30,
@@ -871,8 +884,8 @@ function AlbumEditorContent() {
                                     album.config.isLocked && "opacity-50 cursor-not-allowed grayscale"
                                 )}
                             >
-                                <Plus className="w-4 h-4" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Add Story</span>
+                                <Type className="w-4 h-4" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Add Text</span>
                             </Button>
 
                             <Button
@@ -895,9 +908,58 @@ function AlbumEditorContent() {
 
                             <div className="w-[1px] h-6 bg-black/5 mx-2" />
 
+                            {/* Rearrange Mode Button */}
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (album.config.isLocked) return;
+                                    if (isRearrangeMode) {
+                                        exitRearrangeMode();
+                                    } else {
+                                        setIsRearrangeMode(true);
+                                        setSelectedAssetId(null);
+                                    }
+                                }}
+                                disabled={album.config.isLocked}
+                                className={cn(
+                                    "h-10 gap-3 transition-all border rounded-xl px-5",
+                                    isRearrangeMode
+                                        ? "bg-purple-600 text-white border-purple-700 shadow-lg shadow-purple-500/20"
+                                        : "bg-black/5 text-catalog-text hover:bg-black/10 border-black/5",
+                                    album.config.isLocked && "opacity-50 cursor-not-allowed grayscale"
+                                )}
+                                title="Rearrange images by clicking two to swap them"
+                            >
+                                <Shuffle className="w-4 h-4" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">
+                                    {isRearrangeMode ? 'Cancel Swap' : 'Rearrange'}
+                                </span>
+                            </Button>
+
+                            {/* Rearrange Banner */}
+                            <AnimatePresence>
+                                {isRearrangeMode && (
+                                    <motion.div
+                                        initial={{ opacity: 0, x: -20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -20 }}
+                                        className="flex items-center gap-3 px-4 py-2 bg-purple-50 border border-purple-200 rounded-xl h-10"
+                                    >
+                                        <ArrowLeftRight className="w-4 h-4 text-purple-600 animate-pulse" />
+                                        <span className="text-[10px] font-black text-purple-700 uppercase tracking-widest">
+                                            {rearrangeFirstId ? '✓ Now click the 2nd image' : 'Click image 1 to swap...'}
+                                        </span>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+
+                            <div className="w-[1px] h-6 bg-black/5 mx-2" />
+
                             {selectedAsset && !album.config.isLocked ? (
-                                <div className="flex items-center gap-6 animate-in fade-in slide-in-from-left-4 duration-500">
-                                    <span className="text-[9px] font-black text-catalog-text/20 uppercase tracking-[0.4em] mr-2">Selection Context</span>
+                                <div className="flex items-center gap-6 shrink-0 animate-in fade-in slide-in-from-left-4 duration-500">
+                                    <span className="text-[9px] font-black text-catalog-text/20 uppercase tracking-[0.4em] mr-2 hidden md:inline-block">Selection Context</span>
 
                                     <div className="flex items-center gap-3">
                                         {selectedAsset.type === 'text' && (
@@ -982,20 +1044,112 @@ function AlbumEditorContent() {
                                                 </div>
                                             </div>
                                         )}
+                                        {/* Image Editing Tools */}
+                                        {(selectedAsset.type === 'image' || selectedAsset.type === 'frame') && (
+                                            <div className="flex items-center gap-2 glass p-1 rounded-2xl border border-black/5">
+                                                <button
+                                                    onClick={() => {
+                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        if (pageId) updateAsset(pageId, selectedAsset.id, { fitMode: selectedAsset.fitMode === 'cover' ? 'fit' : 'cover' });
+                                                    }}
+                                                    className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent flex items-center gap-1.5"
+                                                    title="Toggle Fit/Cover"
+                                                >
+                                                    <Maximize2 className="w-4 h-4" />
+                                                    <span className="text-[9px] font-black uppercase tracking-widest">{selectedAsset.fitMode === 'cover' ? 'TO FIT' : 'TO COVER'}</span>
+                                                </button>
+
+                                                <div className="w-[1px] h-4 bg-black/5 mx-1" />
+
+                                                <button
+                                                    onClick={() => {
+                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        if (pageId) updateAsset(pageId, selectedAsset.id, { flipX: !selectedAsset.flipX });
+                                                    }}
+                                                    className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent"
+                                                    title="Flip Horizontal"
+                                                >
+                                                    <FlipHorizontal className="w-4 h-4" />
+                                                </button>
+
+                                                <button
+                                                    onClick={() => {
+                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        if (pageId) updateAsset(pageId, selectedAsset.id, { flipY: !selectedAsset.flipY });
+                                                    }}
+                                                    className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent"
+                                                    title="Flip Vertical"
+                                                >
+                                                    <FlipVertical className="w-4 h-4" />
+                                                </button>
+
+                                                <button
+                                                    onClick={() => {
+                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        if (pageId) updateAsset(pageId, selectedAsset.id, { rotation: ((selectedAsset.rotation || 0) + 90) % 360 });
+                                                    }}
+                                                    className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent"
+                                                    title="Rotate 90°"
+                                                >
+                                                    <RotateCw className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        )}
 
                                         <div className="flex items-center gap-3">
-                                            <Button
-                                                variant="ghost"
-                                                disabled={album.config.isLocked || selectedAsset.isLocked}
-                                                onClick={() => {
-                                                    if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                    setEditorMode(selectedAsset.type === 'text' ? 'select' : 'mask');
-                                                }}
-                                                className="h-12 px-5 gap-3 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
-                                            >
-                                                <Pencil className="w-5 h-5 text-catalog-accent" />
-                                                <span className="text-[11px] font-black uppercase tracking-widest">{selectedAsset.type === 'text' ? 'Refine' : 'Crop'}</span>
-                                            </Button>
+                                            {selectedAsset.type === 'text' ? (
+                                                <Button
+                                                    variant="ghost"
+                                                    disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                    onClick={() => {
+                                                        if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                        const el = document.querySelector(`[data-text-asset-id="${selectedAsset.id}"]`) as HTMLElement;
+                                                        if (el) {
+                                                            el.focus();
+                                                            const range = document.createRange();
+                                                            const sel = window.getSelection();
+                                                            range.selectNodeContents(el);
+                                                            range.collapse(false);
+                                                            sel?.removeAllRanges();
+                                                            sel?.addRange(range);
+                                                        }
+                                                    }}
+                                                    className="h-12 px-5 gap-3 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
+                                                >
+                                                    <Pencil className="w-5 h-5 text-catalog-accent" />
+                                                    <span className="text-[11px] font-black uppercase tracking-widest">Edit Text</span>
+                                                </Button>
+                                            ) : (
+                                                <>
+                                                    <Button
+                                                        variant="ghost"
+                                                        disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                        onClick={() => {
+                                                            if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                            setEditorMode('mask');
+                                                        }}
+                                                        className="h-12 px-5 gap-3 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
+                                                    >
+                                                        <Scissors className="w-5 h-5 text-catalog-accent" />
+                                                        <span className="text-[11px] font-black uppercase tracking-widest">Crop</span>
+                                                    </Button>
+
+                                                    {(selectedAsset.type === 'image' || selectedAsset.type === 'frame') && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                            onClick={() => {
+                                                                if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                                setEditorMode('studio');
+                                                            }}
+                                                            className="h-12 px-5 gap-3 bg-purple-500/10 border border-purple-500/20 rounded-2xl hover:bg-purple-500/20 transition-all font-outfit text-purple-600"
+                                                        >
+                                                            <Wand2 className="w-5 h-5" />
+                                                            <span className="text-[11px] font-black uppercase tracking-widest">Studio</span>
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            )}
 
                                             <div className="flex items-center gap-1.5 p-1.5 bg-black/5 rounded-2xl border border-black/5">
                                                 <button
@@ -1136,7 +1290,7 @@ function AlbumEditorContent() {
                             )}
                         </div>
 
-                        <div className="flex items-center gap-6">
+                        <div className="flex items-center gap-4 shrink-0 px-2">
                             <div className="flex items-center gap-3 px-4 py-1.5 bg-black/5 rounded-full border border-black/5">
                                 <span className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Scalar</span>
                                 <span className="text-[10px] font-black text-catalog-accent tracking-widest">{Math.round(zoom * 100)}%</span>
@@ -1159,11 +1313,12 @@ function AlbumEditorContent() {
                         </div>
                     </div>
 
-                    <div
-                        className="flex-1 relative flex flex-col items-center justify-center bg-catalog-stone/5 p-8 overflow-hidden cursor-grab active:cursor-grabbing"
-                        onMouseDown={(e) => {
-                            if (e.button !== 0) return; // Only left click
-                            if (e.target !== e.currentTarget) return; // Only if clicking background
+                    <div className="flex-1 flex overflow-hidden w-full relative">
+                        <div
+                            className="flex-1 relative flex flex-col items-center justify-center bg-catalog-stone/5 p-8 overflow-hidden cursor-grab active:cursor-grabbing"
+                            onMouseDown={(e) => {
+                                if (e.button !== 0) return; // Only left click
+                                if (e.target !== e.currentTarget) return; // Only if clicking background
 
                             const startX = e.clientX;
                             const startY = e.clientY;
@@ -1213,12 +1368,15 @@ function AlbumEditorContent() {
                                                         <EditorCanvas
                                                             page={spread[0]}
                                                             nextPage={spread[1]}
-                                                            side="left" // Signifies this is the start of a spread
+                                                            side="single" // Signifies this is the start of a spread
                                                             showPrintSafe={showPrintSafe}
                                                             zoom={zoom}
-                                                            onPageSelect={setActivePageId}
-                                                            onOpenMapEditor={handleOpenMapEditor}
-                                                            onOpenLocationEditor={handleOpenLocationEditor}
+                                                            onPageSelect={(id: string) => setCurrentPageIndex(album.pages.findIndex(p => p.id === id))}
+                                                            onOpenMapEditor={(id: string) => { setSelectedAssetId(id); setShowMapModal(true); }}
+                                                            onOpenLocationEditor={(id: string) => { setSelectedAssetId(id); setShowLocationModal(true); }}
+                                                            onAssetClick={handleRearrangeClick}
+                                                            rearrangeFirstId={rearrangeFirstId}
+                                                            isRearrangeMode={isRearrangeMode}
                                                         />
                                                         {/* Gutter Guide */}
                                                         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-full z-10 pointer-events-none flex">
@@ -1245,9 +1403,12 @@ function AlbumEditorContent() {
                                                             side={side}
                                                             showPrintSafe={showPrintSafe}
                                                             zoom={zoom}
-                                                            onPageSelect={setActivePageId}
-                                                            onOpenMapEditor={handleOpenMapEditor}
-                                                            onOpenLocationEditor={handleOpenLocationEditor}
+                                                            onPageSelect={(id: string) => setCurrentPageIndex(album.pages.findIndex(p => p.id === id))}
+                                                            onOpenMapEditor={(id: string) => { setSelectedAssetId(id); setShowMapModal(true); }}
+                                                            onOpenLocationEditor={(id: string) => { setSelectedAssetId(id); setShowLocationModal(true); }}
+                                                            onAssetClick={handleRearrangeClick}
+                                                            rearrangeFirstId={rearrangeFirstId}
+                                                            isRearrangeMode={isRearrangeMode}
                                                         />
                                                     </div>
                                                 );
@@ -1255,90 +1416,90 @@ function AlbumEditorContent() {
                                         })()}
                                     </motion.div>
                                 </AnimatePresence>
+                        </div>
+                    
+                            {/* Navigation Arrows */}
+                            <div className="absolute inset-x-8 bottom-6 flex justify-between pointer-events-none z-50">
+                                <Button
+                                    variant="ghost"
+                                    className={cn(
+                                        "w-10 h-10 rounded-full bg-white/50 backdrop-blur-md shadow-xl pointer-events-auto border border-white/50 hover:bg-white hover:scale-110 transition-all",
+                                        currentPageIndex === 0 && "opacity-0 pointer-events-none"
+                                    )}
+                                    onClick={() => {
+                                        const prevPageIndex = Math.max(0, currentPageIndex - 1);
+                                        const prevSpread = getSpread(prevPageIndex);
+                                        const step = (album.config.useSpreadView && prevSpread.length > 1) ? 2 : 1;
+                                        setNavigationDirection('prev');
+                                        setCurrentPageIndex(Math.max(0, currentPageIndex - step));
+                                    }}
+                                >
+                                    <ChevronLeft className="w-6 h-6 text-catalog-accent" />
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    className={cn(
+                                        "w-10 h-10 rounded-full bg-white/50 backdrop-blur-md shadow-xl pointer-events-auto border border-white/50 hover:bg-white hover:scale-110 transition-all",
+                                        currentPageIndex >= album.pages.length - 1 && "opacity-0 pointer-events-none"
+                                    )}
+                                    onClick={() => {
+                                        const spread = getSpread(currentPageIndex);
+                                        const step = (album.config.useSpreadView && spread.length > 1) ? 2 : 1;
+                                        setNavigationDirection('next');
+                                        setCurrentPageIndex(Math.min(album.pages.length - 1, currentPageIndex + step));
+                                    }}
+                                >
+                                    <ChevronRight className="w-6 h-6 text-catalog-accent" />
+                                </Button>
                             </div>
                         </div>
                     </div>
-                    {/* Navigation Arrows */}
-                    <div className="absolute inset-x-8 bottom-6 flex justify-between pointer-events-none z-50">
-                        <Button
-                            variant="ghost"
-                            className={cn(
-                                "w-10 h-10 rounded-full bg-white/50 backdrop-blur-md shadow-xl pointer-events-auto border border-white/50 hover:bg-white hover:scale-110 transition-all",
-                                currentPageIndex === 0 && "opacity-0 pointer-events-none"
-                            )}
-                            onClick={() => {
-                                // If we are moving back FROM a spread start, we might need a step of 2
-                                // But it's easier to check the PREVIOUS spread
-                                const prevPageIndex = Math.max(0, currentPageIndex - 1);
-                                const prevSpread = getSpread(prevPageIndex);
-                                const step = (album.config.useSpreadView && prevSpread.length > 1) ? 2 : 1;
-
-                                setNavigationDirection('prev');
-                                setCurrentPageIndex(Math.max(0, currentPageIndex - step));
-                            }}
+                        {/* Right Sidebar: Properties & Layouts - MOVED TO GREEN POSITION */}
+                        <aside 
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-72 hidden md:flex flex-col glass border-l border-white/20 shadow-2xl z-[30] h-full overflow-hidden shrink-0"
                         >
-                            <ChevronLeft className="w-6 h-6 text-catalog-accent" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            className={cn(
-                                "w-10 h-10 rounded-full bg-white/50 backdrop-blur-md shadow-xl pointer-events-auto border border-white/50 hover:bg-white hover:scale-110 transition-all",
-                                currentPageIndex >= album.pages.length - 1 && "opacity-0 pointer-events-none"
-                            )}
-                            onClick={() => {
-                                const spread = getSpread(currentPageIndex);
-                                const step = (album.config.useSpreadView && spread.length > 1) ? 2 : 1;
+                            <div className="flex p-2 gap-1 bg-black/5">
+                                {['layouts', 'properties', 'layers'].map((tab) => (
+                                    <button
+                                        key={tab}
+                                        onClick={() => setActiveSidebarTab(tab as any)}
+                                        className={cn(
+                                            "flex-1 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all rounded-xl font-outfit",
+                                            activeSidebarTab === tab
+                                                ? "bg-white text-catalog-text shadow-sm border border-black/5"
+                                                : "text-catalog-text/40 hover:bg-white/40 hover:text-catalog-text"
+                                        )}
+                                    >
+                                        <span className="capitalize">{tab}</span>
+                                    </button>
+                                ))}
+                            </div>
 
-                                setNavigationDirection('next');
-                                setCurrentPageIndex(Math.min(album.pages.length - 1, currentPageIndex + step));
-                            }}
-                        >
-                            <ChevronRight className="w-6 h-6 text-catalog-accent" />
-                        </Button>
+                            <div className="flex-1 overflow-hidden relative">
+                                <AnimatePresence mode="wait">
+                                    <motion.div
+                                        key={activeSidebarTab}
+                                        initial={{ opacity: 0, x: 10 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="h-full"
+                                    >
+                                        {activeSidebarTab === 'properties' && (
+                                            <AssetControlPanel
+                                                editorMode={editorMode}
+                                                setEditorMode={setEditorMode}
+                                            />
+                                        )}
+                                        {activeSidebarTab === 'layers' && <LayersPanel activePageId={activePageId} />}
+                                        {activeSidebarTab === 'layouts' && <LayoutSidebar activePageId={activePageId || ''} />}
+                                    </motion.div>
+                                </AnimatePresence>
+                            </div>
+                        </aside>
                     </div>
                 </main>
-
-                {/* Right Sidebar: Properties & Layouts */}
-                <aside className="w-72 flex flex-col glass border-l border-white/20 shadow-2xl z-[30]">
-                    <div className="flex p-2 gap-1 bg-black/5">
-                        {['layouts', 'properties', 'layers'].map((tab) => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveSidebarTab(tab as any)}
-                                className={cn(
-                                    "flex-1 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] transition-all rounded-xl font-outfit",
-                                    activeSidebarTab === tab
-                                        ? "bg-white text-catalog-text shadow-sm border border-black/5"
-                                        : "text-catalog-text/40 hover:bg-white/40 hover:text-catalog-text"
-                                )}
-                            >
-                                <span className="capitalize">{tab}</span>
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="flex-1 overflow-hidden relative">
-                        <AnimatePresence mode="wait">
-                            <motion.div
-                                key={activeSidebarTab}
-                                initial={{ opacity: 0, x: 10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -10 }}
-                                transition={{ duration: 0.2 }}
-                                className="h-full"
-                            >
-                                {activeSidebarTab === 'properties' && (
-                                    <AssetControlPanel
-                                        editorMode={editorMode}
-                                        setEditorMode={setEditorMode}
-                                    />
-                                )}
-                                {activeSidebarTab === 'layers' && <LayersPanel activePageId={activePageId} />}
-                                {activeSidebarTab === 'layouts' && <LayoutSidebar activePageId={activePageId || ''} />}
-                            </motion.div>
-                        </AnimatePresence>
-                    </div>
-                </aside>
             </div>
 
             {/* Filmstrip */}
@@ -1448,7 +1609,7 @@ function AlbumEditorContent() {
                                     url: url,
                                     type: 'image',
                                     filename: file.name,
-                                    folder: 'Map Snapshots', // Dedicated folder
+                                    folder: album.title ? `Albums/${album.title.trim()}/Maps` : 'Map Snapshots', // Nested in album
                                     size: file.size,
                                     mime_type: file.type
                                 } as any);

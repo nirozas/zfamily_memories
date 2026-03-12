@@ -195,24 +195,26 @@ export class GooglePhotosService {
     static getCleanUrl(url: string | undefined | null): string {
         if (!url) return '';
         // Google Photos baseUrls are fragile. If they have a suffix starting with = or -, we strip it.
-        // This ensures that when we append =w400 or =dv, we don't end up with broken URLs.
-        return url.split('=')[0];
-    }
-
-    static getProxyUrl(googleUrl: string, token?: string | null, shareToken?: string | null): string {
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        if (!googleUrl) return '';
-
-        // DO NOT use getCleanUrl here.
-        // The caller constructs googleUrl precisely with the suffixes they need (=dv, =w400, etc).
-        let url = `${supabaseUrl}/functions/v1/get-google-media?url=${encodeURIComponent(googleUrl)}`;
-        if (token) {
-            url += `&token=${encodeURIComponent(token)}`;
-        }
-        if (shareToken) {
-            url += `&share_token=${encodeURIComponent(shareToken)}`;
+        // We only do this for googleusercontent or photoslibrary urls.
+        if (url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com')) {
+            return url.split('=')[0];
         }
         return url;
+    }
+
+    static getProxyUrl(googleUrl: string, token?: string | null, shareToken?: string | null, photoId?: string, isThumbnail?: boolean): string {
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+        let url = `${supabaseUrl}/functions/v1/get-google-media?`;
+        const params = new URLSearchParams();
+
+        if (googleUrl) params.append('url', googleUrl);
+        if (photoId) params.append('id', photoId);
+        if (token) params.append('token', token);
+        if (shareToken) params.append('share_token', shareToken);
+        if (isThumbnail) params.append('is_thumb', 'true');
+
+        return `${url}${params.toString()}`;
     }
 
     async downloadMediaItem(itemOrUrl: GoogleMediaItem | string): Promise<Blob> {
@@ -229,33 +231,44 @@ export class GooglePhotosService {
         const primary = `${cleanBaseUrl}${suffix}`;
         const highRes = `${cleanBaseUrl}=w9999-h9999`;
 
-        const tryFetch = async (url: string) => {
+        const tryFetch = async (label: string, url: string) => {
+            if (!url || !url.startsWith('http')) {
+                console.warn(`[GooglePhotos] Skipping download attempt (${label}): Invalid URL "${url}"`);
+                return null;
+            }
             try {
+                console.log(`[GooglePhotos] Attempting download (${label}): ${url.substring(0, 50)}...`);
                 // IMPORTANT: Always use our proxy to bypass CORS
                 const proxyUrl = GooglePhotosService.getProxyUrl(url, this.accessToken);
                 const res = await fetch(proxyUrl);
 
                 if (res.ok) {
                     const blob = await res.blob();
-                    if (blob.size > 0) return blob;
+                    if (blob.size > 0) {
+                        console.log(`[GooglePhotos] Successfully downloaded (${label}) - Size: ${blob.size} bytes`);
+                        return blob;
+                    }
+                } else {
+                    const errBody = await res.json().catch(() => ({}));
+                    console.warn(`[GooglePhotos] Download attempt (${label}) failed with status ${res.status}:`, errBody);
                 }
-            } catch (e) {
-                // Ignore errors in attempts
+            } catch (e: any) {
+                console.warn(`[GooglePhotos] Download attempt (${label}) failed with exception:`, e.message);
             }
             return null;
         };
 
         try {
-            // Try primary (usually with =d or =dv)
-            let blob = await tryFetch(primary);
+            // Priority 1: Primary (usually with =d or =dv)
+            let blob = await tryFetch('PRIMARY', primary);
             if (blob) return blob;
 
-            // Try raw baseUrl
-            blob = await tryFetch(baseUrl);
+            // Priority 2: Raw baseUrl
+            blob = await tryFetch('RAW', baseUrl);
             if (blob) return blob;
 
-            // Try high res fallback
-            blob = await tryFetch(highRes);
+            // Priority 3: High res fallback
+            blob = await tryFetch('HIGH_RES', highRes);
             if (blob) return blob;
 
             throw new Error('All download attempts failed to retrieve a valid media blob via proxy.');

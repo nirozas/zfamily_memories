@@ -12,7 +12,7 @@ interface CalendarEvent {
     title: string;
     date: Date;
     endDate?: Date;
-    type: 'album' | 'event';
+    type: 'album' | 'event' | 'stack';
     description?: string;
     location?: string;
     color: string;
@@ -20,7 +20,7 @@ interface CalendarEvent {
 }
 
 type ViewMode = 'month' | 'year' | 'timeline';
-type FilterType = 'all' | 'album' | 'event';
+type FilterType = 'all' | 'album' | 'event' | 'stack';
 
 export function Calendar() {
     const { familyId } = useAuth();
@@ -50,7 +50,8 @@ export function Calendar() {
         album: '#C7CEEA', // Blue-ish
         event: '#FFB7B2', // Red-ish
         highlight: '#B5EAD7', // Green-ish
-        today: '#FFDAC1' // Peach
+        today: '#FFDAC1', // Peach
+        stack: '#E0BBE4' // Purple-ish
     };
 
     useEffect(() => {
@@ -73,6 +74,12 @@ export function Calendar() {
             // Fetch Events
             const { data: eventsData } = await supabase
                 .from('events')
+                .select('*')
+                .eq('family_id', familyId);
+
+            // Fetch Stacks
+            const { data: stacksData } = await supabase
+                .from('stacks')
                 .select('*')
                 .eq('family_id', familyId);
 
@@ -123,6 +130,23 @@ export function Calendar() {
                 });
             });
 
+            // Process Stacks
+            (stacksData || []).forEach((stack: any) => {
+                const dateStr = stack.event_date || stack.created_at;
+                if (!dateStr) return;
+
+                normalizedEvents.push({
+                    id: stack.id,
+                    title: stack.title,
+                    date: new Date(dateStr),
+                    type: 'stack',
+                    description: stack.description,
+                    location: stack.location,
+                    color: PASTEL_COLORS.stack,
+                    image: stack.cover_url || (stack.media_items?.[0]?.url)
+                });
+            });
+
             setEvents(normalizedEvents);
         } catch (err) {
             console.error('Error fetching calendar data:', err);
@@ -162,6 +186,7 @@ export function Calendar() {
 
     const navToEvent = (evt: CalendarEvent) => {
         if (evt.type === 'album') navigate(`/album/${evt.id}`);
+        else if (evt.type === 'stack') navigate(`/stacks?id=${evt.id}`);
         else navigate(`/event/${evt.id}/view`);
     };
 
@@ -253,7 +278,7 @@ export function Calendar() {
                                                         isSingleDay ? "rounded-md" : "",
                                                         !isSingleDay && isStart ? "rounded-l-md" : "",
                                                         !isSingleDay && isEnd ? "rounded-r-md" : "",
-                                                        evt.type === 'album' ? "text-blue-900" : "text-red-900"
+                                                        evt.type === 'album' ? "text-blue-900" : (evt.type === 'stack' ? "text-purple-900" : "text-red-900")
                                                     )}
                                                     style={{ backgroundColor: evt.color }}
                                                     title={evt.title}
@@ -335,7 +360,10 @@ export function Calendar() {
                                                     <div className="mt-2 flex gap-2">
                                                         {evt.type === 'album' ?
                                                             <span className="text-[9px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">Album</span> :
-                                                            <span className="text-[9px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">Event</span>
+                                                            (evt.type === 'stack' ?
+                                                                <span className="text-[9px] bg-purple-50 text-purple-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">Stack</span> :
+                                                                <span className="text-[9px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase tracking-wide">Event</span>
+                                                            )
                                                         }
                                                     </div>
                                                 </div>
@@ -568,7 +596,7 @@ export function Calendar() {
                     </div>
                     <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto">
                         <Filter className="w-4 h-4 text-gray-400" />
-                        {(['all', 'album', 'event'] as const).map(ft => (
+                        {(['all', 'album', 'event', 'stack'] as const).map(ft => (
                             <button
                                 key={ft}
                                 onClick={() => setFilterType(ft)}

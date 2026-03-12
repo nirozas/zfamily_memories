@@ -8,9 +8,33 @@ import { EventMediaGallery } from '../components/events/EventMediaGallery';
 import { GlobalLightboxProvider, useGlobalLightbox } from '../components/ui/GlobalLightbox';
 import type { Event } from '../types/supabase';
 import { motion } from 'framer-motion';
+import { useAuth } from '../contexts/AuthContext';
+import { GooglePhotosService } from '../services/googlePhotos';
 
 const EventContent = ({ event }: { event: Event }) => {
     const { openLightbox } = useGlobalLightbox();
+    const { googleAccessToken } = useAuth();
+
+    // Resolve Google Photo URLs in description HTML
+    const resolvedDescription = (() => {
+        if (!event.description) return '';
+
+        // Find <img> tags and replace src with proxy URLs
+        return event.description.replace(/<img[^>]+src="([^">]+)"([^>]*)>/g, (match, src, rest) => {
+            // Extract data-google-id if it exists
+            const idMatch = rest.match(/data-google-id="([^"]+)"/);
+            const googleId = idMatch ? idMatch[1] : undefined;
+
+            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com');
+
+            if (googleId || isGoogleUrl) {
+                // If we have an ID, we prioritize it for resilience. If not, just proxy the URL.
+                const proxyUrl = GooglePhotosService.getProxyUrl(googleId ? '' : src, googleAccessToken, null, googleId);
+                return `<img src="${proxyUrl}" ${rest} crossOrigin="anonymous">`;
+            }
+            return match;
+        });
+    })();
 
     return (
         <article className="space-y-20 font-inter">
@@ -67,7 +91,7 @@ const EventContent = ({ event }: { event: Event }) => {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.5, duration: 1 }}
                 className="prose prose-lg md:prose-xl prose-catalog max-w-none font-serif leading-[2] text-catalog-text/70 selection:bg-catalog-accent/20 first-letter:text-7xl first-letter:font-black first-letter:text-catalog-accent first-letter:mr-3 first-letter:float-left drop-shadow-sm"
-                dangerouslySetInnerHTML={{ __html: event.description || '' }}
+                dangerouslySetInnerHTML={{ __html: resolvedDescription }}
                 onClick={(e: React.MouseEvent) => {
                     const target = e.target as HTMLElement;
                     if (target.tagName === 'IMG') {

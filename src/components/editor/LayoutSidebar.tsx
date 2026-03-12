@@ -1,7 +1,7 @@
 import { useState, useEffect, memo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAlbum } from '../../contexts/AlbumContext';
-import { Grid, Search, Plus, Layout as LayoutIcon, Eye, EyeOff, Trash2 } from 'lucide-react';
+import { Grid, Search, Plus, Layout as LayoutIcon, Eye, EyeOff } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface LayoutSelection {
@@ -82,7 +82,7 @@ const SkeletonThumbnail = ({ viewMode }: { viewMode: 'single' | 'spread' }) => (
 );
 
 export function LayoutSidebar({ activePageId }: LayoutSidebarProps) {
-    const { album, applyLayout, showLayoutOutlines, toggleLayoutOutlines, clearPageMedia } = useAlbum();
+    const { album, applyLayout, showLayoutOutlines, toggleLayoutOutlines } = useAlbum();
     const [layouts, setLayouts] = useState<LayoutSelection[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
@@ -161,49 +161,49 @@ export function LayoutSidebar({ activePageId }: LayoutSidebarProps) {
     return (
         <div className="flex flex-col h-full overflow-hidden font-outfit">
             {/* Advanced Navigation Header */}
-            <div className="p-6 border-b border-black/5 space-y-6 bg-black/5 backdrop-blur-md">
+            <div className="px-4 py-3 border-b border-black/5 space-y-3 bg-black/5 backdrop-blur-md">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-black text-catalog-text uppercase tracking-widest flex items-center gap-3">
-                        <div className="p-2 bg-white rounded-lg shadow-sm border border-black/5">
-                            <LayoutIcon className="w-4 h-4 text-catalog-accent" />
+                    <h3 className="text-[10px] font-black text-catalog-text uppercase tracking-widest flex items-center gap-2">
+                        <div className="p-1.5 bg-white rounded-lg shadow-sm border border-black/5">
+                            <LayoutIcon className="w-3.5 h-3.5 text-catalog-accent" />
                         </div>
                         Compositions
                     </h3>
                     <button
                         onClick={toggleLayoutOutlines}
                         className={cn(
-                            "flex items-center gap-2 px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border",
+                            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all border",
                             showLayoutOutlines
                                 ? "bg-catalog-accent text-white border-transparent shadow-lg shadow-catalog-accent/20"
                                 : "bg-white text-catalog-text/40 border-black/5 hover:bg-black/5"
                         )}
                         title={showLayoutOutlines ? "Hide Layout Outlines" : "Show Layout Outlines"}
                     >
-                        {showLayoutOutlines ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                        {showLayoutOutlines ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                         {showLayoutOutlines ? "GUIDES" : "OFF"}
                     </button>
                 </div>
 
                 {/* Filter Dropdowns */}
-                <div className="grid grid-cols-2 gap-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="space-y-1.5">
-                        <label className="text-[8px] font-black text-catalog-text/30 uppercase tracking-[0.2em] px-1">Asset Density</label>
+                <div className="grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
+                    <div className="space-y-1">
+                        <label className="text-[7px] font-black text-catalog-text/30 uppercase tracking-[0.2em] px-0.5">Asset Density</label>
                         <select
                             value={filterCount}
                             onChange={(e) => setFilterCount(e.target.value)}
-                            className="w-full bg-white border border-black/5 rounded-xl py-2 px-3 text-[10px] font-black text-catalog-text/60 focus:outline-none focus:ring-4 focus:ring-catalog-accent/10 appearance-none cursor-pointer uppercase tracking-widest transition-all"
+                            className="w-full bg-white border border-black/5 rounded-lg py-1.5 px-2 text-[9px] font-black text-catalog-text/60 focus:outline-none focus:ring-2 focus:ring-catalog-accent/10 appearance-none cursor-pointer uppercase tracking-widest transition-all"
                         >
                             {imageCountOptions.map(opt => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
                             ))}
                         </select>
                     </div>
-                    <div className="space-y-1.5">
-                        <label className="text-[8px] font-black text-catalog-text/30 uppercase tracking-[0.2em] px-1">Canvas Mode</label>
+                    <div className="space-y-1">
+                        <label className="text-[7px] font-black text-catalog-text/30 uppercase tracking-[0.2em] px-0.5">Canvas Mode</label>
                         <select
                             value={viewMode}
                             onChange={(e) => setViewMode(e.target.value as any)}
-                            className="w-full bg-white border border-black/5 rounded-xl py-2 px-3 text-[10px] font-black text-catalog-text/60 focus:outline-none focus:ring-4 focus:ring-catalog-accent/10 appearance-none cursor-pointer uppercase tracking-widest transition-all"
+                            className="w-full bg-white border border-black/5 rounded-lg py-1.5 px-2 text-[9px] font-black text-catalog-text/60 focus:outline-none focus:ring-2 focus:ring-catalog-accent/10 appearance-none cursor-pointer uppercase tracking-widest transition-all"
                         >
                             {viewModeOptions.map(opt => (
                                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -213,54 +213,19 @@ export function LayoutSidebar({ activePageId }: LayoutSidebarProps) {
                 </div>
 
                 <div className="relative group">
-                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-catalog-text/30 group-focus-within:text-catalog-accent transition-colors" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-catalog-text/30 group-focus-within:text-catalog-accent transition-colors" />
                     <input
                         type="text"
                         placeholder="Search archetypes..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-11 pr-4 py-2.5 text-xs bg-white border border-black/5 rounded-xl focus:outline-none focus:ring-4 focus:ring-catalog-accent/10 transition-all font-black uppercase tracking-widest placeholder:text-catalog-text/20 placeholder:font-black"
+                        className="w-full pl-9 pr-3 py-2 text-[10px] bg-white border border-black/5 rounded-lg focus:outline-none focus:ring-2 focus:ring-catalog-accent/10 transition-all font-black uppercase tracking-widest placeholder:text-catalog-text/20 placeholder:font-black"
                     />
                 </div>
             </div>
 
-            {/* Active Page Management Section */}
-            {(activePageId && album) && (
-                <div className="mx-6 mt-4 mb-2 p-4 glass-card border border-catalog-accent/20 rounded-2xl bg-catalog-accent/[0.02]">
-                    <div className="flex items-center justify-between mb-4">
-                        <span className="text-[9px] font-black text-catalog-accent uppercase tracking-[0.2em]">Active Page Context</span>
-                        <button
-                            onClick={() => {
-                                if (window.confirm("Are you sure you want to clear all media from this page?")) {
-                                    clearPageMedia(activePageId);
-                                }
-                            }}
-                            className="p-1.5 bg-white rounded-lg hover:bg-red-50 text-red-500 transition-all shadow-sm border border-black/5"
-                            title="Clear All Media"
-                        >
-                            <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                    </div>
-
-                    <div className="flex gap-6">
-                        <div className="flex flex-col">
-                            <span className="text-[7px] text-catalog-text/40 font-black uppercase tracking-widest">Composition</span>
-                            <span className="text-[10px] font-black text-catalog-text/80 uppercase">
-                                {album.pages.find(p => p.id === activePageId)?.layoutTemplate || 'Freeform'}
-                            </span>
-                        </div>
-                        <div className="flex flex-col">
-                            <span className="text-[7px] text-catalog-text/40 font-black uppercase tracking-widest">Occupancy</span>
-                            <span className="text-[10px] font-black text-catalog-text/80 uppercase">
-                                {album.pages.find(p => p.id === activePageId)?.assets.length || 0} Elements
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {/* Layout Grid */}
-            <div className="flex-1 overflow-y-auto content-scrollbar p-6">
+            <div className="flex-1 overflow-y-auto content-scrollbar p-4">
                 <div className={cn(
                     "grid gap-4 pb-12",
                     viewMode === 'spread' ? "grid-cols-1" : "grid-cols-2"

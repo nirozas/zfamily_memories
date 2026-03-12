@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -9,6 +10,20 @@ import {
 import MediaStackViewer, { type MediaItem } from '../components/media/MediaStackViewer';
 import { CreateStackModal } from '../components/media/CreateStackModal';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
+
+function StackMiniThumbnail({ item }: { item: { url: string; googlePhotoId?: string } }) {
+    const { url: displayUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
+    return (
+        <img
+            src={displayUrl}
+            alt=""
+            className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
+        />
+    );
+}
 
 interface Stack {
     id: string;
@@ -50,6 +65,8 @@ export function MediaStacks() {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+    const [searchParams, setSearchParams] = useSearchParams();
+    const stackIdFromUrl = searchParams.get('id');
 
     // Modal states
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -62,7 +79,10 @@ export function MediaStacks() {
     }, [familyId]);
 
     const fetchStacks = async () => {
-        if (!familyId) return;
+        if (!familyId) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
             const { data, error } = await (supabase
@@ -79,6 +99,13 @@ export function MediaStacks() {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        if (stackIdFromUrl && stacks.length > 0) {
+            const s = stacks.find(st => st.id === stackIdFromUrl);
+            if (s) setViewingStack(s);
+        }
+    }, [stackIdFromUrl, stacks]);
 
     const handleDeleteStack = async (id: string) => {
         if (!confirm('Delete this stack? This action cannot be undone.')) return;
@@ -137,7 +164,13 @@ export function MediaStacks() {
     };
 
     const handleViewStack = (stack: Stack) => {
+        setSearchParams({ id: stack.id });
         setViewingStack(stack);
+    };
+
+    const handleCloseViewer = () => {
+        setSearchParams({});
+        setViewingStack(null);
     };
 
     const handleShufflePlay = () => {
@@ -187,7 +220,7 @@ export function MediaStacks() {
 
     return (
         <div className="min-h-screen bg-catalog-stone/5 p-4 md:p-8 pt-20">
-            <div className="max-w-7xl mx-auto space-y-8">
+            <div className="w-full mx-auto space-y-8 px-4 md:px-8">
 
                 {/* ============ HEADER ============ */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-black/5 pb-8">
@@ -286,18 +319,7 @@ export function MediaStacks() {
                                                 <div className="absolute inset-0 flex gap-0.5">
                                                     {stack.media_items.slice(0, 3).map((item, i) => (
                                                         <div key={i} className="flex-1 overflow-hidden relative">
-                                                            {item.type === 'video' ? (
-                                                                <div className="w-full h-full bg-gray-800 flex items-center justify-center">
-                                                                    <PlaySquare className="w-6 h-6 text-white/30" />
-                                                                </div>
-                                                            ) : (
-                                                                <img
-                                                                    src={item.url}
-                                                                    alt=""
-                                                                    className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
-                                                                    referrerPolicy="no-referrer"
-                                                                />
-                                                            )}
+                                                            <StackMiniThumbnail item={item} />
                                                             {item.sticker && (
                                                                 <div className="absolute top-1 left-1 text-base drop-shadow">{item.sticker}</div>
                                                             )}
@@ -411,13 +433,11 @@ export function MediaStacks() {
                                         onClick={() => handleViewStack(stack)}>
                                         {/* Thumbnail */}
                                         <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-gray-100 shadow-sm bg-gray-100 flex items-center justify-center">
-                                            {stack.cover_url || stack.media_items?.[0]?.url ? (
-                                                <img
-                                                    src={stack.cover_url || stack.media_items[0].url}
-                                                    className="w-full h-full object-cover"
-                                                    referrerPolicy="no-referrer"
-                                                    alt={stack.title}
-                                                />
+                                            {stack.cover_url || (stack.media_items && stack.media_items.length > 0) ? (
+                                                <StackMiniThumbnail item={{ 
+                                                    url: stack.cover_url || stack.media_items[0].url,
+                                                    googlePhotoId: stack.media_items[0]?.googlePhotoId
+                                                }} />
                                             ) : (
                                                 <PlaySquare className="w-8 h-8 text-gray-300" />
                                             )}
@@ -510,11 +530,11 @@ export function MediaStacks() {
                         items={stackToViewerItems(viewingStack)}
                         initialIndex={0}
                         backgroundMusicUrl={viewingStack.music_url || undefined}
-                        onClose={() => setViewingStack(null)}
+                        onClose={handleCloseViewer}
                         onShare={() => handleShareStack(viewingStack)}
                         onEdit={() => {
                             setEditingStack(viewingStack);
-                            setViewingStack(null);
+                            handleCloseViewer();
                             setShowCreateModal(true);
                         }}
                         onDelete={() => handleDeleteStack(viewingStack.id)}

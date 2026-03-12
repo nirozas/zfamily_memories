@@ -33,7 +33,7 @@ import { motion } from 'framer-motion';
 export function EventEditor() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const { familyId, googleAccessToken } = useAuth();
+    const { familyId, googleAccessToken, signInWithGoogle } = useAuth();
     const editorRef = useRef<RichTextEditorRef>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [loading, setLoading] = useState(true);
@@ -201,8 +201,11 @@ export function EventEditor() {
                     const photosService = new GooglePhotosService(googleAccessToken);
                     const blob = await photosService.downloadMediaItem(asset);
                     const file = new File([blob], `google_import_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    const { url: storageUrl } = await storageService.uploadFile(file, 'event-assets', `events/${eventData.title}/`);
-                    if (storageUrl) finalUrl = storageUrl;
+                    const { url: storageUrl, googlePhotoId: storageGoogleId } = await storageService.uploadFile(file, 'event-assets', `events/${eventData.title}/`, undefined, googleAccessToken);
+                    if (storageUrl) {
+                        finalUrl = storageUrl;
+                        finalGoogleId = storageGoogleId || finalGoogleId;
+                    }
                 }
             } catch (e) {
                 console.error("Failed to persist remote asset, using direct link", e);
@@ -216,7 +219,7 @@ export function EventEditor() {
                     url: finalUrl,
                     type: 'image',
                     category: 'event',
-                    folder: eventData.title || 'Events',
+                    folder: eventData.title ? `Events/${eventData.title}` : 'Events',
                     filename: googleId ? `google_import_${Date.now()}.jpg` : `imported_${Date.now()}.jpg`,
                     size: 0,
                     uploaded_by: userData.user?.id,
@@ -226,7 +229,7 @@ export function EventEditor() {
 
             // Add to UI
             if (uploadTarget === 'story') {
-                editorRef.current?.insertImage(finalUrl);
+                editorRef.current?.insertImage(finalUrl, finalGoogleId);
             } else {
                 const newAsset = { url: finalUrl, type: 'image', googlePhotoId: finalGoogleId }; // Assume image for simplicity
                 // Use functional update to ensure fresh state
@@ -606,18 +609,31 @@ export function EventEditor() {
                                                         });
                                                         setCompressionProgress(null);
 
-                                                        const { url, error: uploadError } = await storageService.uploadFile(compressedFile, 'event-assets', `events/${eventData.title}/`);
+                                                        const { url, error: uploadError, googlePhotoId } = await storageService.uploadFile(
+                                                            compressedFile,
+                                                            'event-assets',
+                                                            `events/${eventData.title}/`,
+                                                            undefined,
+                                                            googleAccessToken
+                                                        );
                                                         if (uploadError) throw uploadError;
                                                         if (url) {
-                                                            if (uploadTarget === 'story') {
-                                                                // Insert video into story (as link or video tag? Tiptap image extension handles images. For video support we might need extension-video or just link.
-                                                                // For now, let's treat it as an asset if targeted for story but insert as link?)
-                                                                // Actually, let's force videos to Gallery for now or just insert as asset.
-                                                                // If story, maybe just alert user? Or add to gallery anyway.
-                                                                // Let's add directly to gallery assets even if target is story, because story rich text might not support video embedding easily yet.
-                                                                newAssets.push({ url, type: 'video', caption: file.name });
-                                                            } else {
-                                                                newAssets.push({ url, type: 'video', caption: file.name });
+                                                            newAssets.push({ url, type: 'video', caption: file.name, googlePhotoId });
+
+                                                            // Log to family_media
+                                                            if (familyId) {
+                                                                const { data: userData } = await supabase.auth.getUser();
+                                                                await supabase.from('family_media').insert({
+                                                                    family_id: familyId,
+                                                                    url: url,
+                                                                    type: 'video',
+                                                                    category: 'event',
+                                                                    folder: eventData.title ? `Events/${eventData.title}` : 'Events',
+                                                                    filename: file.name,
+                                                                    size: file.size,
+                                                                    uploaded_by: userData.user?.id,
+                                                                    metadata: googlePhotoId ? { googlePhotoId } : undefined
+                                                                } as any);
                                                             }
                                                         }
                                                     } catch (err) {
@@ -628,54 +644,40 @@ export function EventEditor() {
 
                                                 // Process Images
                                                 for (const file of imageFiles) {
-                                                    let finalUrl: string | null = null;
-                                                    let googlePhotoId: string | undefined;
+                                                    const { url: storageUrl, error: uploadError, googlePhotoId } = await storageService.uploadFile(
+                                                        file,
+                                                        'event-assets',
+                                                        `events/${eventData.title}/`,
+                                                        undefined,
+                                                        googleAccessToken
+                                                    );
 
-                                                    // Workflow #1: Upload to Google Photos
-                                                    if (googleAccessToken) {
-                                                        try {
-                                                            const photosService = new GooglePhotosService(googleAccessToken);
-                                                            const mediaItem = await photosService.uploadMedia(file, file.name);
-                                                            // We grab ID but prefer Storage URL for display stability
-                                                            googlePhotoId = mediaItem.id;
-                                                        } catch (err) {
-                                                            console.error('Google Photos upload failed for event:', err);
-                                                        }
+                                                    if (uploadError) {
+                                                        console.error('Bulk upload error:', uploadError);
+                                                        continue;
                                                     }
-
-                                                    // Workflow #2: Internal Storage (Always)
-                                                    const { url: storageUrl, error: uploadError } = await storageService.uploadFile(file, 'event-assets', `events/${eventData.title}/`);
 
                                                     if (storageUrl) {
-                                                        finalUrl = storageUrl;
-                                                    } else if (uploadError) {
-                                                        console.error('Bulk upload error:', uploadError);
-                                                    }
+                                                        // Log to family_media
+                                                        if (familyId) {
+                                                            const { data: userData } = await supabase.auth.getUser();
+                                                            await supabase.from('family_media').insert({
+                                                                family_id: familyId,
+                                                                url: storageUrl,
+                                                                type: 'image',
+                                                                category: 'event',
+                                                                folder: eventData.title ? `Events/${eventData.title}` : 'Events',
+                                                                filename: file.name,
+                                                                size: file.size,
+                                                                uploaded_by: userData.user?.id,
+                                                                metadata: googlePhotoId ? { googlePhotoId } : undefined
+                                                            } as any);
+                                                        }
 
-                                                    // Fallback: If Storage failed but Google succeeded, use Google URL (temporary but better than nothing)
-                                                    // (Optional: depending on preference. Here we skip if no storage URL for consistency)
-
-                                                    // Log to family_media
-                                                    if (finalUrl && familyId) {
-                                                        const { data: userData } = await supabase.auth.getUser();
-                                                        await supabase.from('family_media').insert({
-                                                            family_id: familyId,
-                                                            url: finalUrl,
-                                                            type: file.type.startsWith('image/') ? 'image' : 'video',
-                                                            category: 'event',
-                                                            folder: eventData.title || 'Events',
-                                                            filename: file.name,
-                                                            size: file.size,
-                                                            uploaded_by: userData.user?.id,
-                                                            metadata: googlePhotoId ? { googlePhotoId } : undefined
-                                                        } as any);
-                                                    }
-
-                                                    if (finalUrl) {
                                                         if (uploadTarget === 'story') {
-                                                            editorRef.current?.insertImage(finalUrl);
+                                                            editorRef.current?.insertImage(storageUrl, googlePhotoId);
                                                         } else {
-                                                            newAssets.push({ url: finalUrl, type: 'image', googlePhotoId } as any);
+                                                            newAssets.push({ url: storageUrl, type: 'image', googlePhotoId } as any);
                                                         }
                                                     }
                                                 }
@@ -832,7 +834,7 @@ export function EventEditor() {
                                             url: finalUrl,
                                             type: 'image',
                                             category: 'event',
-                                            folder: eventData.title || 'Events',
+                                            folder: eventData.title ? `Events/${eventData.title}` : 'Events',
                                             filename: file.name,
                                             size: file.size,
                                             uploaded_by: userData.user?.id,
@@ -932,6 +934,7 @@ export function EventEditor() {
                     onSelect={handleGooglePhotosSelect}
                     folders={['Events', eventData.title || ''].filter(Boolean)}
                     googleAccessToken={googleAccessToken || ''}
+                    onReauth={signInWithGoogle}
                 />
             )}
 

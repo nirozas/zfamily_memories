@@ -14,11 +14,15 @@ export function AuthCallback() {
             } else {
                 // If we got a Google refresh token, save it for proxying
                 if (session?.provider_refresh_token && session.user) {
-                    await (supabase.from('user_google_credentials' as any) as any).upsert({
-                        user_id: session.user.id,
-                        refresh_token: session.provider_refresh_token,
-                        updated_at: new Date().toISOString()
-                    });
+                    try {
+                        await (supabase.from('user_google_credentials' as any) as any).upsert({
+                            user_id: session.user.id,
+                            refresh_token: session.provider_refresh_token,
+                            updated_at: new Date().toISOString()
+                        });
+                    } catch (err) {
+                        console.warn('[AuthCallback] Failed to save Google credentials (table might be missing):', err);
+                    }
                 }
 
                 const target = localStorage.getItem('authRedirect');

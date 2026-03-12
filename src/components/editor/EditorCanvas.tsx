@@ -16,6 +16,9 @@ interface EditorCanvasProps {
     onPageSelect?: (pageId: string) => void;
     onOpenMapEditor?: (assetId: string) => void;
     onOpenLocationEditor?: (assetId: string) => void;
+    onAssetClick?: (assetId: string, pageId: string) => boolean;
+    rearrangeFirstId?: string | null;
+    isRearrangeMode?: boolean;
 }
 
 interface AssetRendererProps {
@@ -30,6 +33,7 @@ interface AssetRendererProps {
     canvasRef: React.RefObject<HTMLDivElement | null>;
     onDrop?: (e: React.DragEvent) => void;
     isInSlot?: boolean;
+    isRearrangeFirst?: boolean;
 }
 
 const SlotRenderer = memo(function SlotRenderer({
@@ -91,7 +95,7 @@ const SlotRenderer = memo(function SlotRenderer({
 const AssetRenderer = memo(function AssetRenderer({
     asset, isSelected, onClick, onDoubleClick,
     onContextMenu, pageId, side = 'single',
-    zoom, canvasRef, onDrop, isInSlot
+    zoom, canvasRef, onDrop, isInSlot, isRearrangeFirst
 }: AssetRendererProps) {
     const { updateAsset, album, commitHistory } = useAlbum();
     const [dragPos, setDragPos] = useState<{ x: number, y: number } | null>(null);
@@ -134,7 +138,7 @@ const AssetRenderer = memo(function AssetRenderer({
         const target = e.currentTarget as HTMLElement;
         const rect = target.getBoundingClientRect();
         const startPos = { x: e.clientX, y: e.clientY };
-        const startAsset = { x: asset.x, y: asset.y, w: asset.width, h: asset.height, r: asset.rotation || 0 };
+        const startAsset = { x: asset.x, y: asset.y, w: asset.width, h: asset.height, r: asset.rotation || 0, fontSize: asset.fontSize || 32 };
 
         const canvasRect = canvasRef.current?.getBoundingClientRect();
         if (!canvasRect) return;
@@ -158,6 +162,8 @@ const AssetRenderer = memo(function AssetRenderer({
                         updateAsset(pageId, asset.id, { rotation: angle }, { skipHistory: true });
                     } else {
                         let { x, y, w, h } = { ...startAsset };
+                        let nextFitMode = asset.fitMode;
+
                         if (handleType.includes('e')) w = Math.max(2, startAsset.w + dx_pct);
                         if (handleType.includes('w')) {
                             const nextW = Math.max(2, startAsset.w - dx_pct);
@@ -170,18 +176,35 @@ const AssetRenderer = memo(function AssetRenderer({
                             y = startAsset.y + (startAsset.h - nextH);
                             h = nextH;
                         }
-                        if (mv.shiftKey || asset.lockAspectRatio) {
+
+                        const isCorner = handleType.length === 2;
+                        const isSide = handleType.length === 1;
+
+                        // 1. Proportional Resize for Corners (DEFAULT for images)
+                        if (mv.shiftKey || ((asset.lockAspectRatio ?? true) && isCorner && (asset.type === 'image' || asset.type === 'video'))) {
                             const ratio = asset.aspectRatio || (startAsset.w / startAsset.h);
-                            if (handleType === 'e' || handleType === 'w') h = w / ratio;
+                            if (handleType.includes('e') || handleType.includes('w')) h = w / ratio;
                             else w = h * ratio;
+
+                            // If we resize proportionally, ensure we fill the box
+                            if (nextFitMode === 'fit') nextFitMode = 'cover';
                         }
-                        updateAsset(pageId, asset.id, { x, y, width: w, height: h }, { skipHistory: true });
+                        // 2. Stretching for Sides
+                        else if (isSide && (asset.type === 'image' || asset.type === 'video')) {
+                            nextFitMode = 'stretch';
+                        }
+
+                        let additionalProps: any = {};
+                        if (asset.type === 'text' && isCorner) {
+                            const scaleRatio = w / startAsset.w;
+                            additionalProps.fontSize = Math.max(6, Math.round(startAsset.fontSize * scaleRatio));
+                        }
+
+                        updateAsset(pageId, asset.id, { x, y, width: w, height: h, fitMode: nextFitMode, ...additionalProps }, { skipHistory: true });
                     }
                 } else {
                     let nx = startAsset.x + dx_pct;
                     let ny = startAsset.y + dy_pct;
-                    nx = Math.max(0, Math.min(100 - asset.width, nx));
-                    ny = Math.max(0, Math.min(100 - asset.height, ny));
                     updateAsset(pageId, asset.id, { x: nx, y: ny }, { skipHistory: true });
                 }
                 setDragPos({ x: mv.clientX, y: mv.clientY });
@@ -228,13 +251,14 @@ const AssetRenderer = memo(function AssetRenderer({
                     opacity: (asset.opacity ?? 100) / 100,
                     zIndex: asset.zIndex || 0,
                 }}
-                transition={{ type: "tween", duration: 0.1 }}
+                transition={{ type: "tween", duration: dragPos ? 0 : 0.1 }}
                 className={cn(
                     "absolute cursor-move group/asset",
                     !isSelected && !asset.isHidden && "hover:ring-1 hover:ring-catalog-accent/30",
                     isDragOver && !asset.isPlaceholder && "ring-2 ring-catalog-accent shadow-xl scale-[1.02] z-[100]",
                     asset.isHidden && "opacity-0 pointer-events-none",
                     isSelected && "z-50",
+                    isRearrangeFirst && "ring-4 ring-purple-500 ring-offset-4 ring-offset-purple-50 z-[60] scale-[1.02]",
                     asset.isLocked && "cursor-default"
                 )}
                 style={{ transformOrigin: '0 0' }}
@@ -264,6 +288,7 @@ const AssetRenderer = memo(function AssetRenderer({
     return (
         prev.asset === next.asset &&
         prev.isSelected === next.isSelected &&
+        prev.isRearrangeFirst === next.isRearrangeFirst &&
         prev.zoom === next.zoom &&
         prev.side === next.side &&
         prev.pageId === next.pageId
@@ -272,7 +297,8 @@ const AssetRenderer = memo(function AssetRenderer({
 
 export const EditorCanvas = memo(function EditorCanvas({
     page, nextPage, side = 'single',
-    showPrintSafe = true, zoom, onPageSelect, onOpenMapEditor, onOpenLocationEditor
+    showPrintSafe = true, zoom, onPageSelect, onOpenMapEditor, onOpenLocationEditor,
+    onAssetClick, rearrangeFirstId, isRearrangeMode
 }: EditorCanvasProps) {
     const {
         album, selectedAssetId, setSelectedAssetId, updateAsset,
@@ -312,9 +338,15 @@ export const EditorCanvas = memo(function EditorCanvas({
 
     const handleAssetClick = useCallback((assetId: string, pageId: string, e: React.MouseEvent) => {
         e.stopPropagation();
+
+        // Intercept for rearrange mode if handler exists and returns true
+        if (onAssetClick && onAssetClick(assetId, pageId)) {
+            return;
+        }
+
         setSelectedAssetId(assetId);
         if (onPageSelect) onPageSelect(pageId);
-    }, [onPageSelect, setSelectedAssetId]);
+    }, [onPageSelect, setSelectedAssetId, onAssetClick]);
 
     const handleCanvasClick = useCallback((e: React.MouseEvent) => {
         setSelectedAssetId(null);
@@ -341,7 +373,19 @@ export const EditorCanvas = memo(function EditorCanvas({
             const dropY_Pct = (clickY / (rect.height / zoomFactor)) * 100;
             let targetPageId = page.id;
             let localX = dropX_Pct;
-            if (nextPage && dropX_Pct > 100) { targetPageId = nextPage.id; localX = dropX_Pct - 100; }
+
+            // If dropping on the right side of a spread
+            if (nextPage && dropX_Pct > 100) {
+                // IF the current page is a spread layout, we still target the left page (container for the spread)
+                if (page.isSpreadLayout) {
+                    targetPageId = page.id;
+                    localX = dropX_Pct; // Keep it as 100+ for the spread slots
+                } else {
+                    targetPageId = nextPage.id;
+                    localX = dropX_Pct - 100;
+                }
+            }
+
             const targetPageObj = targetPageId === page.id ? page : nextPage;
             if (targetPageObj) {
                 // 1. Check for placeholders
@@ -351,7 +395,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                     return;
                 }
 
-                // 2. Check for empty layout slots
+                // 2. Check for layout slots
                 const layoutCfg = targetPageObj.layoutConfig || [];
                 const hitSlot = layoutCfg.find((box: any, idx: number) => {
                     if (box.role !== 'slot') return false;
@@ -366,7 +410,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                     addAsset(targetPageId, {
                         type: data.type || 'image',
                         url: data.url,
-                        x: 0, y: 0, width: 100, height: 100,
+                        x: hitSlot.left || 0, y: hitSlot.top || 0, width: hitSlot.width || 100, height: hitSlot.height || 100,
                         zIndex: 10,
                         rotation: 0,
                         slotId: slotIdx,
@@ -390,7 +434,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                     w *= scale; h *= scale;
                 }
                 if (!isBackground && !isFrame) h = w / ratio;
-                addAsset(targetPageId, { type: isFrame ? 'frame' : (assetType as any), url: url, x: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - w, localX - (w / 2))), y: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - h, dropY_Pct - (h / 2))), width: w, height: h, originalDimensions: { width: natW, height: natH }, rotation: 0, zIndex: isFrame ? 50 : (isBackground ? 0 : (targetPageObj?.assets.length || 0) + 10), aspectRatio: ratio, fitMode: isBackground ? 'cover' : 'fit', lockAspectRatio: true, category: category || data.category } as any);
+                addAsset(targetPageId, { type: isFrame ? 'frame' : (assetType as any), url: url, x: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - w, localX - (w / 2))), y: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - h, dropY_Pct - (h / 2))), width: w, height: h, originalDimensions: { width: natW, height: natH }, rotation: 0, zIndex: isFrame ? 50 : (isBackground ? 0 : (targetPageObj?.assets.length || 0) + 10), aspectRatio: ratio, fitMode: isBackground ? 'cover' : 'cover', lockAspectRatio: true, category: category || data.category } as any);
             };
             if (data.type === 'video') {
                 const video = document.createElement('video'); video.src = data.url;
@@ -414,10 +458,13 @@ export const EditorCanvas = memo(function EditorCanvas({
             if (data.type === 'image' || !data.type) {
                 if (assetId.startsWith('slot-')) {
                     const slotIndex = parseInt(assetId.replace('slot-', ''));
+                    const p = album?.pages.find(pg => pg.id === pageId);
+                    const slotBox = p?.layoutConfig?.[slotIndex];
+
                     addAsset(pageId, {
                         type: 'image',
                         url: data.url,
-                        x: 0, y: 0, width: 100, height: 100,
+                        x: slotBox?.left || 0, y: slotBox?.top || 0, width: slotBox?.width || 100, height: slotBox?.height || 100,
                         zIndex: 10,
                         rotation: 0,
                         slotId: slotIndex,
@@ -450,11 +497,22 @@ export const EditorCanvas = memo(function EditorCanvas({
                             return asset ? (
                                 <AssetRenderer
                                     key={`slot-${targetPage.id}-${index}`}
-                                    asset={asset} pageId={targetPage.id} side={targetSide} isSelected={selectedAssetId === asset.id}
+                                    asset={{
+                                        ...asset,
+                                        x: box.left,
+                                        y: box.top,
+                                        width: box.width,
+                                        height: box.height
+                                    }}
+                                    pageId={targetPage.id}
+                                    side={targetSide}
+                                    isSelected={selectedAssetId === asset.id}
+                                    isRearrangeFirst={rearrangeFirstId === asset.id}
                                     onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
                                     onDoubleClick={() => setFocalEditorAsset({ asset, pageId: targetPage.id })}
                                     onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)}
-                                    zoom={zoom} canvasRef={canvasRef}
+                                    zoom={zoom}
+                                    canvasRef={canvasRef}
                                     onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)}
                                     isInSlot={true}
                                 />
@@ -496,6 +554,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                                 pageId={targetPage.id}
                                 side={targetSide}
                                 isSelected={selectedAssetId === box.id}
+                                isRearrangeFirst={rearrangeFirstId === box.id}
                                 zoom={zoom}
                                 canvasRef={canvasRef}
                                 onClick={(e) => handleAssetClick(box.id, targetPage.id, e)}
@@ -505,7 +564,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                         );
                     })}
 
-                    {/* 2. Text Layers */}
+                    {/* 2. Text Layers (Unified) */}
                     {textLayers.map((layer: any) => {
                         const textAsset = {
                             id: layer.id,
@@ -527,21 +586,57 @@ export const EditorCanvas = memo(function EditorCanvas({
                                 pageId={targetPage.id}
                                 side={targetSide}
                                 isSelected={selectedAssetId === layer.id}
+                                isRearrangeFirst={rearrangeFirstId === layer.id}
                                 zoom={zoom}
                                 canvasRef={canvasRef}
                                 onClick={(e) => handleAssetClick(layer.id, targetPage.id, e)}
+                                onDoubleClick={() => {
+                                    const el = document.querySelector(`[data-text-asset-id="${layer.id}"]`) as HTMLElement;
+                                    if (el) el.focus();
+                                }}
                                 onContextMenu={(e) => handleContextMenu(e, layer.id, targetPage.id)}
                                 isInSlot={true}
                             />
                         );
                     })}
+
+                    {/* 3. Freeform Assets (not in slots) */}
+                    {targetPage.assets.filter(a => a.slotId === null || a.slotId === undefined).map((asset: Asset) => (
+                        <AssetRenderer
+                            key={asset.id}
+                            asset={asset}
+                            pageId={targetPage.id}
+                            side={targetSide}
+                            isSelected={selectedAssetId === asset.id}
+                            isRearrangeFirst={rearrangeFirstId === asset.id}
+                            onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
+                            onDoubleClick={() => {
+                                if (asset.type === 'text') {
+                                    const el = document.querySelector(`[data-text-asset-id="${asset.id}"]`) as HTMLElement;
+                                    if (el) el.focus();
+                                }
+                                else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
+                                else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
+                                else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
+                            }}
+                            onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)}
+                            zoom={zoom}
+                            canvasRef={canvasRef}
+                            onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)}
+                        />
+                    ))}
                 </>
             );
         }
 
         return [...targetPage.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset: Asset) => (
             <AssetRenderer
-                key={asset.id} asset={asset} pageId={targetPage.id} side={targetSide} isSelected={selectedAssetId === asset.id}
+                key={asset.id}
+                asset={asset}
+                pageId={targetPage.id}
+                side={targetSide}
+                isSelected={selectedAssetId === asset.id}
+                isRearrangeFirst={rearrangeFirstId === asset.id}
                 onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
                 onDoubleClick={() => {
                     if (asset.type === 'text') {
@@ -554,14 +649,27 @@ export const EditorCanvas = memo(function EditorCanvas({
                     else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
                 }}
                 onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)}
-                zoom={zoom} canvasRef={canvasRef}
+                zoom={zoom}
+                canvasRef={canvasRef}
                 onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)}
             />
         ));
     };
 
     return (
-        <div onMouseDown={handleCanvasClick} onDragOver={(e) => e.preventDefault()} onDrop={handleDrop} className="relative transition-all duration-300 select-none editor-canvas" data-page-id={page.id} data-side={side} style={getSizeStyles()} ref={canvasRef}>
+        <div
+            onMouseDown={handleCanvasClick}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleDrop}
+            className={cn(
+                "relative transition-all duration-300 select-none editor-canvas",
+                isRearrangeMode && "cursor-crosshair"
+            )}
+            data-page-id={page.id}
+            data-side={side}
+            style={getSizeStyles()}
+            ref={canvasRef}
+        >
             {page.backgroundImage && (
                 <img
                     src={page.backgroundImage || undefined}

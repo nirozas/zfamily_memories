@@ -9,30 +9,83 @@ import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { storageService } from '../services/storage';
-import { GooglePhotosService } from '../services/googlePhotos';
+import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 import { WorldMapPreview } from '../components/home/WorldMapPreview';
 import { ImageCropper } from '../components/ui/ImageCropper';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
-import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload } from 'lucide-react';
+import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play } from 'lucide-react';
 import type { Event, Profile } from '../types/supabase';
 import { motion } from 'framer-motion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
+import { AlbumPage } from '../components/viewer/AlbumPage';
+
 const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=100&w=3840&auto=format&fit=crop';
+
+function HomeMediaItem({ item }: { item: any }) {
+    const { url: resolvedUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url);
+    const displayUrl = resolvedUrl || item.url;
+
+    if (item.type === 'video') {
+        return (
+            <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                <PlaySquare className="w-6 h-6 text-white/30" />
+            </div>
+        );
+    }
+
+    return (
+        <img
+            src={displayUrl}
+            alt=""
+            className="w-full h-full object-cover grayscale-[0.2] transition-all duration-700 group-hover:grayscale-0 group-hover:scale-110"
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
+        />
+    );
+}
 
 export function Home() {
     const { familyId, userRole, googleAccessToken, loading: authLoading } = useAuth();
     const navigate = useNavigate();
     const [recentEvents, setRecentEvents] = useState<Event[]>([]);
     const [recentAlbums, setRecentAlbums] = useState<any[]>([]);
+    const [recentStacks, setRecentStacks] = useState<any[]>([]);
     const [familyMembers, setFamilyMembers] = useState<Profile[]>([]);
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
     const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
     // newMemberName removed — replaced by invite code flow (Fix #4)
     const [heroImageUrl, setHeroImageUrl] = useState(DEFAULT_HERO_IMAGE);
+    const [heroImageId, setHeroImageId] = useState<string | undefined>();
+    const { url: resolvedHeroUrl } = useGooglePhotosUrl(heroImageId, heroImageUrl);
     const [isUploadingHero, setIsUploadingHero] = useState(false);
-    const [showCropper, setShowCropper] = useState<{ src: string } | null>(null);
+    const [showCropper, setShowCropper] = useState<{ src: string, file?: File, item?: any } | null>(null);
+
+    const handleSkipCrop = async () => {
+        if (!showCropper || !activeTarget) return;
+        const { file, item } = showCropper;
+        setShowCropper(null);
+
+        try {
+            if (activeTarget === 'hero') {
+                if (file) {
+                    await processHeroUpdate(file, 'file');
+                } else if (item) {
+                    await processHeroUpdate(item.url, 'url', item.id);
+                }
+            } else if (activeTarget) {
+                // Event Cover Update
+                if (file) {
+                    await processEventCoverUpdate(activeTarget, file, undefined, 'file');
+                } else if (item) {
+                    await processEventCoverUpdate(activeTarget, item.url, item.id, 'url');
+                }
+            }
+        } catch (e) {
+            console.error("Skip crop processing failed", e);
+        }
+    };
     const heroInputRef = useRef<HTMLInputElement>(null);
 
     // Media Picker State
@@ -40,7 +93,7 @@ export function Home() {
     const [showSourceModal, setShowSourceModal] = useState(false);
     const [activeTarget, setActiveTarget] = useState<'hero' | string | null>(null); // 'hero' or eventId
 
-    const isAdmin = userRole === 'admin';
+    const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
     useDocumentTitle('Home');
 
@@ -50,17 +103,23 @@ export function Home() {
             if (!familyId) return;
             try {
                 const { data } = await (supabase.from('family_settings' as any) as any)
-                    .select('hero_image_url')
+                    .select('hero_image_url, hero_image_id')
                     .eq('family_id', familyId)
                     .maybeSingle();
                 if (data?.hero_image_url) {
                     setHeroImageUrl(data.hero_image_url);
+                    if (data.hero_image_id) setHeroImageId(data.hero_image_id);
                 } else {
                     // Fallback: migrate from localStorage if exists
                     const cached = localStorage.getItem(`family_hero_${familyId}`);
                     if (cached) setHeroImageUrl(cached);
                 }
-            } catch {
+            } catch (err: any) {
+                if (err?.status === 404 || err?.code === 'PGRST116') { // PGRST116 is sometimes returned for missing tables/mismatch
+                    console.warn('[Home] family_settings table not found, using localStorage fallback');
+                } else {
+                    console.error('[Home] Error loading hero image:', err);
+                }
                 const cached = localStorage.getItem(`family_hero_${familyId}`);
                 if (cached) setHeroImageUrl(cached);
             }
@@ -75,42 +134,33 @@ export function Home() {
         // Show cropper first
         const reader = new FileReader();
         reader.onload = () => {
-            setShowCropper({ src: reader.result as string });
+            setShowCropper({ src: reader.result as string, file });
         };
         reader.readAsDataURL(file);
     };
 
     // Unified Handler for Hero Update — Fix #1 (DB) & Fix #6 (no double-upload)
-    const processHeroUpdate = async (url: string | File, type: 'file' | 'url' = 'url') => {
+    const processHeroUpdate = async (url: string | File, type: 'file' | 'url' = 'url', googleId?: string) => {
         if (!familyId) return;
         setIsUploadingHero(true);
 
         try {
             let finalUrl: string | null = null;
-            let googlePhotoId: string | undefined;
+            let googlePhotoId: string | undefined = googleId;
 
             if (type === 'file') {
                 const file = url as File;
-                // Workflow #1: Use Google Photos if connected
-                if (googleAccessToken) {
-                    try {
-                        const photosService = new GooglePhotosService(googleAccessToken);
-                        const mediaItem = await photosService.uploadMedia(file, 'Family Archive Hero Image');
-                        finalUrl = mediaItem.baseUrl || null;
-                        googlePhotoId = mediaItem.id;
-                    } catch (err) {
-                        console.error('Google Photos hero upload failed, falling back to Supabase Storage:', err);
-                    }
-                }
+                const { url: storageUrl, googlePhotoId: storageId } = await storageService.uploadFile(
+                    file,
+                    'album-assets',
+                    `events/cover/${familyId}/${Date.now()}/`,
+                    undefined,
+                    googleAccessToken
+                );
 
-                // Workflow #2: Fallback to Supabase Storage ONLY if Google Photos did not succeed
-                if (!finalUrl) {
-                    const { url: storageUrl } = await storageService.uploadFile(
-                        file,
-                        'album-assets',
-                        `hero/${familyId}/${Date.now()}/`
-                    );
-                    if (storageUrl) finalUrl = storageUrl;
+                if (storageUrl) {
+                    finalUrl = storageUrl;
+                    googlePhotoId = storageId;
                 }
             } else {
                 finalUrl = url as string;
@@ -118,15 +168,35 @@ export function Home() {
 
             if (finalUrl) {
                 setHeroImageUrl(finalUrl);
+                if (googlePhotoId) setHeroImageId(googlePhotoId);
+
                 // Also cache locally for instant display on next load
                 localStorage.setItem(`family_hero_${familyId}`, finalUrl);
+                if (googlePhotoId) localStorage.setItem(`family_hero_id_${familyId}`, googlePhotoId);
 
-                // Persist to DB so it works across devices (Fix #1)
-                await (supabase.from('family_settings' as any) as any).upsert({
-                    family_id: familyId,
-                    hero_image_url: finalUrl,
-                    updated_at: new Date().toISOString(),
-                }, { onConflict: 'family_id' });
+                // Persist to DB so it works across devices (Fix #1) - Replaced upsert with manual check
+                const { data: existingSettings } = await (supabase
+                    .from('family_settings' as any) as any)
+                    .select('family_id')
+                    .eq('family_id', familyId)
+                    .maybeSingle();
+
+                if (existingSettings) {
+                    await (supabase.from('family_settings' as any) as any)
+                        .update({
+                            hero_image_url: finalUrl,
+                            hero_image_id: googlePhotoId || null,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('family_id', familyId);
+                } else {
+                    await (supabase.from('family_settings' as any) as any).insert({
+                        family_id: familyId,
+                        hero_image_url: finalUrl,
+                        hero_image_id: googlePhotoId || null,
+                        updated_at: new Date().toISOString()
+                    });
+                }
 
                 // Register in media library
                 const { data: userData } = await supabase.auth.getUser();
@@ -190,7 +260,7 @@ export function Home() {
         // Open cropper with the selected URL
         // Note: For Google Photos or external URLs without CORS, this might fail on the canvas step.
         // We rely on the user selecting internal library assets or proxyable URLs.
-        setShowCropper({ src: item.url });
+        setShowCropper({ src: item.url, item });
     };
 
     // Refactored Event Cover Update to shared function
@@ -202,27 +272,17 @@ export function Home() {
             const file = source as File;
             setIsUpdatingCover(eventId);
             try {
-                // Workflow #1: Upload to Google Photos if connected
-                if (googleAccessToken) {
-                    try {
-                        const photosService = new GooglePhotosService(googleAccessToken);
-                        const mediaItem = await photosService.uploadMedia(file, `Event Cover: ${eventId}`);
-                        // Prioritize preserving the original ID
-                        googlePhotoId = mediaItem.id;
-                    } catch (err) {
-                        console.error('Google Photos upload failed:', err);
-                    }
-                }
-
-                // Workflow #2: Internal Storage
-                const { url: storageUrl } = await storageService.uploadFile(
+                const { url: storageUrl, googlePhotoId: storageId } = await storageService.uploadFile(
                     file,
                     'album-assets',
-                    `events/${eventId}/cover/`
+                    `events/${eventId}/cover/`,
+                    undefined,
+                    googleAccessToken
                 );
 
                 if (storageUrl) {
                     finalUrl = storageUrl;
+                    googlePhotoId = storageId || googleId;
 
                     // Log to media library
                     const { data: userData } = await supabase.auth.getUser();
@@ -295,7 +355,7 @@ export function Home() {
         // Show cropper for uploaded file too
         const reader = new FileReader();
         reader.onload = () => {
-            setShowCropper({ src: reader.result as string });
+            setShowCropper({ src: reader.result as string, file });
         };
         reader.readAsDataURL(file);
 
@@ -335,6 +395,13 @@ export function Home() {
                                 url,
                                 asset_type
                             )
+                        ),
+                        album_pages (
+                            id,
+                            page_number,
+                            layout_json,
+                            background_config,
+                            layout_template
                         )
                     `)
                     .eq('family_id', familyId)
@@ -342,18 +409,52 @@ export function Home() {
 
 
                 if (albums) {
-                    const formatted = (albums || []).map((album: any) => ({
-                        ...album,
-                        cover_url: album.cover_image_url,
-                        pages: album.pages?.map((page: any) => ({
-                            ...page,
-                            layoutTemplate: page.template_id,
-                            assets: page.assets?.map((asset: any) => ({
-                                ...asset,
-                                type: asset.asset_type
-                            }))
-                        })).sort((a: any, b: any) => a.page_number - b.page_number)
-                    }));
+                    const formatted = (albums || []).map((album: any) => {
+                        let parsedPages = [];
+                        
+                        // Pick album_pages if unified schema, otherwise fallback to legacy pages
+                        if (album.album_pages && album.album_pages.length > 0) {
+                            parsedPages = album.album_pages.map((ap: any) => {
+                                let layoutJson = ap.layout_json || {};
+                                let assets = [];
+                                let slots = undefined;
+                                if (Array.isArray(layoutJson)) {
+                                    assets = layoutJson;
+                                } else if (layoutJson && typeof layoutJson === 'object') {
+                                    assets = layoutJson.assets || [];
+                                    slots = layoutJson.slots;
+                                }
+                                
+                                // Return loosely as a Page object
+                                return {
+                                    id: ap.id,
+                                    pageNumber: ap.page_number,
+                                    layoutTemplate: ap.layout_template,
+                                    backgroundColor: ap.background_config?.color || '#ffffff',
+                                    backgroundImage: ap.background_config?.imageUrl,
+                                    backgroundOpacity: ap.background_config?.opacity,
+                                    layoutConfig: slots,
+                                    assets: assets.map((a: any) => ({ ...a, url: a.url || a.content?.url, type: a.type || a.content?.type || 'image', x: a.x ?? a.position?.x ?? 50, y: a.y ?? a.position?.y ?? 50, width: a.width ?? a.size?.width ?? 20, height: a.height ?? a.size?.height ?? 20 }))
+                                };
+                            }).sort((a: any, b: any) => a.pageNumber - b.pageNumber);
+                        } else {
+                            parsedPages = album.pages?.map((page: any) => ({
+                                id: page.id,
+                                pageNumber: page.page_number,
+                                layoutTemplate: page.template_id,
+                                assets: page.assets?.map((asset: any) => ({
+                                    ...asset,
+                                    type: asset.asset_type
+                                }))
+                            })).sort((a: any, b: any) => a.pageNumber - b.pageNumber) || [];
+                        }
+
+                        return {
+                            ...album,
+                            cover_url: album.cover_image_url,
+                            pages: parsedPages
+                        };
+                    });
                     setRecentAlbums(formatted);
                 }
 
@@ -364,6 +465,16 @@ export function Home() {
                     .eq('family_id', familyId);
 
                 if (profiles) setFamilyMembers(profiles);
+
+                // Fetch recent stacks
+                const { data: stacks } = await supabase
+                    .from('stacks' as any)
+                    .select('*')
+                    .eq('family_id', familyId)
+                    .order('created_at', { ascending: false })
+                    .limit(6);
+
+                if (stacks) setRecentStacks(stacks);
 
             } catch (error) {
                 console.error('Error fetching home data:', error);
@@ -441,7 +552,7 @@ export function Home() {
             <section className="relative h-[65vh] w-full overflow-hidden group">
                 <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-catalog-stone/5 z-10" />
                 <img
-                    src={heroImageUrl}
+                    src={resolvedHeroUrl || heroImageUrl}
                     alt="Family Archive"
                     className="w-full h-full object-cover transition-transform duration-[3s] group-hover:scale-110"
                     style={{ imageRendering: '-webkit-optimize-contrast' }}
@@ -494,7 +605,7 @@ export function Home() {
                 )}
             </section>
 
-            <div className="container-fluid max-w-[1400px] mx-auto px-6 space-y-24">
+            <div className="w-full px-6 space-y-24">
 
                 {/* 2. Highlights Section (Recent Events) */}
                 <section className="space-y-10">
@@ -624,6 +735,129 @@ export function Home() {
                     </div>
                 </section>
 
+                {/* 2.5 Recent Memories (Stacks) */}
+                <section className="space-y-10">
+                    <div className="flex items-center justify-between border-b border-black/5 pb-8 relative">
+                        <div className="space-y-2">
+                            <h2 className="text-sm font-black text-purple-600 uppercase tracking-[0.4em] font-outfit">Memory Fragments</h2>
+                            <p className="text-3xl md:text-5xl font-outfit font-black text-catalog-text tracking-tighter">Memories</p>
+                        </div>
+                        <Link to="/stacks" className="group flex items-center gap-4 bg-purple-50 px-6 py-3 rounded-2xl hover:bg-purple-600 hover:text-white transition-all duration-500 hover:-translate-y-1 shadow-sm">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-purple-600 group-hover:text-white">All Memories</span>
+                            <div className="w-6 h-6 bg-purple-600 group-hover:bg-white rounded-lg flex items-center justify-center transition-colors">
+                                <Sparkles className="w-3 h-3 text-white group-hover:text-purple-600" />
+                            </div>
+                        </Link>
+                        <div className="absolute bottom-0 left-0 w-32 h-[2px] bg-purple-600" />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-8">
+                        {recentStacks.length > 0 ? (
+                            recentStacks.map((stack, idx) => (
+                                <motion.div
+                                    key={stack.id}
+                                    initial={{ opacity: 0, scale: 0.9 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ delay: idx * 0.1 }}
+                                >
+                                    <Link to={`/stacks?id=${stack.id}`} className="block h-full group/card relative">
+                                        <Card className="h-full flex flex-col group p-0 overflow-hidden relative glass-card rounded-[2rem] border border-black/5 transition-all duration-[0.6s] hover:scale-105 hover:shadow-2xl hover:shadow-purple-600/10 active:scale-95">
+                                            {/* Media Strip - Copying from MediaStacks.tsx */}
+                                            <div className="relative aspect-[4/3] bg-gray-900 cursor-pointer overflow-hidden">
+                                                {stack.media_items && stack.media_items.length > 0 ? (
+                                                    <div className="absolute inset-0 flex gap-0.5">
+                                                        {stack.media_items.slice(0, 3).map((item: any, i: number) => (
+                                                            <div key={i} className="flex-1 overflow-hidden relative">
+                                                                <HomeMediaItem item={item} />
+                                                            </div>
+                                                        ))}
+                                                        {stack.media_items.length > 3 && (
+                                                            <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[8px] font-black px-2 py-1 rounded-full border border-white/10">
+                                                                +{stack.media_items.length - 3}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center bg-purple-50">
+                                                        <PlaySquare className="w-10 h-10 text-purple-200" />
+                                                    </div>
+                                                )}
+
+                                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-80" />
+
+                                                {/* Play button hover state */}
+                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-500">
+                                                    <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center shadow-xl">
+                                                        <Play className="w-5 h-5 fill-white text-white ml-0.5" />
+                                                    </div>
+                                                </div>
+
+                                                {/* Sparkle Badge */}
+                                                <div className="absolute top-3 left-3">
+                                                    <div className="flex items-center gap-1.5 bg-black/40 backdrop-blur-sm text-white text-[9px] font-black px-2.5 py-1 rounded-full border border-white/10 uppercase tracking-widest">
+                                                        <Sparkles className="w-3 h-3 text-purple-400" />
+                                                        Stack
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Content Area */}
+                                            <div className="p-5 flex-1 flex flex-col space-y-3 bg-gradient-to-b from-white to-purple-50/20">
+                                                <div className="space-y-1">
+                                                    <h3 className="text-sm font-outfit font-black text-catalog-text group-hover:text-purple-600 transition-colors line-clamp-1 leading-tight uppercase tracking-wider">
+                                                        {stack.title}
+                                                    </h3>
+                                                    {stack.description && (
+                                                        <p className="text-[10px] text-catalog-text/40 line-clamp-1 font-medium italic">
+                                                            {stack.description}
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                <div className="mt-auto pt-4 border-t border-black/5">
+                                                    {/* Small tags row */}
+                                                    <div className="flex flex-wrap gap-1 mb-3">
+                                                        {stack.participants?.slice(0, 1).map((p: string) => (
+                                                            <span key={p} className="text-[8px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded-full border border-purple-100 flex items-center gap-1">
+                                                                <Users className="w-2 h-2" /> {p}
+                                                            </span>
+                                                        ))}
+                                                        {stack.hashtags?.slice(0, 1).map((h: string) => (
+                                                            <span key={h} className="text-[8px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full border border-blue-100 flex items-center gap-0.5">
+                                                                <Hash className="w-2 h-2" /> {h}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-1.5 text-catalog-text/40 text-[9px] font-black uppercase tracking-[0.2em] font-outfit">
+                                                            <Calendar className="w-3 h-3 text-purple-600/30" />
+                                                            {new Date(stack.event_date || stack.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                        </div>
+                                                        {stack.music_url && (
+                                                            <Music className="w-3.5 h-3.5 text-purple-400" />
+                                                        )}
+                                                    </div>
+                                                    {stack.location && (
+                                                        <div className="mt-2 flex items-center gap-1.5 text-catalog-text/30 text-[9px] font-medium truncate font-outfit italic">
+                                                            <MapPin className="w-3 h-3 text-purple-600/20" />
+                                                            {stack.location}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </Card>
+                                    </Link>
+                                </motion.div>
+                            ))
+                        ) : (
+                            Array.from({ length: 6 }).map((_, i) => (
+                                <div key={i} className="aspect-[4/5] bg-gray-100 rounded-[2rem] animate-pulse" />
+                            ))
+                        )}
+                    </div>
+                </section>
+
                 {/* 3. Recent Albums */}
                 {/* 3. Recent Albums - 3D Carousel */}
                 <div className="home-carousel-wrapper">
@@ -642,12 +876,7 @@ export function Home() {
                                         } as React.CSSProperties}
                                     >
                                         {recentAlbums.map((album, index) => {
-                                            // Determine cover image
-                                            let coverImage = album.cover_url;
-                                            if (!coverImage && album.pages && album.pages.length > 0) {
-                                                const firstImg = album.pages[0].assets?.find((a: any) => a.type === 'image');
-                                                if (firstImg) coverImage = firstImg.url;
-                                            }
+                                            const coverPage = (album.pages && album.pages.length > 0) ? album.pages[0] : null;
 
                                             return (
                                                 <div
@@ -658,10 +887,33 @@ export function Home() {
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">
-                                                        <img
-                                                            src={coverImage || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
-                                                            alt={album.title}
-                                                        />
+                                                        {coverPage ? (
+                                                            <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white pointer-events-none">
+                                                                <div 
+                                                                    style={{ 
+                                                                        transform: 'scale(0.2275)', 
+                                                                        transformOrigin: 'top left', 
+                                                                        width: '800px', 
+                                                                        height: '1028.5px' 
+                                                                    }}
+                                                                >
+                                                                    <AlbumPage 
+                                                                        page={coverPage as any} 
+                                                                        dimensions={{ width: 800, height: 1028.5 }} 
+                                                                        side="single" 
+                                                                        isCover={true} 
+                                                                        density="hard"
+                                                                        onVideoClick={() => {}}
+                                                                        showPageNumber={false}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <img
+                                                                src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
+                                                                alt={album.title}
+                                                            />
+                                                        )}
                                                         <h3 className="carousel-title">{album.title}</h3>
                                                         <p className="carousel-date">
                                                             {new Date(album.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
@@ -821,6 +1073,7 @@ export function Home() {
                 <ImageCropper
                     src={showCropper.src}
                     onCropComplete={handleCropComplete}
+                    onSkip={handleSkipCrop}
                     onCancel={() => {
                         setShowCropper(null);
                         if (heroInputRef.current) heroInputRef.current.value = '';

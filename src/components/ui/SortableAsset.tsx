@@ -38,7 +38,11 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
                 isDragging && "ring-2 ring-catalog-accent shadow-xl"
             )}
         >
-            <img src={asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
+            {asset.type === 'video' ? (
+                <video src={`${asset.url}#t=0.1`} className="w-full h-full object-cover pointer-events-none" muted playsInline />
+            ) : (
+                <img src={asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
+            )}
 
             {/* Overlay */}
             <div className={cn(

@@ -15,15 +15,17 @@ serve(async (req) => {
     try {
         const url = new URL(req.url)
         const mediaUrl = url.searchParams.get('url')
+        const photoId = url.searchParams.get('id') || url.searchParams.get('photo_id')
         const shareToken = url.searchParams.get('share_token')
 
         // Handle both query param token and Authorization header
         const tokenParam = url.searchParams.get('token')
         const authHeader = req.headers.get('Authorization')
         let accessToken = tokenParam || authHeader?.replace('Bearer ', '')
+        const isThumbnail = url.searchParams.get('is_thumb') === 'true' || url.searchParams.get('thumbnail') === 'true'
 
-        if (!mediaUrl) {
-            return new Response(JSON.stringify({ error: 'Missing url parameter' }), {
+        if (!mediaUrl && !photoId) {
+            return new Response(JSON.stringify({ error: 'Missing url or id parameter' }), {
                 status: 400,
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             })
@@ -100,17 +102,174 @@ serve(async (req) => {
             fetchHeaders['Range'] = range
         }
 
-        // 3. Fetch from Google
-        const response = await fetch(mediaUrl, {
-            headers: fetchHeaders,
-            redirect: 'follow'
-        })
+        let effectiveUrl = mediaUrl;
+        let effectiveContentType = null;
 
-        if (!response.ok && response.status !== 206) {
-            const errText = await response.text();
-            console.error(`[Google Error] status: ${response.status} body: ${errText.substring(0, 200)}`);
+        // 3. If photoId is provided, we MUST fetch a fresh baseUrl
+        if (photoId) {
+            console.log(`[Proxy] Fetching fresh baseUrl for item: ${photoId}`);
+            if (!accessToken) {
+                return new Response(JSON.stringify({ error: 'Authentication required to fetch photo ID' }), {
+                    status: 401,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                });
+            }
+
+            // TRY BOTH APIs: Library API (uploaded items) and Picker API (browsed items)
+            const apis = [
+                `https://photoslibrary.googleapis.com/v1/mediaItems/${photoId}`,
+                `https://photospicker.googleapis.com/v1/mediaItems/${photoId}`
+            ];
+
+            let resolvedItem = null;
+            let resolutionErrors: string[] = [];
+            for (const apiUrl of apis) {
+                try {
+                    const apiResponse = await fetch(apiUrl, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+
+                    if (apiResponse.ok) {
+                        resolvedItem = await apiResponse.json();
+                        console.log(`[Proxy] Resolved via ${apiUrl.includes('picker') ? 'Picker' : 'Library'} API`);
+                        break;
+                    } else {
+                        const errText = await apiResponse.text().catch(() => 'No body');
+                        resolutionErrors.push(`${apiUrl} returned ${apiResponse.status}: ${errText}`);
+                    }
+                } catch (e: any) {
+                    resolutionErrors.push(`${apiUrl} fetch failed: ${e.message}`);
+                }
+            }
+
+            if (!resolvedItem) {
+                console.error(`[Proxy] Failed to resolve photoId ${photoId}. Errors:`, resolutionErrors);
+                // Fallback to mediaUrl if available
+                if (!mediaUrl || !mediaUrl.startsWith('http')) {
+                    return new Response(JSON.stringify({ 
+                        error: "Could not resolve Google Photo ID", 
+                        details: resolutionErrors,
+                        photoId
+                    }), {
+                        status: 404,
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                    });
+                }
+            } else {
+                const item = resolvedItem;
+                let baseUrl = item.mediaFile?.baseUrl || item.baseUrl || '';
+                
+                // If it has a suffix like =dv or =w, strip it for consistent suffixing below
+                if (baseUrl.includes('=')) baseUrl = baseUrl.split('=')[0];
+
+                const isVideo = item.mediaMetadata?.video ||
+                    item.mediaFile?.video ||
+                    item.mimeType?.startsWith('video') ||
+                    item.mediaFile?.mimeType?.startsWith('video');
+
+                if (isThumbnail) {
+                    effectiveUrl = `${baseUrl}=w800-h800`; // Standard high quality thumb
+                } else {
+                    effectiveUrl = isVideo ? `${baseUrl}=dv` : `${baseUrl}=w9999-h9999`;
+                }
+                
+                effectiveContentType = item.mimeType || item.mediaFile?.mimeType;
+                console.log(`[Proxy] Resolved ID ${photoId} -> ${effectiveUrl.substring(0, 50)}... (isThumb: ${isThumbnail})`);
+            }
+        }
+
+        // Detect Google Drive URLs and use API endpoint for better auth support
+        if (effectiveUrl && effectiveUrl.includes('drive.google.com')) {
+            const driveIdMatch = effectiveUrl.match(/[?&]id=([^&]+)/) || effectiveUrl.match(/\/file\/d\/([^/]+)/);
+            if (driveIdMatch && driveIdMatch[1]) {
+                const driveId = driveIdMatch[1];
+                if (isThumbnail) {
+                    // Fetch thumbnailLink for Drive items
+                    console.log(`[Proxy] Fetching thumbnail metadata for Drive ID: ${driveId}`);
+                    try {
+                        const metaRes = await fetch(`https://www.googleapis.com/drive/v3/files/${driveId}?fields=thumbnailLink`, {
+                            headers: { 'Authorization': `Bearer ${accessToken}` }
+                        });
+                        if (metaRes.ok) {
+                            const meta = await metaRes.json();
+                            if (meta.thumbnailLink) {
+                                // Google Drive thumbnailLink can take size params too
+                                effectiveUrl = meta.thumbnailLink.replace(/=s[0-9]+$/, '=s800');
+                                console.log(`[Proxy] Drive thumbnail resolved: ${effectiveUrl.substring(0, 50)}...`);
+                            }
+                        }
+                    } catch (e: any) {
+                        console.error(`[Proxy] Drive thumbnail fetch error: ${e.message}`);
+                    }
+                } else {
+                    effectiveUrl = `https://www.googleapis.com/drive/v3/files/${driveId}?alt=media`;
+                    console.log(`[Proxy] Detected Drive URL, using API media endpoint: ${effectiveUrl}`);
+                }
+            }
+        }
+
+        // --- NEW: Apply thumbnail suffix to generic Google Photos/UserContent URLs if no ID logic hit it ---
+        if (isThumbnail && effectiveUrl && (effectiveUrl.includes('googleusercontent.com') || effectiveUrl.includes('photoslibrary.googleapis.com'))) {
+            const isVideoDownloadUrl = effectiveUrl.includes('video-downloads') || effectiveUrl.includes('/video-');
+            
+            // Only apply size suffixes to non-video-download URLs (they usually 403 or ignore suffixes)
+            if (!isVideoDownloadUrl) {
+                if (!effectiveUrl.includes('=')) {
+                    effectiveUrl += '=w800-h800';
+                } else if (!effectiveUrl.includes('=w') && !effectiveUrl.includes('=s')) {
+                    // Replace existing suffix (like =dv) with high-res thumb suffix
+                    const parts = effectiveUrl.split('=');
+                    effectiveUrl = parts[0] + '=w800-h800';
+                }
+            }
+        }
+
+        if (!effectiveUrl || !effectiveUrl.startsWith('http')) {
+            return new Response(JSON.stringify({ 
+                error: 'Invalid or missing target URL after resolution',
+                effectiveUrl,
+                photoId,
+                mediaUrl 
+            }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+        }
+
+        // 4. Fetch from Google
+        let googleResponse;
+        try {
+            // TypeScript/Deno guard
+            if (!effectiveUrl) throw new Error('No target URL resolved');
+
+            googleResponse = await fetch(effectiveUrl, {
+                headers: fetchHeaders,
+                redirect: 'follow'
+            });
+
+            // If 401/403 with Auth header, try WITHOUT it.
+            // Some Google Photos baseUrls (direct links) reject Authorization header if they were generated for public use or specific parameters.
+            if ((googleResponse.status === 401 || googleResponse.status === 403) && fetchHeaders['Authorization']) {
+                console.log(`[Proxy] Auth rejected for ${effectiveUrl.substring(0, 30)}... trying without Auth header`);
+                const { Authorization, ...noAuthHeaders } = fetchHeaders;
+                googleResponse = await fetch(effectiveUrl, {
+                    headers: noAuthHeaders,
+                    redirect: 'follow'
+                });
+            }
+        } catch (e: any) {
+            console.error(`[Proxy] Network error fetching from Google: ${e.message}`);
+            return new Response(JSON.stringify({ error: `Network error: ${e.message}` }), {
+                status: 502,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+        }
+
+        if (!googleResponse.ok && googleResponse.status !== 206) {
+            const errText = await googleResponse.text().catch(() => 'No error body');
+            console.error(`[Google Error] status: ${googleResponse.status} body: ${errText.substring(0, 200)}`);
             return new Response(errText, {
-                status: response.status,
+                status: googleResponse.status,
                 headers: { ...corsHeaders, 'Content-Type': 'text/plain' }
             });
         }
@@ -127,7 +286,7 @@ serve(async (req) => {
         ];
 
         for (const header of headersToProxy) {
-            const value = response.headers.get(header);
+            const value = googleResponse.headers.get(header);
             if (value) responseHeaders.set(header, value);
         }
 
@@ -137,24 +296,27 @@ serve(async (req) => {
         // 5. Apply Streaming Optimizations
         if (isVideo) {
             responseHeaders.set('X-Accel-Buffering', 'no');
-            responseHeaders.set('Cache-Control', 'public, max-age=3600, no-transform');
-            if (!responseHeaders.has('accept-ranges')) {
-                responseHeaders.set('accept-ranges', 'bytes');
-            }
+            responseHeaders.set('Cache-Control', 'public, max-age=31536000, immutable'); // 1 year cache for media
+            responseHeaders.set('Accept-Ranges', 'bytes');
         } else {
-            responseHeaders.set('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+            responseHeaders.set('Cache-Control', 'public, max-age=31536000, immutable');
         }
 
         // 6. Stream the response
-        return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
+        return new Response(googleResponse.body, {
+            status: googleResponse.status,
+            statusText: googleResponse.statusText,
             headers: responseHeaders,
         })
 
     } catch (error: any) {
-        console.error(`Proxy exception: ${error.message}`);
-        return new Response(JSON.stringify({ error: error.message }), {
+        console.error(`[Proxy] Critical Exception: ${error.message}`);
+        console.error(`[Proxy] Stack Trace: ${error.stack}`);
+        return new Response(JSON.stringify({ 
+            error: error.message,
+            stack: error.stack,
+            url: req.url 
+        }), {
             status: 500,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })

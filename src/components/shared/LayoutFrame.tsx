@@ -63,6 +63,7 @@ export const LayoutFrame = memo(function LayoutFrame({
         height: `${box.height}%`,
         zIndex: isMedia ? 100 : getStrictZIndex(box.role, box.zIndex),
         overflow: 'hidden',
+        boxSizing: 'border-box',
         borderRadius: config.borderRadius ? `${config.borderRadius}px` : undefined,
         border: config.borderWidth ? `${config.borderWidth}px solid ${config.borderColor || '#000'}` : undefined,
         opacity: (config.opacity ?? 100) / 100,

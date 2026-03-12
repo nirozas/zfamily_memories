@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import HTMLFlipBook from 'react-pageflip';
 import { ChevronLeft, ChevronRight, X, Maximize2, Minimize2, Download, FileText, Globe, BookOpen, Moon } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -27,6 +27,162 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     const [showPageNumbers, setShowPageNumbers] = useState(true);
     const [showShadows, setShowShadows] = useState(true);
     const [_layouts, _setLayouts] = useState<Record<string, any>>({});
+
+    const processedPages = useMemo(() => {
+        if (!pages) return [];
+        const newPages = pages.map(p => ({
+            ...p,
+            assets: p.assets ? [...p.assets] : [],
+            textLayers: p.textLayers ? [...p.textLayers] : [],
+            layoutConfig: p.layoutConfig ? [...p.layoutConfig] : [],
+        }));
+
+        for (let i = 1; i < newPages.length - 1; i += 2) {
+            const leftPage = newPages[i];
+            const rightPage = newPages[i + 1];
+            if (!rightPage) break;
+
+            // Only process spread pages
+            if (!leftPage.isSpreadLayout) continue;
+
+            // ═══════════════════════════════════════════════════════════════════
+            // THE CORE MATH:
+            // Spread layout boxes are stored in 0-100% of the FULL SPREAD width.
+            // e.g., a box at left:25, width:50 sits in the center of the spread.
+            // AlbumPage renders in 0-100% of ONE page (= half the spread).
+            // So we must DOUBLE all horizontal coordinates:
+            //   left:25, width:50  → scaled left:50, width:100 → spans left page right half to right page left half
+            //   left:0,  width:50  → scaled left:0,  width:100 → fills entire left page
+            //   left:50, width:50  → scaled left:100, width:100 → fills entire right page
+            // ═══════════════════════════════════════════════════════════════════
+
+            // ── STEP 1: BACKGROUND BLEEDING ───────────────────────────────────
+            if (leftPage.backgroundImage && !rightPage.backgroundImage) {
+                rightPage.backgroundImage = leftPage.backgroundImage;
+                rightPage.backgroundColor = leftPage.backgroundColor;
+                rightPage.backgroundOpacity = leftPage.backgroundOpacity;
+                rightPage.backgroundScale = leftPage.backgroundScale || 'cover';
+            }
+
+            // ── STEP 2: LAYOUT CONFIG — scale and split ────────────────────────
+            const leftBoxes: any[] = [];
+            const rightBoxes: any[] = [];
+            const leftSlotMap = new Map<number, number>();
+            const rightSlotMap = new Map<number, number>();
+
+            (leftPage.layoutConfig || []).forEach((box: any, originalIdx: number) => {
+                if (!box) return;
+                const scaledLeft  = (box.left ?? box.x ?? 0) * 2;    // 0-100 spread% → 0-200 page%
+                const scaledWidth = (box.width ?? 100) * 2;
+
+                // Does this box appear on the left page? (its left edge is < 100%)
+                if (scaledLeft < 100) {
+                    leftBoxes.push({
+                        ...box,
+                        left: scaledLeft,
+                        top: box.top ?? box.y ?? 0,
+                        width: scaledWidth, // Do not truncate, let page overflow hidden mask it. Preserves aspect ratio.
+                        _originalIdx: originalIdx,
+                        _scaledLeft: scaledLeft,
+                        _scaledWidth: scaledWidth,
+                    });
+                    leftSlotMap.set(originalIdx, leftBoxes.length - 1);
+                }
+
+                // Does this box also appear on the right page? (its right edge > 100%)
+                if (scaledLeft + scaledWidth > 100) {
+                    rightBoxes.push({
+                        ...box,
+                        id: `spill-${box.id || originalIdx}`,
+                        left: scaledLeft - 100, // Shift coordinates for right page
+                        top: box.top ?? box.y ?? 0,
+                        width: scaledWidth, // Do not truncate
+                        _originalIdx: originalIdx,
+                    });
+                    rightSlotMap.set(originalIdx, rightBoxes.length - 1);
+                }
+            });
+
+            leftPage.layoutConfig  = leftBoxes;
+            rightPage.layoutConfig = rightBoxes;
+
+            // ── STEP 3: ASSETS — route to the page that owns their slot ────────
+            const leftAssets:  any[] = [];
+            const rightAssets: any[] = [];
+
+            (leftPage.assets || []).forEach((asset: any) => {
+                if (asset.slotId === undefined || asset.slotId === null) {
+                    // Freeform asset - scale and split identical to layout boxes
+                    const scaledLeft = (asset.x ?? 0) * 2;
+                    const scaledWidth = (asset.width ?? 100) * 2;
+                    
+                    if (scaledLeft < 100) {
+                        leftAssets.push({
+                            ...asset,
+                            x: scaledLeft,
+                            width: scaledWidth
+                        });
+                    }
+                    if (scaledLeft + scaledWidth > 100) {
+                        rightAssets.push({
+                            ...asset,
+                            id: `spill-${asset.id}`,
+                            x: scaledLeft - 100,
+                            width: scaledWidth
+                        });
+                    }
+                    return;
+                }
+
+                // Slotted asset 
+                if (leftSlotMap.has(asset.slotId)) {
+                    leftAssets.push({
+                        ...asset,
+                        slotId: leftSlotMap.get(asset.slotId)
+                    });
+                }
+                if (rightSlotMap.has(asset.slotId)) {
+                    rightAssets.push({
+                        ...asset,
+                        id: `spill-${asset.id}`,
+                        slotId: rightSlotMap.get(asset.slotId)
+                    });
+                }
+            });
+
+            leftPage.assets  = leftAssets;
+            rightPage.assets = rightAssets;
+
+            // ── STEP 4: TEXT LAYERS — scale and split ─────────────────────────
+            const leftText:  any[] = [];
+            const rightText: any[] = [];
+
+            (leftPage.textLayers || []).forEach((layer: any) => {
+                const scaledLeft  = (layer.left ?? layer.x ?? 0) * 2;
+                const scaledWidth = (layer.width ?? 0) * 2;
+
+                if (scaledLeft < 100) {
+                    leftText.push({ 
+                        ...layer, 
+                        left: scaledLeft, 
+                        width: scaledWidth 
+                    });
+                }
+                if (scaledLeft + scaledWidth > 100) {
+                    rightText.push({
+                        ...layer,
+                        id: `spill-${layer.id}`,
+                        left: scaledLeft - 100,
+                        width: scaledWidth
+                    });
+                }
+            });
+
+            leftPage.textLayers  = leftText;
+            rightPage.textLayers = rightText;
+        }
+        return newPages;
+    }, [pages]);
 
     useEffect(() => {
         const handleResize = () => setIsMobile(window.innerWidth < 1024);
@@ -299,9 +455,9 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                         autoSize={false}
                         clickEventForward={!selectedVideo && !isTheaterMode}
                     >
-                        {pages.map((page, index) => {
+                        {processedPages.map((page, index) => {
                             const isFrontCover = index === 0;
-                            const isBackCover = index === pages.length - 1;
+                            const isBackCover = index === processedPages.length - 1;
                             const isCover = isFrontCover || isBackCover;
                             const density = isCover ? 'hard' : 'soft';
                             const side = isFrontCover ? 'right' : (index % 2 !== 0 ? 'left' : 'right');

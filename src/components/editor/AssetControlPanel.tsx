@@ -9,7 +9,6 @@ import {
     Droplets,
     Box,
     RotateCw,
-    ChevronDown,
     Minimize2,
     Maximize2,
     Copy,
@@ -20,7 +19,8 @@ import {
     AlignRight,
     Type as TypeIcon,
     Lock,
-    Unlock
+    Unlock,
+    X
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useState } from 'react';
@@ -31,41 +31,50 @@ interface AssetControlPanelProps {
     setEditorMode: (mode: 'select' | 'mask' | 'pivot' | 'studio') => void;
 }
 
-function CollapsibleSection({ title, children, defaultOpen = true, icon: Icon }: { title: string, children: React.ReactNode, defaultOpen?: boolean, icon?: any }) {
-    const [isOpen, setIsOpen] = useState(defaultOpen);
+function CollapsibleSection({ title, children, icon: Icon }: { title: string, children: React.ReactNode, icon?: any, defaultOpen?: boolean }) {
+    const [isOpen, setIsOpen] = useState(false);
     return (
-        <div className="border-b border-black/5 pb-0.5">
+        <div className="mb-2">
             <button
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between py-2.5 px-2 hover:bg-black/5 rounded-xl transition-all group"
+                onClick={() => setIsOpen(true)}
+                className="w-full flex items-center justify-between py-3 px-4 bg-white/50 hover:bg-white rounded-2xl border border-black/5 hover:border-catalog-accent/30 hover:shadow-lg transition-all group pointer-events-auto"
             >
-                <div className="flex items-center gap-2.5">
-                    <div className={cn(
-                        "p-1.5 rounded-lg transition-colors",
-                        isOpen ? "bg-catalog-accent/10 text-catalog-accent" : "bg-black/5 text-catalog-text/40 group-hover:bg-black/10"
-                    )}>
-                        {Icon && <Icon className="w-3.5 h-3.5" />}
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-black/5 group-hover:bg-catalog-accent/10 rounded-xl transition-colors text-catalog-text/50 group-hover:text-catalog-accent">
+                        {Icon && <Icon className="w-4 h-4" />}
                     </div>
-                    <span className="text-[9px] font-black text-catalog-text/80 uppercase tracking-[0.2em] font-outfit">{title}</span>
+                    <span className="text-[10px] font-black text-catalog-text/80 uppercase tracking-[0.2em] font-outfit">{title}</span>
                 </div>
-                <motion.div
-                    animate={{ rotate: isOpen ? 180 : 0 }}
-                    transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-                >
-                    <ChevronDown className="w-3.5 h-3.5 text-catalog-text/20" />
-                </motion.div>
             </button>
-            <AnimatePresence initial={false}>
+            <AnimatePresence>
                 {isOpen && (
-                    <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: "auto", opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-                        className="overflow-hidden"
-                    >
-                        <div className="space-y-3 pt-1 pb-4 px-3">{children}</div>
-                    </motion.div>
+                    <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-auto">
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="absolute inset-0 bg-zinc-950/20 backdrop-blur-md" 
+                            onClick={() => setIsOpen(false)} 
+                        />
+                        <motion.div
+                            initial={{ scale: 0.95, y: 20, opacity: 0 }}
+                            animate={{ scale: 1, y: 0, opacity: 1 }}
+                            exit={{ scale: 0.95, y: 20, opacity: 0 }}
+                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                            className="relative bg-white/90 backdrop-blur-3xl p-6 sm:p-8 rounded-[2.5rem] shadow-2xl border border-white/50 w-[90vw] max-w-[400px] z-10 pointer-events-auto max-h-[80vh] overflow-y-auto styling-scrollbar-thin"
+                        >
+                            <div className="flex justify-between items-center mb-6 pb-4 border-b border-black/5">
+                                <h3 className="text-[11px] font-black uppercase tracking-[0.3em] flex items-center gap-3 text-catalog-text">
+                                    {Icon && <Icon className="w-5 h-5 text-catalog-accent" />}
+                                    {title}
+                                </h3>
+                                <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-black/5 text-catalog-text/40 hover:text-red-500 rounded-full transition-all">
+                                    <X className="w-5 h-5" />
+                                </button>
+                            </div>
+                            <div className="space-y-4">{children}</div>
+                        </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
         </div>
@@ -274,8 +283,10 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
     };
 
     const handleAlign = (type: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom' | 'fit') => {
-        const { width: w, height: h } = album?.config?.dimensions || { width: 800, height: 600 };
-        const bleed = album?.config?.dimensions?.bleed || 0;
+        const w = 100;
+        const h = 100;
+        // Bleed as a percentage, adjust if needed
+        const bleed = 0;
 
         let newX = asset.x;
         let newY = asset.y;
@@ -779,18 +790,19 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                     <CollapsibleSection title="Atmospherics" icon={Sun} defaultOpen={false}>
                         <div className="space-y-4">
                             {[
-                                { label: 'Brightness', key: 'brightness' },
-                                { label: 'Contrast', key: 'contrast' },
-                                { label: 'Saturation', key: 'saturate' },
-                                { label: 'Blur', key: 'blur', max: 20 },
+                                { label: 'Brightness', key: 'brightness', default: 100 },
+                                { label: 'Contrast', key: 'contrast', default: 100 },
+                                { label: 'Saturation', key: 'saturate', default: 100 },
+                                { label: 'Hue Rotation', key: 'hue', default: 0, max: 360 },
+                                { label: 'Blur Blur', key: 'blur', max: 20, default: 0 },
                             ].map((adj) => (
                                 <div key={adj.key} className="space-y-2">
                                     <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
-                                        <span>{adj.label}</span>
-                                        <span className="text-catalog-accent">{(asset as any)[adj.key] || (adj.key === 'blur' ? 0 : 100)}%</span>
+                                        <span>{adj.label.replace(' Blur', '')}</span>
+                                        <span className="text-catalog-accent">{(asset as any)[adj.key] || adj.default}{adj.key === 'hue' ? '°' : '%'}</span>
                                     </div>
                                     <Slider
-                                        value={[(asset as any)[adj.key] || (adj.key === 'blur' ? 0 : 100)]}
+                                        value={[(asset as any)[adj.key] || adj.default]}
                                         min={0}
                                         max={adj.max || 200}
                                         onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { [adj.key]: v[0] })}

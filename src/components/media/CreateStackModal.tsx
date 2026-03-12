@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     X, Plus, Music, Upload, Grid, Hash, Users, ChevronRight, ChevronLeft,
     Check, Loader2, Trash2, ExternalLink, Type, Star, Sparkles, Bold,
-    Palette, AlignCenter, Video, Clock, Eye, Play
+    Palette, AlignCenter, Video, Clock, Eye, Play, MapPin, Calendar
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
@@ -14,6 +14,8 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Slider } from '../ui/Slider';
 import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
+import { LocationPicker } from '../ui/LocationPicker';
+import { storageService } from '../../services/storage';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface TextLayer {
@@ -99,7 +101,7 @@ interface CreateStackModalProps {
 }
 
 export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], initialStack, initialSelected }: CreateStackModalProps) {
-    const { familyId, user, googleAccessToken } = useAuth();
+    const { familyId, user, googleAccessToken, signInWithGoogle } = useAuth();
     const [step, setStep] = useState<1 | 2>(1);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const previewRef = useRef<HTMLDivElement>(null);
@@ -112,6 +114,9 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const [hashtagInput, setHashtagInput] = useState('');
     const [hashtags, setHashtags] = useState<string[]>([]);
     const [selectedMusic, setSelectedMusic] = useState<{ url: string; name: string } | null>(null);
+    const [location, setLocation] = useState('');
+    const [eventDate, setEventDate] = useState(new Date().toISOString().split('T')[0]);
+    const [geotag, setGeotag] = useState<any>(null);
     const [mediaItems, setMediaItems] = useState<StackMediaItem[]>([]);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
     const [showGooglePicker, setShowGooglePicker] = useState(false);
@@ -126,6 +131,18 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const [selectedLayer, setSelectedLayer] = useState<SelectedLayer>(null);
     const [saving, setSaving] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+
+    // Amazon Photos & URL Import
+    const [amazonUrlInput, setAmazonUrlInput] = useState('');
+    const [isAmazonModalOpen, setIsAmazonModalOpen] = useState(false);
+    const [amazonBatchProgress, setAmazonBatchProgress] = useState<{ done: number; total: number } | null>(null);
+    const [amazonImportError, setAmazonImportError] = useState('');
+    const [isImportingAmazon, setIsImportingAmazon] = useState(false);
+
+    const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
+    const [urlInput, setUrlInput] = useState('');
+    const [urlImportError, setUrlImportError] = useState('');
+    const [isImportingUrl, setIsImportingUrl] = useState(false);
 
     // ── Load Initial Stack for Edit Mode ─────────────────────────────────
     useEffect(() => {
@@ -142,6 +159,9 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             setParticipants(initialStack.participants || []);
             setHashtags(initialStack.hashtags || []);
             setSelectedMusic(initialStack.music_url ? { url: initialStack.music_url, name: initialStack.music_name || 'Music' } : null);
+            setLocation(initialStack.location || '');
+            setEventDate(initialStack.event_date ? new Date(initialStack.event_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
+            setGeotag(initialStack.geotag || null);
             setMediaItems(initialStack.media_items || []);
             setStep(1);
             setEditingIdx(0);
@@ -151,7 +171,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     }, [isOpen, initialStack]);
 
     const currentItem = mediaItems[editingIdx];
-    const { url: displayUrl } = useGooglePhotosUrl(undefined, currentItem?.url);
+    const { url: displayUrl } = useGooglePhotosUrl(currentItem?.googlePhotoId, currentItem?.url);
+    const { url: posterUrl } = useGooglePhotosUrl(currentItem?.googlePhotoId, currentItem?.url, null, true);
 
     // ── Drag ──────────────────────────────────────────────────────────────
     const handleDragUpdate = useCallback((id: string, kind: string, x: number, y: number) => {
@@ -222,44 +243,53 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setIsImporting(true);
         for (const file of Array.from(e.target.files)) {
             const isVideo = file.type.startsWith('video/') || !!file.name.match(/\.(mp4|mov|webm|mkv|avi)$/i);
-            let googlePhotoId: string | undefined;
 
             // Show file as queued at 0%
             setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
 
             if (googleAccessToken) {
                 try {
-                    setUploadProgress(prev => ({ ...prev, [file.name]: 20 }));
-                    const gpService = new GooglePhotosService(googleAccessToken);
-                    const mediaItem = await gpService.uploadMedia(file, file.name);
-                    googlePhotoId = mediaItem.id;
-                    const googleUrl = isVideo ? `${mediaItem.baseUrl}=dv` : `${mediaItem.baseUrl}=w2048`;
+                    setUploadProgress(prev => ({ ...prev, [file.name]: 30 }));
+
+                    const { url, error, googlePhotoId } = await storageService.uploadFile(
+                        file,
+                        'stacks',
+                        `stacks/${familyId}/${Date.now()}/`,
+                        (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
+                        googleAccessToken
+                    );
+
+                    if (error) throw new Error(error);
+                    if (!url) throw new Error('No URL returned from storage');
 
                     setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
                     setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; }), 800);
 
-                    const newItem = makeItem(`gp-${Date.now()}`, googleUrl, isVideo ? 'video' : 'image', file.name, googlePhotoId);
+                    const newItem = makeItem(`gp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, url, isVideo ? 'video' : 'image', file.name, googlePhotoId);
                     setMediaItems(prev => [...prev, newItem]);
 
-                    // Still record in family_media for indexing, but URL points to Google
+                    // Record in family_media for indexing
+                    const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
                     await supabase.from('family_media').insert({
                         family_id: familyId,
-                        url: googleUrl,
+                        url: url,
                         type: isVideo ? 'video' : 'image',
                         category: 'stacks',
-                        folder: 'Stacks',
+                        folder: targetFolder,
                         filename: file.name,
                         size: file.size,
                         uploaded_by: user?.id,
-                        metadata: { googlePhotoId, syncedToGoogle: true, isExternal: true }
+                        metadata: { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
                     } as any);
                 } catch (err) {
-                    console.error('Google Photos upload failed:', err);
-                    alert(`Failed to upload to Google Photos: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                    console.error('Upload failed:', err);
+                    alert(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
                     setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; });
                 }
             } else {
-                alert('Google integration required for upload. Please sign in with Google.');
+                if (confirm('Google integration required for upload. This will save your media to your Google Photos library. Sign in with Google now? (Note: This may refresh the page)')) {
+                    signInWithGoogle();
+                }
             }
         }
         setIsImporting(false);
@@ -269,7 +299,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const handleLibrarySelect = (item: any) => {
         setShowMediaPicker(false);
         const isVideo = item.type === 'video' || item.url?.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i);
-        setMediaItems(prev => [...prev, makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename)]);
+        setMediaItems(prev => [...prev, makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename, item.metadata?.googlePhotoId)]);
     };
 
     const handleLibraryMultiSelect = (items: any[]) => {
@@ -278,7 +308,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             ...prev,
             ...items.map(item => {
                 const isVideo = item.type === 'video' || item.url?.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i);
-                return makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename);
+                return makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename, item.metadata?.googlePhotoId);
             })
         ]);
     };
@@ -289,34 +319,162 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setIsImporting(true);
         for (const item of selected) {
             try {
-                const typeStr = (item.type || '').toUpperCase();
-                const isItemVideo = typeStr === 'VIDEO'
-                    || item.mimeType?.toLowerCase().startsWith('video')
-                    || item.mediaFile?.mimeType?.toLowerCase().startsWith('video')
-                    || !!item.mediaMetadata?.video;
-
-                const baseUrl = item.mediaFile?.baseUrl || item.baseUrl || '';
-
-                const googleUrl = isItemVideo ? `${baseUrl}=dv` : `${baseUrl}=w2048`;
+                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken);
 
                 setUploadProgress(prev => ({ ...prev, [item.id]: 100 }));
                 setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[item.id]; return n; }), 800);
 
-                const newItem = makeItem(item.id, googleUrl, isItemVideo ? 'video' : 'image', item.filename || `gp_${item.id}`, item.id);
+                const newItem = makeItem(item.id, persistentUrl, persistentType, item.filename || `gp_${item.id}`, persistentId);
                 setMediaItems(prev => [...prev, newItem]);
 
-                // Record in family_media for consistency
-                await supabase.from('family_media').upsert({
-                    family_id: familyId,
-                    url: googleUrl,
-                    type: isItemVideo ? 'video' : 'image',
-                    category: 'stacks',
-                    folder: 'Stacks',
-                    filename: item.filename || `gp_${item.id}`,
-                    uploaded_by: user?.id,
-                    metadata: { googlePhotoId: item.id, syncedToGoogle: true, isExternal: true }
-                } as any);
+                // Check if already exists to avoid 400 error on PostgREST upsert
+                const { data: existing } = await (supabase
+                    .from('family_media') as any)
+                    .select('id')
+                    .eq('url', persistentUrl)
+                    .maybeSingle();
+
+                const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
+
+                if (existing) {
+                    await (supabase.from('family_media') as any)
+                        .update({
+                            type: persistentType,
+                            category: 'stacks',
+                            folder: targetFolder,
+                            filename: item.filename || `gp_${item.id}`,
+                            uploaded_by: user?.id,
+                            metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
+                        })
+                        .eq('id', (existing as any).id);
+                } else {
+                    await (supabase.from('family_media') as any).insert({
+                        family_id: familyId,
+                        url: persistentUrl,
+                        type: persistentType,
+                        category: 'stacks',
+                        folder: targetFolder,
+                        filename: item.filename || `gp_${item.id}`,
+                        uploaded_by: user?.id,
+                        metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
+                    });
+                }
             } catch (_) { }
+        }
+    };
+
+    const processRemoteUrl = (url: string): { processedUrl: string; type: 'image' | 'video'; filename: string } | null => {
+        const trimmed = url.trim();
+        if (!trimmed || !trimmed.startsWith('http')) return null;
+        
+        // Dropbox optimization
+        let finalUrl = trimmed;
+        if (finalUrl.includes('dropbox.com')) {
+            finalUrl = finalUrl.replace('dl=0', 'raw=1');
+            if (!finalUrl.includes('raw=1')) {
+                finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'raw=1';
+            }
+        }
+
+        const isVideo = /\.(mp4|mov|avi|mkv|webm|m4v)/i.test(finalUrl) ||
+            finalUrl.includes('video') || finalUrl.includes('Video');
+        const type: 'image' | 'video' = isVideo ? 'video' : 'image';
+        const filename = finalUrl.split('/').pop()?.split('?')[0] || (isVideo ? 'Remote Video' : 'Remote Photo');
+        return { processedUrl: finalUrl, type, filename };
+    };
+
+    const handleAmazonBatchImport = async () => {
+        if (!amazonUrlInput.trim() || !familyId) return;
+
+        const lines = amazonUrlInput.split('\n').map(l => l.trim()).filter(Boolean);
+        const validUrls = lines.map(processRemoteUrl).filter((r): r is NonNullable<typeof r> => r !== null);
+
+        if (validUrls.length === 0) {
+            setAmazonImportError('No valid URLs found.');
+            return;
+        }
+
+        setIsImportingAmazon(true);
+        setAmazonImportError('');
+        setAmazonBatchProgress({ done: 0, total: validUrls.length });
+
+        const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
+        const newItems: StackMediaItem[] = [];
+
+        for (let i = 0; i < validUrls.length; i++) {
+            const item = validUrls[i];
+            try {
+                // Record in family_media
+                // Check if already exists to avoid 400 error on PostgREST upsert
+                const { data: existing } = await (supabase
+                    .from('family_media') as any)
+                    .select('id')
+                    .eq('url', item.processedUrl)
+                    .maybeSingle();
+
+                if (existing) {
+                    await (supabase.from('family_media') as any)
+                        .update({
+                            type: item.type,
+                            category: 'stacks',
+                            folder: targetFolder,
+                            filename: item.filename,
+                            uploaded_by: user?.id,
+                        })
+                        .eq('id', (existing as any).id);
+                } else {
+                    await (supabase.from('family_media') as any).insert({
+                        family_id: familyId,
+                        url: item.processedUrl,
+                        type: item.type,
+                        category: 'stacks',
+                        folder: targetFolder,
+                        filename: item.filename,
+                        uploaded_by: user?.id,
+                    });
+                }
+                
+                newItems.push(makeItem(`remote-${Date.now()}-${i}`, item.processedUrl, item.type, item.filename));
+            } catch (err) {
+                console.error('Import failed for', item.processedUrl, err);
+            }
+            setAmazonBatchProgress({ done: i + 1, total: validUrls.length });
+        }
+
+        setMediaItems(prev => [...prev, ...newItems]);
+        setAmazonUrlInput('');
+        setAmazonBatchProgress(null);
+        setIsImportingAmazon(false);
+        setIsAmazonModalOpen(false);
+    };
+
+    const handleUrlImport = async () => {
+        const item = processRemoteUrl(urlInput);
+        if (!item || !familyId) return;
+
+        setIsImportingUrl(true);
+        setUrlImportError('');
+
+        try {
+            const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
+            
+            await supabase.from('family_media').insert({
+                family_id: familyId,
+                url: item.processedUrl,
+                type: item.type,
+                category: 'stacks',
+                folder: targetFolder,
+                filename: item.filename,
+                uploaded_by: user?.id,
+            } as any);
+
+            setMediaItems(prev => [...prev, makeItem(`remote-${Date.now()}`, item.processedUrl, item.type, item.filename)]);
+            setUrlInput('');
+            setIsUrlModalOpen(false);
+        } catch (err: any) {
+            setUrlImportError(err.message);
+        } finally {
+            setIsImportingUrl(false);
         }
     };
 
@@ -333,6 +491,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             const payload = {
                 family_id: familyId, user_id: user.id,
                 title: title.trim(), description, participants, hashtags,
+                location, event_date: eventDate || null, geotag,
                 music_url: selectedMusic?.url || null, music_name: selectedMusic?.name || null,
                 cover_url: mediaItems[0]?.url || null,
                 media_items: mediaItems
@@ -358,7 +517,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const resetForm = () => {
         if (initialStack) return; // Keep form if just closing/opening while editing potentially
         setStep(1); setTitle(''); setDescription(''); setParticipants([]); setHashtags([]);
-        setSelectedMusic(null); setMediaItems([]); setEditingIdx(0); setSelectedLayer(null);
+        setSelectedMusic(null); setLocation(''); setEventDate(new Date().toISOString().split('T')[0]); setGeotag(null);
+        setMediaItems([]); setEditingIdx(0); setSelectedLayer(null);
     };
 
     const handleClose = () => {
@@ -441,6 +601,25 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                     {hashtags.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">
                                         {hashtags.map(t => <span key={t} className="flex items-center gap-1 px-3 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold border border-blue-100">#{t}<button onClick={() => setHashtags(ts => ts.filter(x => x !== t))}><X className="w-3 h-3" /></button></span>)}
                                     </div>}
+                                </div>
+                                {/* Date & Location */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 flex items-center gap-1"><Calendar className="w-3 h-3" /> Date</label>
+                                        <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)}
+                                            className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-catalog-accent/20 transition-all cursor-pointer" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location</label>
+                                        <LocationPicker
+                                            value={location}
+                                            onChange={(address, lat, lng) => {
+                                                setLocation(address);
+                                                setGeotag(lat && lng ? { lat, lng } : null);
+                                            }}
+                                            className="bg-gray-50 border border-gray-200 rounded-xl h-10"
+                                        />
+                                    </div>
                                 </div>
                                 {/* Music */}
                                 <div>
@@ -532,22 +711,36 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                             >
                                                 <div className="flex-1 relative overflow-hidden bg-gray-50">
                                                     {item.type === 'video' ? (
-                                                        <div className="w-full h-full bg-neutral-900 flex items-center justify-center">
+                                                        <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
+                                                            {(item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) && (
+                                                                <img
+                                                                    src={GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true)}
+                                                                    alt=""
+                                                                    className="w-full h-full object-cover opacity-80"
+                                                                    crossOrigin="anonymous"
+                                                                    onError={(e) => {
+                                                                        e.currentTarget.style.display = 'none';
+                                                                        const vid = e.currentTarget.parentElement?.querySelector('video');
+                                                                        if (vid) vid.style.display = 'block';
+                                                                    }}
+                                                                />
+                                                            )}
                                                             <video
-                                                                src={item.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken) : item.url}
-                                                                className="w-full h-full object-cover opacity-80"
+                                                                src={`${item.url}#t=0.1`}
+                                                                className={cn("w-full h-full object-cover", (item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? "hidden" : "block")}
                                                                 muted
                                                                 playsInline
+                                                                preload="metadata"
                                                                 crossOrigin="anonymous"
                                                             />
                                                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20">
-                                                                    <Play className="w-6 h-6 text-white fill-white" />
+                                                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
+                                                                    <Play className="w-5 h-5 text-white fill-white ml-1" />
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <img src={item.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken) : item.url} alt="" className={cn("w-full h-full transition-transform duration-700 group-hover:scale-110", item.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />
+                                                        <img src={(item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true) : item.url} alt="" className={cn("w-full h-full transition-transform duration-700 group-hover:scale-110", item.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />
                                                     )}
 
                                                     {/* Position badge */}
@@ -625,8 +818,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                 {mediaItems.map((item, idx) => (
                                     <button key={idx} onClick={() => setEditingIdx(idx)}
                                         className={cn("relative aspect-square rounded-xl overflow-hidden border-2 transition-all bg-gray-200", editingIdx === idx ? "border-catalog-accent shadow-lg scale-105" : "border-transparent opacity-60 hover:opacity-100")}>
-                                        {item.type === 'video' ? <video src={item.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken) : item.url} className="w-full h-full object-cover" autoPlay loop muted playsInline crossOrigin="anonymous" />
-                                            : <img src={item.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken) : item.url} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />}
+                                        {item.type === 'video' ? <video src={item.googlePhotoId || (item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true) : item.url} className="w-full h-full object-cover" autoPlay loop muted playsInline crossOrigin="anonymous" />
+                                            : <img src={item.googlePhotoId || (item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true) : item.url} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />}
                                         <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[8px] font-black text-center py-0.5">{idx + 1}</div>
                                     </button>
                                 ))}
@@ -642,7 +835,9 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             >
                                 {currentItem.type === 'video'
                                     ? <video
-                                        src={displayUrl} controls={selectedLayer?.kind !== 'trim' as any}
+                                        src={displayUrl} 
+                                        poster={posterUrl}
+                                        controls={selectedLayer?.kind !== 'trim' as any}
                                         className={cn("absolute inset-0 w-full h-full pointer-events-auto", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
                                         autoPlay loop playsInline crossOrigin="anonymous"
                                         onLoadedMetadata={(e) => {
@@ -955,7 +1150,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleDeviceUpload} />
 
             {showMediaPicker && <MediaPickerModal isOpen={showMediaPicker} onClose={() => setShowMediaPicker(false)} onSelect={handleLibrarySelect} onSelectMultiple={handleLibraryMultiSelect} multiSelect allowedTypes={['image', 'video']} />}
-            {showGooglePicker && googleAccessToken && <GooglePhotosSelector googleAccessToken={googleAccessToken} isOpen={showGooglePicker} onClose={() => setShowGooglePicker(false)} onSelect={handleGooglePhotosSelect} folders={folders} />}
+            {showGooglePicker && googleAccessToken && <GooglePhotosSelector googleAccessToken={googleAccessToken} isOpen={showGooglePicker} onClose={() => setShowGooglePicker(false)} onSelect={handleGooglePhotosSelect} folders={folders} onReauth={signInWithGoogle} />}
             {showMusicPicker && <MusicPickerModal onClose={() => setShowMusicPicker(false)} onSelect={(url: string, name: string) => { setSelectedMusic({ url, name }); setShowMusicPicker(false); }} />}
 
             {
@@ -971,8 +1166,25 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             <div className={cn("p-3 flex flex-col gap-1 transition-opacity", isImporting && "opacity-50 pointer-events-none")}>
                                 {[
                                     { label: 'Library', sub: 'From your vault', icon: <Grid className="w-5 h-5" />, color: 'bg-emerald-50 text-emerald-600', action: () => { setShowSourcePicker(false); setShowMediaPicker(true); } },
-                                    { label: 'Google Photos', sub: 'Import from cloud', icon: <span className="font-black text-xs text-blue-600">GP</span>, color: 'bg-blue-50', action: () => { setShowSourcePicker(false); setShowGooglePicker(true); } },
-                                    { label: 'Device', sub: 'Upload from disk', icon: <Upload className="w-5 h-5" />, color: 'bg-purple-50 text-purple-600', action: () => { setShowSourcePicker(false); fileInputRef.current?.click(); } },
+                                    {
+                                        label: 'Google Photos',
+                                        sub: 'Import from cloud',
+                                        icon: <span className="font-black text-xs text-blue-600">GP</span>,
+                                        color: 'bg-blue-50',
+                                        action: () => {
+                                            if (!googleAccessToken) {
+                                                if (confirm('Sign in with Google to browse your Photos library?')) {
+                                                    signInWithGoogle();
+                                                }
+                                                return;
+                                            }
+                                            setShowSourcePicker(false);
+                                            setShowGooglePicker(true);
+                                        }
+                                    },
+                                    { label: 'Device', sub: 'Upload from disk', icon: <Upload className="w-5 h-5" />, color: 'bg-indigo-50 text-indigo-600', action: () => { setShowSourcePicker(false); fileInputRef.current?.click(); } },
+                                    { label: 'Amazon / Bulk', sub: 'Import multiple URLs', icon: <span className="font-black text-xs text-orange-600">AZ</span>, color: 'bg-orange-50', action: () => { setShowSourcePicker(false); setIsAmazonModalOpen(true); } },
+                                    { label: 'Direct Link', sub: 'Add by URL', icon: <ExternalLink className="w-5 h-5" />, color: 'bg-gray-100 text-gray-600', action: () => { setShowSourcePicker(false); setIsUrlModalOpen(true); } },
                                 ].map(opt => (
                                     <button key={opt.label} onClick={opt.action} className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-[1.25rem] flex items-center gap-3 transition-all group">
                                         <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform", opt.color)}>{opt.icon}</div>
@@ -1000,7 +1212,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         <div className="relative w-full max-w-5xl aspect-video md:aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-black" onClick={e => e.stopPropagation()}>
                             {lightboxItem?.type === 'video' ? (
                                 <video
-                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url, googleAccessToken) : lightboxItem?.url}
+                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
                                     className="w-full h-full object-contain"
                                     controls
                                     autoPlay
@@ -1008,7 +1220,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                 />
                             ) : (
                                 <img
-                                    src={lightboxItem?.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url, googleAccessToken) : lightboxItem?.url}
+                                    src={lightboxItem?.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
                                     alt=""
                                     className="w-full h-full object-contain"
                                     crossOrigin="anonymous"
@@ -1021,6 +1233,101 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                     </div>
                 )
             }
+            {isAmazonModalOpen && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isImportingAmazon && setIsAmazonModalOpen(false)} />
+                    <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-orange-50 to-white">
+                            <h3 className="text-xl font-black text-orange-900 flex items-center gap-2">
+                                <span className="p-2 bg-orange-100 rounded-xl text-orange-600">AZ</span>
+                                Amazon / Bulk Import
+                            </h3>
+                            <button onClick={() => setIsAmazonModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                                <X className="w-5 h-5 text-gray-400" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 overflow-y-auto">
+                            <div className="p-3 bg-amber-50 rounded-xl border border-amber-100">
+                                <p className="text-[10px] text-amber-800 leading-relaxed font-bold uppercase tracking-wider mb-1">💡 Instructions</p>
+                                <p className="text-[11px] text-amber-700 leading-snug">Paste image or video URLs from Amazon Photos or any web source (one per line). We'll add them to your stack and organize them automatically.</p>
+                            </div>
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">URLs (one per line)</label>
+                                <textarea 
+                                    value={amazonUrlInput}
+                                    onChange={e => setAmazonUrlInput(e.target.value)}
+                                    placeholder={`https://m.media-amazon.com/images/...jpg\nhttps://m.media-amazon.com/images/...mp4`}
+                                    rows={10}
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-[10px] font-mono focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all leading-relaxed"
+                                />
+                            </div>
+                            {amazonImportError && <p className="text-xs font-bold text-red-500 px-1">⚠ {amazonImportError}</p>}
+                            {amazonBatchProgress && (
+                                <div className="space-y-2 px-1">
+                                    <div className="flex justify-between text-[10px] font-black uppercase text-orange-600">
+                                        <span>Importing batch... {amazonBatchProgress.done} / {amazonBatchProgress.total}</span>
+                                    </div>
+                                    <div className="h-1.5 bg-orange-100 rounded-full overflow-hidden">
+                                        <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: `${(amazonBatchProgress.done / amazonBatchProgress.total) * 100}%` }} />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+                            <button onClick={() => setIsAmazonModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:text-gray-700">Cancel</button>
+                            <button 
+                                onClick={handleAmazonBatchImport}
+                                disabled={isImportingAmazon || !amazonUrlInput.trim()}
+                                className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2"
+                            >
+                                {isImportingAmazon ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                                Start Batch Import
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isUrlModalOpen && (
+                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isImportingUrl && setIsUrlModalOpen(false)} />
+                    <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
+                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                            <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
+                                <ExternalLink className="w-5 h-5 text-catalog-accent" />
+                                Add by Link
+                            </h3>
+                            <button onClick={() => setIsUrlModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+                                <X className="w-5 h-5 text-gray-400" />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Paste Image or Video URL</label>
+                                <input 
+                                    type="text" 
+                                    value={urlInput}
+                                    onChange={e => setUrlInput(e.target.value)}
+                                    placeholder="https://example.com/photo.jpg"
+                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-catalog-accent/20 transition-all"
+                                />
+                            </div>
+                            {urlImportError && <p className="text-xs font-bold text-red-500 px-1">⚠ {urlImportError}</p>}
+                        </div>
+                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
+                            <button onClick={() => setIsUrlModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:text-gray-700">Cancel</button>
+                            <button 
+                                onClick={handleUrlImport}
+                                disabled={isImportingUrl || !urlInput.trim()}
+                                className="flex-[2] py-4 bg-catalog-accent hover:bg-catalog-accent/90 disabled:opacity-50 text-white rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-catalog-stone/20 transition-all flex items-center justify-center gap-2"
+                            >
+                                {isImportingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                                Add to Stack
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

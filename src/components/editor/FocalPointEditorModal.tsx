@@ -204,7 +204,11 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
     };
 
     return (
-        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in transition-all duration-700">
+        <div 
+            className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in transition-all duration-700"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+        >
             <div className="bg-white w-[65%] h-[92vh] rounded-[4rem] shadow-[0_0_200px_rgba(0,0,0,0.9)] flex flex-col overflow-hidden border border-white/10 ring-1 ring-white/5">
                 {/* Header */}
                 <div className="flex items-center justify-between px-12 py-8 border-b border-catalog-accent/10 bg-catalog-stone/5">
@@ -287,48 +291,48 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
                             </div>
                         </div>
 
-                        {/* Floating Control Side Panel */}
-                        <div className="absolute top-10 right-10 bg-white/10 backdrop-blur-2xl border border-white/20 p-10 rounded-[3rem] w-80 space-y-12 shadow-[0_0_100px_rgba(0,0,0,0.5)] z-50">
-                            <section className="space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-[11px] font-black text-white uppercase tracking-[0.3em]">Zoom Level</h3>
-                                    <div className="px-3 py-1 bg-catalog-accent text-white rounded-lg text-[10px] font-black">
-                                        {zoom.toFixed(2)}x
-                                    </div>
-                                </div>
-                                <div className="h-[200px] flex justify-center py-4 bg-white/5 rounded-2xl">
-                                    <Slider
-                                        orientation="vertical"
-                                        value={[zoom]}
-                                        min={1}
-                                        max={10}
-                                        step={0.01}
-                                        onValueChange={([v]) => setZoom(v)}
-                                    />
-                                </div>
-                            </section>
-
-                            <section className="space-y-6">
-                                <h3 className="text-[11px] font-black text-white uppercase tracking-[0.3em]">Orientation</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <button onClick={() => handleRotate('ccw')} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/20 transition-all flex flex-col items-center gap-3 active:scale-95 group">
-                                        <RotateCcw className="w-6 h-6 text-white/40 group-hover:text-catalog-accent transition-colors" />
-                                        <span className="text-[8px] font-black text-white/50">-90°</span>
-                                    </button>
-                                    <button onClick={() => handleRotate('cw')} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/20 transition-all flex flex-col items-center gap-3 active:scale-95 group">
-                                        <RotateCw className="w-6 h-6 text-white/40 group-hover:text-catalog-accent transition-colors" />
-                                        <span className="text-[8px] font-black text-white/50">+90°</span>
-                                    </button>
-                                </div>
-                            </section>
-                        </div>
-
                         {/* Telemetry HUD */}
-                        <div className="absolute bottom-40 left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-xl border border-white/10 px-10 py-6 rounded-[2.5rem] flex items-center gap-10 text-white text-[11px] font-black uppercase tracking-[0.3em] shadow-2xl z-50">
-                            <div className="flex items-center gap-3 text-catalog-accent"><Move className="w-6 h-6" /> Pan Frame</div>
-                            <div className="w-[1px] h-6 bg-white/20" />
-                            <div className="flex items-center gap-3 text-white/60"><Scissors className="w-6 h-6" /> Focus Mask Active</div>
+                        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 bg-white/5 backdrop-blur-xl border border-white/10 px-8 py-4 rounded-[2.5rem] flex items-center gap-8 text-white text-[10px] font-black uppercase tracking-[0.3em] shadow-2xl z-20 pointer-events-none">
+                            <div className="flex items-center gap-3 text-catalog-accent"><Move className="w-5 h-5" /> Pan Frame</div>
+                            <div className="w-[1px] h-5 bg-white/20" />
+                            <div className="flex items-center gap-3 text-white/60"><Scissors className="w-5 h-5" /> Focus Mask Active</div>
                         </div>
+                    </div>
+
+                    {/* Right Control Side Panel */}
+                    <div className="w-[340px] bg-white border-l border-catalog-accent/10 p-10 flex flex-col gap-12 overflow-y-auto z-10 shrink-0">
+                        <section className="space-y-6">
+                            <div className="flex items-center justify-between">
+                                <h3 className="text-[11px] font-black text-catalog-text uppercase tracking-[0.3em]">Zoom Level</h3>
+                                <div className="px-3 py-1 bg-catalog-accent text-white rounded-lg text-[10px] font-black">
+                                    {zoom.toFixed(2)}x
+                                </div>
+                            </div>
+                            <div className="h-[200px] flex justify-center py-4 bg-catalog-stone/10 rounded-2xl">
+                                <Slider
+                                    orientation="vertical"
+                                    value={[zoom]}
+                                    min={1}
+                                    max={10}
+                                    step={0.01}
+                                    onValueChange={([v]) => setZoom(v)}
+                                />
+                            </div>
+                        </section>
+
+                        <section className="space-y-6">
+                            <h3 className="text-[11px] font-black text-catalog-text uppercase tracking-[0.3em]">Orientation</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button onClick={() => handleRotate('ccw')} className="p-6 rounded-2xl bg-catalog-stone/10 border border-catalog-accent/5 hover:bg-catalog-accent/10 transition-all flex flex-col items-center gap-3 active:scale-95 group">
+                                    <RotateCcw className="w-6 h-6 text-catalog-text/40 group-hover:text-catalog-accent transition-colors" />
+                                    <span className="text-[8px] font-black text-catalog-text/50">-90°</span>
+                                </button>
+                                <button onClick={() => handleRotate('cw')} className="p-6 rounded-2xl bg-catalog-stone/10 border border-catalog-accent/5 hover:bg-catalog-accent/10 transition-all flex flex-col items-center gap-3 active:scale-95 group">
+                                    <RotateCw className="w-6 h-6 text-catalog-text/40 group-hover:text-catalog-accent transition-colors" />
+                                    <span className="text-[8px] font-black text-catalog-text/50">+90°</span>
+                                </button>
+                            </div>
+                        </section>
                     </div>
                 </div>
 

@@ -21,6 +21,7 @@ import {
     type LegacyAsset,
     type SchemaVersion,
     type BackgroundConfig,
+    type LayoutSlot,
     getDefaultZIndex,
     type AssetType,
 } from '../types/album';
@@ -232,10 +233,17 @@ class UnifiedAdapter {
         const layoutJson = pageData.layout_json as any;
         const backgroundConfig = pageData.background_config as any;
 
-        // Parse assets from layout_json
-        const assets: UnifiedAsset[] = Array.isArray(layoutJson)
-            ? layoutJson.map((item: any) => this.normalizeAsset(item))
-            : [];
+        let assets: UnifiedAsset[] = [];
+        let layoutSlots: LayoutSlot[] | undefined = undefined;
+
+        if (Array.isArray(layoutJson)) {
+            // Legacy format: layout_json is just an array of assets
+            assets = layoutJson.map((item: any) => this.normalizeAsset(item));
+        } else if (layoutJson && typeof layoutJson === 'object') {
+            // New format: layout_json is { assets, slots }
+            assets = (layoutJson.assets || []).map((item: any) => this.normalizeAsset(item));
+            layoutSlots = layoutJson.slots;
+        }
 
         // Sort by z-index
         assets.sort((a, b) => a.zIndex - b.zIndex);
@@ -244,6 +252,8 @@ class UnifiedAdapter {
             pageNumber: pageData.page_number,
             background: backgroundConfig || { type: 'color', color: '#ffffff' },
             layoutTemplate: pageData.layout_template || undefined,
+            layoutSlots,
+            isSpreadLayout: layoutJson?.isSpreadLayout || false,
             assets,
             updatedAt: pageData.updated_at,
         };
@@ -279,10 +289,15 @@ class UnifiedAdapter {
         albumId: string,
         page: UnifiedPage
     ): Partial<AlbumPageRow> {
+        // If we have layout slots or special layout status, save in an object
+        const layoutJson = (page.layoutSlots && page.layoutSlots.length > 0) || page.isSpreadLayout
+            ? { assets: page.assets, slots: page.layoutSlots, isSpreadLayout: page.isSpreadLayout }
+            : page.assets;
+
         return {
             album_id: albumId,
             page_number: page.pageNumber,
-            layout_json: page.assets as any,
+            layout_json: layoutJson as any,
             background_config: page.background as any,
             layout_template: page.layoutTemplate || null,
         };

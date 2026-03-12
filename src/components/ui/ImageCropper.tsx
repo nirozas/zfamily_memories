@@ -7,6 +7,8 @@ interface ImageCropperProps {
     src: string;
     onCropComplete: (croppedImageUrl: string) => void;
     onCancel: () => void;
+    onSkip?: () => void;
+    initialAspectRatio?: number;
 }
 
 function centerAspectCrop(mediaWidth: number, mediaHeight: number, aspect: number) {
@@ -25,10 +27,10 @@ function centerAspectCrop(mediaWidth: number, mediaHeight: number, aspect: numbe
     );
 }
 
-export function ImageCropper({ src, onCropComplete, onCancel }: ImageCropperProps) {
+export function ImageCropper({ src, onCropComplete, onCancel, onSkip, initialAspectRatio }: ImageCropperProps) {
     const [crop, setCrop] = useState<Crop>();
     const [completedCrop, setCompletedCrop] = useState<Crop>();
-    const [aspect, setAspect] = useState<number | undefined>(undefined);
+    const [aspect, setAspect] = useState<number | undefined>(initialAspectRatio);
     const imgRef = useRef<HTMLImageElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -158,6 +160,14 @@ export function ImageCropper({ src, onCropComplete, onCancel }: ImageCropperProp
                     >
                         Cancel
                     </button>
+                    {onSkip && (
+                        <button
+                            onClick={onSkip}
+                            className="px-4 py-2 text-sm font-medium text-catalog-accent hover:bg-catalog-accent/10 rounded-lg transition-colors border border-catalog-accent/20"
+                        >
+                            Use Original
+                        </button>
+                    )}
                     <button
                         onClick={handleCropComplete}
                         className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-catalog-accent hover:bg-catalog-accent/90 rounded-lg transition-colors"

@@ -4,6 +4,16 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import App from './App';
 
+// Critical Fix: Clear any stale Service Workers from previous projects on this port
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister();
+      console.log('Stale Service Worker unregistered');
+    }
+  });
+}
+
 // Migration disabled - run manually from Media Library instead
 // const hasRunMigration = localStorage.getItem('event_images_migrated');
 // if (!hasRunMigration) {

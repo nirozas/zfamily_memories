@@ -261,7 +261,7 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
             <div className="relative bg-white w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -425,9 +425,9 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
                         <div className="h-full flex flex-col items-center justify-center text-center gap-4 max-w-md mx-auto px-6">
                             <div className={cn(
                                 "w-16 h-16 rounded-full flex items-center justify-center",
-                                error.includes('INSUFFICIENT_PERMISSIONS') ? "bg-amber-50" : "bg-red-50"
+                                (error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) ? "bg-amber-50" : "bg-red-50"
                             )}>
-                                {error.includes('INSUFFICIENT_PERMISSIONS') ? (
+                                {(error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) ? (
                                     <Camera className="w-8 h-8 text-amber-500" />
                                 ) : (
                                     <X className="w-8 h-8 text-red-500" />
@@ -435,20 +435,20 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900 mb-1">
-                                    {error.includes('INSUFFICIENT_PERMISSIONS') ? "Permission Required" : "Connection Error"}
+                                    {(error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) ? "Re-Authorization Required" : "Connection Error"}
                                 </h3>
                                 <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-                                    {error.includes('INSUFFICIENT_PERMISSIONS') ? "Photos access was not granted. Re-authorize to continue." : error}
+                                    {(error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) ? "Your Google session has expired or photos access was not granted. Re-authorize to continue." : error}
                                 </p>
                                 <div className="flex flex-col gap-2">
                                     <Button
-                                        onClick={() => error.includes('INSUFFICIENT_PERMISSIONS') && onReauth ? onReauth() : handleStartPicking()}
+                                        onClick={() => (error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) && onReauth ? onReauth() : handleStartPicking()}
                                         className={cn(
                                             "px-8 font-black uppercase tracking-widest text-[10px]",
-                                            error.includes('INSUFFICIENT_PERMISSIONS') ? "bg-amber-600 hover:bg-amber-700" : ""
+                                            (error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) ? "bg-amber-600 hover:bg-amber-700" : ""
                                         )}
                                     >
-                                        {error.includes('INSUFFICIENT_PERMISSIONS') ? "Fix Permissions Now" : "Restart Selection"}
+                                        {(error.includes('INSUFFICIENT_PERMISSIONS') || error.includes('expired')) ? "Fix Permissions & Reconnect" : "Restart Selection"}
                                     </Button>
                                 </div>
                             </div>

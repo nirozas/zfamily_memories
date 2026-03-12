@@ -5,6 +5,7 @@ import { Calendar, MapPin, Heart, Clock, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { EventMediaGallery } from '../components/events/EventMediaGallery';
 import type { Event } from '../types/supabase';
+import { GooglePhotosService } from '../services/googlePhotos';
 
 export function SharedEventView() {
     const { token } = useParams<{ token: string }>();
@@ -62,6 +63,25 @@ export function SharedEventView() {
             setLoading(false);
         }
     };
+
+    // Resolve Google Photo URLs in description HTML
+    const resolvedDescription = (() => {
+        if (!event?.description) return '';
+
+        // Find <img> tags and replace src with proxy URLs
+        return event.description.replace(/<img[^>]+src="([^">]+)"([^>]*)>/g, (match, src, rest) => {
+            const idMatch = rest.match(/data-google-id="([^"]+)"/);
+            const googleId = idMatch ? idMatch[1] : undefined;
+            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com');
+
+            if (googleId || isGoogleUrl) {
+                // Pass the share token to the proxy so it can refresh the creator's credentials
+                const proxyUrl = GooglePhotosService.getProxyUrl(googleId ? '' : src, null, token, googleId);
+                return `<img src="${proxyUrl}" ${rest} crossOrigin="anonymous">`;
+            }
+            return match;
+        });
+    })();
 
     if (loading) {
         return (
@@ -138,7 +158,7 @@ export function SharedEventView() {
 
                     <div
                         className="prose prose-lg md:prose-xl prose-catalog max-w-none font-serif leading-relaxed text-catalog-text/80"
-                        dangerouslySetInnerHTML={{ __html: event.description || '' }}
+                        dangerouslySetInnerHTML={{ __html: resolvedDescription }}
                     />
 
                     {/* Media Gallery */}

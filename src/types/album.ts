@@ -173,6 +173,7 @@ export interface UnifiedPage {
     // Layout (optional)
     layoutTemplate?: string; // Template ID
     layoutSlots?: LayoutSlot[];
+    isSpreadLayout?: boolean;
 
     // Assets (includes both slotted and freeform)
     assets: UnifiedAsset[];

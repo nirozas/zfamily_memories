@@ -160,9 +160,15 @@
   }
 
   .max-w-wide {
-    max-width: 1920px;
+    max-width: 100%;
     margin-left: auto;
     margin-right: auto;
+  }
+
+  .container-full {
+    width: 100%;
+    padding-left: 1rem;
+    padding-right: 1rem;
   }
 
   @keyframes fadeIn {
@@ -273,5 +279,21 @@
   .layout-frame video {
     z-index: 999; /* Brings video to the absolute front */
     box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
+  }
+
+  /* Custom scrollbar for filmstrip */
+  .styling-scrollbar-thin::-webkit-scrollbar {
+    height: 4px;
+  }
+  .styling-scrollbar-thin::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+  }
+  .styling-scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 4px;
+  }
+  .styling-scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.4);
   }
 }

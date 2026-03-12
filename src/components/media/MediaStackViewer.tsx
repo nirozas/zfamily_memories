@@ -86,35 +86,56 @@ export function MediaStackViewer({
     const { url: displayUrl } = useGooglePhotosUrl(activeItem.googlePhotoId, activeItem.url, shareToken);
 
     const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
-    const isNextGoogle = nextItem?.url && (nextItem.url.includes('googleusercontent.com') || nextItem.url.includes('photoslibrary.googleapis.com'));
+    const isNextGoogle = nextItem?.url && (nextItem.url.includes('googleusercontent.com') || nextItem.url.includes('photoslibrary.googleapis.com') || nextItem.url.includes('drive.google.com'));
     const nextProxiedUrl = (nextItem && isNextGoogle)
-        ? GooglePhotosService.getProxyUrl(nextItem.url, googleAccessToken, shareToken)
+        ? GooglePhotosService.getProxyUrl(nextItem.url, googleAccessToken, shareToken, nextItem.googlePhotoId)
         : nextItem?.url;
 
-    // Preload ALL videos when viewer opens
+    // 1. Initial Global Preload: Create video elements for all items once
     useEffect(() => {
         const map = preloadedVideos.current;
-        items.forEach(item => {
+        items.forEach((item) => {
             if (item.type === 'video' && item.url && !map.has(item.url)) {
+                const isGoogle = item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com');
+                const proxiedUrl = isGoogle ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : item.url;
+
                 const vid = document.createElement('video');
-                // Use proxy for preloading if it's a Google URL
-                const isGoogle = item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com');
-                vid.src = isGoogle ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken) : item.url;
+                vid.src = proxiedUrl;
                 vid.preload = 'auto';
                 vid.muted = true;
                 vid.playsInline = true;
                 vid.crossOrigin = 'anonymous';
-                // Start buffering immediately
                 vid.load();
                 map.set(item.url, vid);
             }
         });
+
         return () => {
-            // Cleanup preloaded videos
-            map.forEach(v => { v.src = ''; });
+            map.forEach(v => { 
+                v.pause();
+                v.src = ''; 
+                v.load();
+            });
             map.clear();
         };
-    }, []); // Only on mount
+    }, [googleAccessToken, shareToken, items]);
+
+    // 2. Continuous Prioritization: Prime the cache for current and next items
+    useEffect(() => {
+        const nextIdx = activeIndex + 1;
+        const priorityIndices = [activeIndex, nextIdx].filter(i => i < items.length);
+
+        priorityIndices.forEach(idx => {
+            const item = items[idx];
+            if (item.type === 'video' && item.url) {
+                const isGoogle = item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com');
+                const proxiedUrl = isGoogle ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : item.url;
+                
+                // Force a range fetch for the first few MB to ensure it's high priority in the browser's eyes
+                fetch(proxiedUrl, { headers: { 'Range': 'bytes=0-2097152' }, mode: 'cors' }).catch(() => {});
+            }
+        });
+    }, [activeIndex, googleAccessToken, shareToken]);
 
     useEffect(() => {
         if (activeItem) {
@@ -122,9 +143,13 @@ export function MediaStackViewer({
             setIsFavorite(activeItem.isFavorite || false);
             setProgress(0);
             setIsPaused(false);
-            nextCalledRef.current = false; // Reset guard for each new slide
+            nextCalledRef.current = false; 
+            
+            if (audioRef.current && !isMuted) {
+                audioRef.current.volume = bgmVolume;
+            }
         }
-    }, [activeIndex, activeItem]);
+    }, [activeIndex, activeItem, isMuted, bgmVolume]);
 
     // Handle auto-advance and progress bar
     useEffect(() => {
@@ -233,13 +258,6 @@ export function MediaStackViewer({
         }
     }, [activeIndex, isPaused, showInfoDrawer, activeItem, isMuted, bgmVolume]);
 
-    // Set audio volume on change
-    useEffect(() => {
-        if (audioRef.current) {
-            audioRef.current.volume = bgmVolume;
-        }
-    }, [bgmVolume]);
-
     const handleNext = useCallback(() => {
         if (activeIndex < items.length - 1) {
             setActiveIndex((prev) => prev + 1);
@@ -253,6 +271,40 @@ export function MediaStackViewer({
             setActiveIndex((prev) => prev - 1);
         }
     }, [activeIndex]);
+
+    // Handle keyboard navigation
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (showInfoDrawer) return;
+            
+            // Don't navigate if user is typing in an input/textarea
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+                return;
+            }
+
+            if (e.key === 'ArrowRight') {
+                handleNext();
+            } else if (e.key === 'ArrowLeft') {
+                handlePrev();
+            } else if (e.key === 'Escape') {
+                onClose();
+            } else if (e.key === ' ') {
+                e.preventDefault(); // Prevent scrolling
+                setIsPaused(p => !p);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleNext, handlePrev, onClose, showInfoDrawer]);
+
+    // Set audio volume on change
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.volume = bgmVolume;
+        }
+    }, [bgmVolume]);
+
 
     const handleTouchZone = (e: React.MouseEvent | React.TouchEvent) => {
         if (showInfoDrawer) return;
@@ -374,13 +426,13 @@ export function MediaStackViewer({
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsPaused(p => !p); }}
                             className={cn(
-                                "absolute inset-0 m-auto w-72 h-72 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center transition-all duration-300 pointer-events-auto z-20 shadow-[0_0_100px_rgba(0,0,0,0.5)] active:scale-90",
+                                "absolute inset-0 m-auto w-[32rem] h-[32rem] rounded-full bg-black/40 backdrop-blur-xl border border-white/20 flex items-center justify-center transition-all duration-300 pointer-events-auto z-20 shadow-[0_0_150px_rgba(0,0,0,0.6)] active:scale-95 group/playbtn",
                                 isPaused ? "opacity-100 scale-100" : "opacity-0 hover:opacity-100 scale-90 hover:scale-110"
                             )}
                         >
                             {isPaused
-                                ? <Play className="w-32 h-32 fill-white text-white ml-4" />
-                                : <Pause className="w-32 h-32 fill-white text-white" />}
+                                ? <Play className="w-56 h-56 fill-white text-white ml-8 group-hover/playbtn:scale-110 transition-transform" />
+                                : <Pause className="w-56 h-56 fill-white text-white group-hover/playbtn:scale-110 transition-transform" />}
                         </button>
                     </>
                 ) : (

@@ -17,6 +17,7 @@ interface AuthContextType {
     signOut: () => Promise<void>;
     useInviteCode: (code: string) => Promise<{ success: boolean; error?: string }>;
     validateInviteCode: (code: string) => Promise<{ valid: boolean; error?: string }>;
+    createFamily: (name: string) => Promise<{ success: boolean; familyId?: string; error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -53,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setProfile(profileData);
                 setUserRole(profileData.role);
                 setFamilyId(profileData.family_id);
+                return profileData;
             }
         } catch (error) {
             console.error('Error in fetchProfile:', error);
@@ -60,56 +62,96 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     useEffect(() => {
+        console.log('[Auth] Initializing Auth Provider...');
         if (!supabaseUrl || !supabaseAnonKey) {
-            console.error("Missing Supabase configuration");
+            console.error("[Auth] Missing Supabase configuration");
             setLoading(false);
             return;
         }
 
+        let isMounted = true;
+
+        // Safety Timeout: Don't stay on spectral "Loading" forever
+        const safetyTimer = setTimeout(() => {
+            if (isMounted && loading) {
+                console.warn('[Auth] Safety timeout reached, forcing loading to false');
+                setLoading(false);
+            }
+        }, 5000);
+
         // Get initial session
         supabase.auth.getSession().then(async ({ data: { session } }) => {
+            if (!isMounted) return;
+            console.log('[Auth] getSession completed. Session:', session ? 'Found' : 'Missing');
+
             let activeSession = session;
 
-            // Fix #7: provider_token (Google) is NOT re-emitted on session restore after page refresh.
-            // Attempt a session refresh to recover it.
             if (activeSession && !activeSession.provider_token) {
                 try {
+                    // Try to refresh once to see if we can catch the Google token
                     const { data: refreshData } = await supabase.auth.refreshSession();
                     if (refreshData.session) activeSession = refreshData.session;
                 } catch (e) {
-                    console.warn('[Auth] Could not refresh session to get Google token:', e);
+                    console.warn('[Auth] Could not refresh session:', e);
                 }
+            }
+
+            const token = activeSession?.provider_token || localStorage.getItem('google_access_token');
+            if (activeSession?.provider_token) {
+                localStorage.setItem('google_access_token', activeSession.provider_token);
             }
 
             setSession(activeSession);
             setUser(activeSession?.user ?? null);
-            setGoogleAccessToken(activeSession?.provider_token ?? null);
+            setGoogleAccessToken(token ?? null);
+
             if (activeSession?.user) {
+                console.log('[Auth] Fetching profile for user:', activeSession.user.id);
                 fetchProfile(activeSession.user.id);
             }
+
+            console.log('[Auth] Initial load finished');
             setLoading(false);
-        }).catch(() => {
+            clearTimeout(safetyTimer);
+        }).catch((err) => {
+            console.error('[Auth] getSession error:', err);
             setLoading(false);
+            clearTimeout(safetyTimer);
         });
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            (_event, session) => {
+            async (event, session) => {
+                if (!isMounted) return;
+                console.log('[Auth] Auth state changed:', event);
+
                 setSession(session);
                 setUser(session?.user ?? null);
-                setGoogleAccessToken(session?.provider_token ?? null);
+
+                const token = session?.provider_token || localStorage.getItem('google_access_token');
+                if (session?.provider_token) {
+                    localStorage.setItem('google_access_token', session.provider_token);
+                }
+                setGoogleAccessToken(token ?? null);
+
                 if (session?.user) {
                     fetchProfile(session.user.id);
                 } else {
                     setProfile(null);
                     setUserRole(null);
                     setFamilyId(null);
+                    localStorage.removeItem('google_access_token');
                 }
+
                 setLoading(false);
             }
         );
 
-        return () => subscription.unsubscribe();
+        return () => {
+            isMounted = false;
+            subscription.unsubscribe();
+            clearTimeout(safetyTimer);
+        };
     }, []);
 
     const validateInviteCode = async (code: string): Promise<{ valid: boolean; error?: string }> => {
@@ -172,6 +214,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
+    const createFamily = async (name: string): Promise<{ success: boolean; familyId?: string; error?: string }> => {
+        if (!user) return { success: false, error: 'User not authenticated' };
+
+        try {
+            // 1. Create family group
+            const { data: familyData, error: familyError } = await (supabase
+                .from('family_groups' as any) as any)
+                .insert({ name })
+                .select()
+                .single();
+
+            if (familyError) throw familyError;
+
+            const newFamilyId = (familyData as any).id;
+
+            // 2. Update user profile to be admin of this family
+            const { error: profileError } = await (supabase
+                .from('profiles' as any) as any)
+                .update({ family_id: newFamilyId, role: 'admin' })
+                .eq('id', user.id);
+
+            if (profileError) throw profileError;
+
+            // 3. Refresh profile state
+            await fetchProfile(user.id);
+
+            return { success: true, familyId: newFamilyId };
+        } catch (error: any) {
+            console.error('Error creating family:', error);
+            return { success: false, error: error.message || 'Failed to create family' };
+        }
+    };
+
     const signIn = async (email: string, password: string) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return { error };
@@ -187,7 +262,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 queryParams: {
                     access_type: 'offline',
                     prompt: 'consent',
-                    scope: 'openid email profile https://www.googleapis.com/auth/photospicker.mediaitems.readonly https://www.googleapis.com/auth/photoslibrary.appendonly',
+                    scope: 'openid email profile https://www.googleapis.com/auth/photospicker.mediaitems.readonly https://www.googleapis.com/auth/photoslibrary.readonly https://www.googleapis.com/auth/photoslibrary.appendonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
                 }
             }
         });
@@ -236,7 +311,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             signUp,
             signOut,
             useInviteCode,
-            validateInviteCode
+            validateInviteCode,
+            createFamily
         }}>
             {children}
         </AuthContext.Provider>

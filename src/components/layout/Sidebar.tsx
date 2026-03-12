@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 
 export function Sidebar() {
-    const { user } = useAuth();
+    const { user, userRole } = useAuth();
 
     const navItems = [
         { icon: Flame, label: 'The Hearth', href: '/', color: 'bg-pastel-red/30' },
@@ -61,7 +61,7 @@ export function Sidebar() {
                         <div className="flex flex-col">
                             <span className="text-sm font-medium">{userName}</span>
                             <span className="text-xs text-catalog-text/60">
-                                {user?.app_metadata?.role === 'admin' ? 'Admin' : 'Member'}
+                                {userRole === 'super_admin' ? 'Super Admin' : userRole === 'admin' ? 'Admin' : 'Member'}
                             </span>
                         </div>
                     </div>

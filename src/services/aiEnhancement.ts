@@ -1,7 +1,7 @@
 /**
  * AI Enhancement Service
  * Placeholder functions for AI-powered image filters and enhancements
- * To be integrated with Cloudinary or similar AI service provider
+ * To be integrated with an AI service provider
  */
 
 export type FilterType = 'cartoon' | 'pencil' | 'watercolor' | 'portrait' | 'auto-touch';
@@ -21,7 +21,7 @@ export interface EnhancementResult {
  * One-click normalization of lighting and sharpness
  */
 export async function autoTouch(imageUrl: string): Promise<EnhancementResult> {
-    // TODO: Integrate with Cloudinary or similar service
+    // TODO: Integrate with an AI service
     // For now, return placeholder
     console.log('Auto-touch enhancement requested for:', imageUrl);
 

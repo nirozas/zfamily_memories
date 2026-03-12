@@ -13,7 +13,8 @@ import {
     Globe,
     History,
     ChevronRight,
-    Loader2
+    Loader2,
+    PlaySquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -23,7 +24,7 @@ import { Button } from '../components/ui/Button';
 // 1. TypeScript Strictness: Clear Interface Definitions
 export interface HeritageLocation {
     id: string;
-    type: 'event' | 'album';
+    type: 'event' | 'album' | 'stack';
     title: string;
     location: string;
     country?: string;
@@ -130,6 +131,17 @@ export function HeritageMap() {
                 console.error('[HeritageMap] Error fetching albums:', albumsError);
             }
             console.log(`[HeritageMap] Fetched ${albumsData?.length || 0} albums for family ${familyId}`);
+
+            // Fetch Stacks
+            const { data: stacksData, error: stacksError } = await (supabase as any)
+                .from('stacks')
+                .select('*')
+                .eq('family_id', familyId);
+
+            if (stacksError) {
+                console.error('[HeritageMap] Error fetching stacks:', stacksError);
+            }
+            console.log(`[HeritageMap] Fetched ${stacksData?.length || 0} stacks for family ${familyId}`);
 
             // 2. Normalized Coordinate Parser (Handles geotag, geotags, location_data, lat/lng columns)
             const parseCoords = (item: any) => {
@@ -299,7 +311,28 @@ export function HeritageMap() {
                 }
             });
 
-            const allItems = [...normalizedEvents, ...normalizedAlbums]
+            const normalizedStacks: HeritageLocation[] = (stacksData || [])
+                .map((s: any) => {
+                    const { lat, lng } = parseCoords(s);
+                    if (isNaN(lat) || isNaN(lng) || (lat === 0 && lng === 0)) return null;
+
+                    return {
+                        id: s.id,
+                        type: 'stack' as const,
+                        title: s.title,
+                        location: s.location || '',
+                        country: s.country, // Stacks don't have country column currently but we added location
+                        date: s.event_date || s.created_at,
+                        category: '',
+                        lat,
+                        lng,
+                        coverImage: s.cover_url || (s.media_items?.[0]?.url),
+                        link: `/stacks?id=${s.id}`
+                    };
+                })
+                .filter((item: any): item is HeritageLocation => item !== null);
+
+            const allItems = [...normalizedEvents, ...normalizedAlbums, ...normalizedStacks]
                 .filter(e => !isNaN(e.lat) && !isNaN(e.lng) && e.lat !== 0 && e.lng !== 0)
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -318,7 +351,7 @@ export function HeritageMap() {
 
     const filteredItems = useMemo(() => {
         return items.filter(i => {
-            const matchesYear = yearFilter === 'all' || new Date(i.date).getFullYear().toString() === yearFilter;
+            const matchesYear = yearFilter === 'all' || (i.date && new Date(i.date).getFullYear().toString() === yearFilter);
             const matchesCountry = countryFilter === 'all' || i.country === countryFilter;
             const matchesCategory = categoryFilter === 'all' || i.category === categoryFilter;
             const matchesType = typeFilter === 'all' || i.type === typeFilter;
@@ -342,7 +375,7 @@ export function HeritageMap() {
     }, [items]);
 
     const createCustomMarkerIcon = useMemo(() => (item: HeritageLocation, count: number = 1) => {
-        const color = getCountryColor(item.country);
+        const color = item.type === 'stack' ? '#E0BBE4' : getCountryColor(item.country);
         const hasImage = !!item.coverImage;
 
         const backgroundStyle = hasImage
@@ -483,6 +516,7 @@ export function HeritageMap() {
                                     <option value="all">All Items</option>
                                     <option value="event">Moments</option>
                                     <option value="album">Albums</option>
+                                    <option value="stack">Stacks</option>
                                 </select>
                             </div>
                         </div>
@@ -511,18 +545,21 @@ export function HeritageMap() {
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                                 <span className="text-[8px] font-black text-catalog-accent uppercase tracking-widest bg-catalog-accent/5 px-2 py-0.5 rounded">
-                                    {selectedItem.type === 'album' ? <Book className="w-2 h-2 inline mr-1" /> : <ImageIcon className="w-2 h-2 inline mr-1" />}
+                                    {selectedItem.type === 'album' ? <Book className="w-2 h-2 inline mr-1" /> : (selectedItem.type === 'stack' ? <PlaySquare className="w-2 h-2 inline mr-1" /> : <ImageIcon className="w-2 h-2 inline mr-1" />)}
                                     {selectedItem.type}
                                 </span>
                             </div>
                             <h3 className="text-lg font-serif italic text-gray-900 leading-tight mb-2 truncate">{selectedItem.title}</h3>
                             <div className="flex flex-col gap-1 text-[9px] text-gray-500 uppercase tracking-wider font-bold">
                                 <span className="flex items-center gap-1 truncate"><MapPin className="w-2.5 h-2.5" />{selectedItem.location}</span>
-                                <span className="flex items-center gap-1"><Calendar className="w-2.5 h-2.5" />{new Date(selectedItem.date).toLocaleDateString()}</span>
+                                <span className="flex items-center gap-1">
+                                    <Calendar className="w-2.5 h-2.5" />
+                                    {selectedItem.date ? new Date(selectedItem.date).toLocaleDateString() : 'Unknown Date'}
+                                </span>
                             </div>
                             <div className="mt-4">
                                 <Button className="w-full h-9 text-[10px] font-bold uppercase tracking-widest group rounded-xl">
-                                    {selectedItem.type === 'album' ? 'Open Archive' : 'View Moment'}
+                                    {selectedItem.type === 'album' ? 'Open Archive' : (selectedItem.type === 'stack' ? 'Play Stack' : 'View Moment')}
                                     <ChevronRight className="w-4 h-4 ml-1.5 group-hover:translate-x-1 transition-transform" />
                                 </Button>
                             </div>

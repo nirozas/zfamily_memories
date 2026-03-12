@@ -6,7 +6,7 @@ export type Json =
     | { [key: string]: Json | undefined }
     | Json[]
 
-export type UserRole = 'admin' | 'creator' | 'member' | 'external_viewer';
+export type UserRole = 'super_admin' | 'admin' | 'creator' | 'member' | 'external_viewer';
 
 export type Database = {
     public: {
@@ -18,6 +18,7 @@ export type Database = {
                     avatar_url: string | null;
                     role: UserRole;
                     family_id: string | null;
+                    is_superadmin: boolean;
                     created_at: string;
                     updated_at: string;
                 }
@@ -27,6 +28,7 @@ export type Database = {
                     avatar_url?: string | null;
                     role?: UserRole;
                     family_id?: string | null;
+                    is_superadmin?: boolean;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -36,6 +38,7 @@ export type Database = {
                     avatar_url?: string | null;
                     role?: UserRole;
                     family_id?: string | null;
+                    is_superadmin?: boolean;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -355,7 +358,7 @@ export type Database = {
             library_assets: {
                 Row: {
                     id: string
-                    category: 'background' | 'sticker' | 'frame'
+                    category: 'background' | 'sticker' | 'frame' | 'ribbon'
                     url: string
                     name: string
                     tags: string[]
@@ -364,7 +367,7 @@ export type Database = {
                 }
                 Insert: {
                     id?: string
-                    category: 'background' | 'sticker' | 'frame'
+                    category: 'background' | 'sticker' | 'frame' | 'ribbon'
                     url: string
                     name: string
                     tags?: string[]
@@ -373,7 +376,7 @@ export type Database = {
                 }
                 Update: {
                     id?: string
-                    category?: 'background' | 'sticker' | 'frame'
+                    category?: 'background' | 'sticker' | 'frame' | 'ribbon'
                     url?: string
                     name?: string
                     tags?: string[]
@@ -435,6 +438,9 @@ export type Database = {
                     media_items: Json;
                     participants: string[] | null;
                     hashtags: string[] | null;
+                    location: string | null;
+                    event_date: string | null;
+                    geotag: Json | null;
                     created_at: string;
                     updated_at: string;
                 }
@@ -450,6 +456,9 @@ export type Database = {
                     media_items: Json;
                     participants?: string[] | null;
                     hashtags?: string[] | null;
+                    location?: string | null;
+                    event_date?: string | null;
+                    geotag?: Json | null;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -465,6 +474,38 @@ export type Database = {
                     media_items?: Json;
                     participants?: string[] | null;
                     hashtags?: string[] | null;
+                    location?: string | null;
+                    event_date?: string | null;
+                    geotag?: Json | null;
+                    created_at?: string;
+                    updated_at?: string;
+                }
+            }
+            bug_reports: {
+                Row: {
+                    id: string;
+                    user_id: string | null;
+                    description: string;
+                    status: 'pending' | 'in_progress' | 'fixed';
+                    admin_notes: string | null;
+                    created_at: string;
+                    updated_at: string;
+                }
+                Insert: {
+                    id?: string;
+                    user_id?: string | null;
+                    description: string;
+                    status?: 'pending' | 'in_progress' | 'fixed';
+                    admin_notes?: string | null;
+                    created_at?: string;
+                    updated_at?: string;
+                }
+                Update: {
+                    id?: string;
+                    user_id?: string | null;
+                    description?: string;
+                    status?: 'pending' | 'in_progress' | 'fixed';
+                    admin_notes?: string | null;
                     created_at?: string;
                     updated_at?: string;
                 }
@@ -505,6 +546,7 @@ export interface Profile {
     avatar_url: string | null;
     role: UserRole;
     family_id: string | null;
+    is_superadmin: boolean;
     created_at: string;
     updated_at: string;
 }
