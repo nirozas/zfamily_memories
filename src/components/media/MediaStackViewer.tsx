@@ -91,13 +91,34 @@ export function MediaStackViewer({
         ? GooglePhotosService.getProxyUrl(nextItem.url, googleAccessToken, shareToken, nextItem.googlePhotoId)
         : nextItem?.url;
 
-    // 1. Initial Global Preload: Create video elements for all items once
+    // 1. Sliding Window Preload: Focus bandwidth on current and next 2 items
     useEffect(() => {
         const map = preloadedVideos.current;
-        items.forEach((item) => {
+        const windowSize = 3; // current + next 2
+        const priorityIndices = Array.from({ length: windowSize }, (_, i) => activeIndex + i)
+            .filter(i => i < items.length);
+
+        // Cleanup: remove videos that are no longer in the sliding window to save memory/bandwidth
+        map.forEach((vid, url) => {
+            const isPriority = priorityIndices.some(idx => items[idx]?.url === url);
+            if (!isPriority) {
+                vid.pause();
+                vid.src = '';
+                vid.load();
+                map.delete(url);
+            }
+        });
+
+        // Preload priority items
+        priorityIndices.forEach((idx) => {
+            const item = items[idx];
             if (item.type === 'video' && item.url && !map.has(item.url)) {
-                const isGoogle = item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com');
-                const proxiedUrl = isGoogle ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : item.url;
+                const isGoogle = item.url.includes('googleusercontent.com') || 
+                               item.url.includes('photoslibrary.googleapis.com') || 
+                               item.url.includes('drive.google.com');
+                const proxiedUrl = isGoogle ? 
+                    GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : 
+                    item.url;
 
                 const vid = document.createElement('video');
                 vid.src = proxiedUrl;
@@ -107,35 +128,15 @@ export function MediaStackViewer({
                 vid.crossOrigin = 'anonymous';
                 vid.load();
                 map.set(item.url, vid);
+                console.log(`[Preload] Priming buffer for: ${item.filename || item.url.substring(0, 20)}`);
             }
         });
 
         return () => {
-            map.forEach(v => { 
-                v.pause();
-                v.src = ''; 
-                v.load();
-            });
-            map.clear();
+            // Optional: don't clear everything on every index change, 
+            // the sliding window logic above handles partial cleanup.
         };
-    }, [googleAccessToken, shareToken, items]);
-
-    // 2. Continuous Prioritization: Prime the cache for current and next items
-    useEffect(() => {
-        const nextIdx = activeIndex + 1;
-        const priorityIndices = [activeIndex, nextIdx].filter(i => i < items.length);
-
-        priorityIndices.forEach(idx => {
-            const item = items[idx];
-            if (item.type === 'video' && item.url) {
-                const isGoogle = item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com');
-                const proxiedUrl = isGoogle ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : item.url;
-                
-                // Force a range fetch for the first few MB to ensure it's high priority in the browser's eyes
-                fetch(proxiedUrl, { headers: { 'Range': 'bytes=0-2097152' }, mode: 'cors' }).catch(() => {});
-            }
-        });
-    }, [activeIndex, googleAccessToken, shareToken]);
+    }, [googleAccessToken, shareToken, items, activeIndex]);
 
     useEffect(() => {
         if (activeItem) {
@@ -180,9 +181,11 @@ export function MediaStackViewer({
             const preloaded = preloadedVideos.current.get(activeItem.url);
             if (preloaded && preloaded.readyState >= 2) {
                 // The preloaded element has buffered data — just set src if different
-                if (video.src !== preloaded.src && video.src !== activeItem.url) {
-                    video.src = activeItem.url;
+                if (video.src !== preloaded.src) {
+                    video.src = displayUrl || '';
                 }
+            } else if (video.src !== displayUrl) {
+                video.src = displayUrl || '';
             }
 
             const applyTrim = () => {

@@ -115,30 +115,34 @@ serve(async (req) => {
                 });
             }
 
-            // TRY BOTH APIs: Library API (uploaded items) and Picker API (browsed items)
+            // TRY MULTIPLE APIs: Library API, Picker API, and Drive API (for legacy videos)
             const apis = [
-                `https://photoslibrary.googleapis.com/v1/mediaItems/${photoId}`,
-                `https://photospicker.googleapis.com/v1/mediaItems/${photoId}`
+                { url: `https://photoslibrary.googleapis.com/v1/mediaItems/${photoId}`, type: 'photos' },
+                { url: `https://photospicker.googleapis.com/v1/mediaItems/${photoId}`, type: 'photos' },
+                { url: `https://www.googleapis.com/drive/v3/files/${photoId}?fields=id,mimeType,thumbnailLink`, type: 'drive' }
             ];
 
             let resolvedItem = null;
+            let resolvedType = null;
             let resolutionErrors: string[] = [];
-            for (const apiUrl of apis) {
+
+            for (const api of apis) {
                 try {
-                    const apiResponse = await fetch(apiUrl, {
+                    const apiResponse = await fetch(api.url, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
 
                     if (apiResponse.ok) {
                         resolvedItem = await apiResponse.json();
-                        console.log(`[Proxy] Resolved via ${apiUrl.includes('picker') ? 'Picker' : 'Library'} API`);
+                        resolvedType = api.type;
+                        console.log(`[Proxy] Resolved via ${api.type} API (${api.url.substring(0, 30)}...)`);
                         break;
                     } else {
                         const errText = await apiResponse.text().catch(() => 'No body');
-                        resolutionErrors.push(`${apiUrl} returned ${apiResponse.status}: ${errText}`);
+                        resolutionErrors.push(`${api.url} returned ${apiResponse.status}: ${errText}`);
                     }
                 } catch (e: any) {
-                    resolutionErrors.push(`${apiUrl} fetch failed: ${e.message}`);
+                    resolutionErrors.push(`${api.url} fetch failed: ${e.message}`);
                 }
             }
 
@@ -147,7 +151,7 @@ serve(async (req) => {
                 // Fallback to mediaUrl if available
                 if (!mediaUrl || !mediaUrl.startsWith('http')) {
                     return new Response(JSON.stringify({ 
-                        error: "Could not resolve Google Photo ID", 
+                        error: "Could not resolve Google ID", 
                         details: resolutionErrors,
                         photoId
                     }), {
@@ -155,6 +159,15 @@ serve(async (req) => {
                         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
                     });
                 }
+            } else if (resolvedType === 'drive') {
+                const item = resolvedItem;
+                effectiveContentType = item.mimeType;
+                if (isThumbnail && item.thumbnailLink) {
+                    effectiveUrl = item.thumbnailLink.replace(/=s[0-9]+$/, '=s800');
+                } else {
+                    effectiveUrl = `https://www.googleapis.com/drive/v3/files/${photoId}?alt=media`;
+                }
+                console.log(`[Proxy] Drive ID ${photoId} -> ${effectiveUrl} (mime: ${effectiveContentType})`);
             } else {
                 const item = resolvedItem;
                 let baseUrl = item.mediaFile?.baseUrl || item.baseUrl || '';
@@ -174,7 +187,7 @@ serve(async (req) => {
                 }
                 
                 effectiveContentType = item.mimeType || item.mediaFile?.mimeType;
-                console.log(`[Proxy] Resolved ID ${photoId} -> ${effectiveUrl.substring(0, 50)}... (isThumb: ${isThumbnail})`);
+                console.log(`[Proxy] Photos ID ${photoId} -> ${effectiveUrl.substring(0, 50)}... (isThumb: ${isThumbnail})`);
             }
         }
 
@@ -293,13 +306,15 @@ serve(async (req) => {
         const contentType = responseHeaders.get('content-type') || '';
         const isVideo = contentType.startsWith('video/') || contentType.startsWith('audio/');
 
-        // 5. Apply Streaming Optimizations
+        // 5. Apply Streaming Optimizations & Edge Caching
         if (isVideo) {
             responseHeaders.set('X-Accel-Buffering', 'no');
-            responseHeaders.set('Cache-Control', 'public, max-age=31536000, immutable'); // 1 year cache for media
+            // Cache in browser for 1 year, but also tell Supabase Edge Network to cache it for 1 hour
+            // This makes subsequent requests (including Range requests) much faster.
+            responseHeaders.set('Cache-Control', 'public, max-age=31536000, s-maxage=3600, immutable'); 
             responseHeaders.set('Accept-Ranges', 'bytes');
         } else {
-            responseHeaders.set('Cache-Control', 'public, max-age=31536000, immutable');
+            responseHeaders.set('Cache-Control', 'public, max-age=31536000, s-maxage=3600, immutable');
         }
 
         // 6. Stream the response
