@@ -63,8 +63,8 @@ export class GooglePhotosService {
             const message = errorData.error?.message || response.statusText;
             const status = errorData.error?.status;
 
-            // Log detailed violations for 400/403 errors
-            if (response.status === 400 || response.status === 403) {
+            // Log detailed violations for 400/403 errors, except for expected user-action-pending
+            if ((response.status === 400 || response.status === 403) && !message.includes('PENDING_USER_ACTION')) {
                 console.error(`[GooglePhotos] ${api.toUpperCase()} API ERROR DETAILS:`, JSON.stringify(errorData, null, 2));
             }
 

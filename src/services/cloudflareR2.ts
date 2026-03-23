@@ -48,16 +48,19 @@ async function createPresignedPutUrl(key: string, _contentType: string, expiresI
     const datestamp = now.toISOString().slice(0, 10).replace(/-/g, '');
     const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
 
-    const host = R2_S3_ENDPOINT.replace('https://', '') + `/${R2_BUCKET}`;
+    // For R2 S3 endpoints, the host is the domain part of the endpoint.
+    // The bucket is used in the path of the canonical request.
+    const host = R2_S3_ENDPOINT.replace('https://', '').replace('http://', '');
     const credentialScope = `${datestamp}/${region}/${service}/aws4_request`;
     const credential = `${R2_ACCESS_KEY}/${credentialScope}`;
+    const contentType = _contentType.toLowerCase();
 
     const queryParams = new URLSearchParams({
         'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
         'X-Amz-Credential': credential,
         'X-Amz-Date': amzDate,
         'X-Amz-Expires': String(expiresInSeconds),
-        'X-Amz-SignedHeaders': 'host',
+        'X-Amz-SignedHeaders': 'content-type;host',
     });
 
     // Sort params for canonical query string
@@ -68,10 +71,10 @@ async function createPresignedPutUrl(key: string, _contentType: string, expiresI
 
     const canonicalRequest = [
         'PUT',
-        `/${encodeURIComponent(key).replace(/%2F/g, '/')}`,
+        `/${R2_BUCKET}/${encodeURIComponent(key).replace(/%2F/g, '/')}`,
         sortedParams,
-        `host:${host}\n`,
-        'host',
+        `content-type:${contentType}\nhost:${host}\n`,
+        'content-type;host',
         'UNSIGNED-PAYLOAD',
     ].join('\n');
 
