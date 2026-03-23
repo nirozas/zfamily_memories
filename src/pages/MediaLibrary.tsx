@@ -82,7 +82,6 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                             src={displayUrl}
                                             alt={item.filename}
                                             className="w-full h-full object-cover"
-                                            crossOrigin="anonymous"
                                             onError={(e) => {
                                                 // If the image fails, show a video element fallback
                                                 e.currentTarget.style.display = 'none';
@@ -100,7 +99,6 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                             muted
                                             playsInline
                                             preload="metadata"
-                                            crossOrigin="anonymous"
                                         />
                                     ) : (
                                         <div className="w-full h-full flex flex-col items-center justify-center p-4">
@@ -122,7 +120,6 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                     src={displayUrl}
                                     alt={item.filename}
                                     className={cn("w-full h-full", item.category === 'sticker' || item.category === 'frame' ? "object-contain p-2" : "object-cover")}
-                                    crossOrigin="anonymous"
                                 />
                             )}
                         </div>

@@ -478,7 +478,6 @@ export function MediaStackViewer({
                             ref={videoRef}
                             src={displayUrl}
                             playsInline
-                            crossOrigin="anonymous"
                             className={cn("w-full h-full pointer-events-none select-none", activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
                         />
                         {/* Centered play/pause controller */}
@@ -499,7 +498,6 @@ export function MediaStackViewer({
                         src={displayUrl}
                         alt={activeItem.caption || 'Media'}
                         className={cn("w-full h-full pointer-events-none select-none", activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
-                        crossOrigin="anonymous"
                     />
                 )}
 

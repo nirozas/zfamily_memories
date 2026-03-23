@@ -125,7 +125,6 @@ export function ImagePortal({ imageUrl, onClose }: ImagePortalProps) {
                         src={imageUrl}
                         alt="Full screen"
                         className="max-w-full max-h-full object-contain shadow-2xl"
-                        crossOrigin="anonymous"
                         initial={{ scale: 0.9, opacity: 0 }}
                         animate={{ scale: zoom, opacity: 1 }}
                         transition={{ duration: 0.2 }}

@@ -193,7 +193,6 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
                         controls={true}
                         autoPlay
                         playsInline
-                        crossOrigin="anonymous"
                         preload="auto"
                         onPlay={(e) => {
                             e.stopPropagation();

@@ -27,13 +27,17 @@ export function useMediaUrl(
             return url;
         }
 
-        // ── Already a non-Google direct URL ───────────────────────────────────
+        // ── Already a non-Google direct URL or ALREADY proxied ────────────────
+        const isProxyUrl = url && url.includes('/functions/v1/get-google-media');
         const isGoogleUrl = url && (
             url.includes('googleusercontent.com') ||
             url.includes('photoslibrary.googleapis.com') ||
-            url.includes('drive.google.com') ||
-            url.includes('/functions/v1/get-google-media')
+            url.includes('drive.google.com')
         );
+
+        if (isProxyUrl) {
+            return url;
+        }
 
         if (!isGoogleUrl && !googlePhotoId && url) {
             return url;
