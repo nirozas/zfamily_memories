@@ -26,6 +26,7 @@ import {
     ChevronRight,
     Home,
     FolderOpen,
+    CloudUpload
 } from 'lucide-react';
 import { UrlInputModal } from '../components/media/UrlInputModal';
 import { CreateStackModal } from '../components/media/CreateStackModal';
@@ -57,7 +58,7 @@ type SystemCategory = 'background' | 'sticker' | 'frame' | 'ribbon';
 
 import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 
-function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview }: any) {
+function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview, onMigrate }: any) {
     const isGoogleUrl = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
     const initialUrl = item.url;
     const isGoogle = !!item.metadata?.googlePhotoId || isGoogleUrl;
@@ -92,14 +93,23 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                     ) : null}
                                     
                                     {/* Video element as fallback or for local uploads */}
-                                    <video
-                                        src={`${item.url}#t=0.1`}
-                                        className={cn("w-full h-full object-cover", isGoogleUrl ? "hidden" : "block")}
-                                        muted
-                                        playsInline
-                                        preload="metadata"
-                                        crossOrigin="anonymous"
-                                    />
+                                    {!isGoogleUrl ? (
+                                        <video
+                                            src={`${item.url}#t=0.1`}
+                                            className="w-full h-full object-cover block"
+                                            muted
+                                            playsInline
+                                            preload="metadata"
+                                            crossOrigin="anonymous"
+                                        />
+                                    ) : (
+                                        <div className="w-full h-full flex flex-col items-center justify-center p-4">
+                                            {/* We don't load the direct video element for Google URLs to avoid CORS spam */}
+                                            <div className="text-[8px] font-black uppercase text-gray-400 text-center tracking-widest bg-white/10 p-1 rounded backdrop-blur-sm">
+                                                Google Managed
+                                            </div>
+                                        </div>
+                                    )}
                                     
                                     <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/20 pointer-events-none">
                                         <div className="bg-white/90 p-2 rounded-full shadow-lg">
@@ -172,7 +182,19 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                             </div>
                         </div>
                         {(activeTab === 'uploads' || isAdmin) && (
-                            <div className="flex items-center gap-1 opacity-0 group-hover/info:opacity-100 transition-all">
+                            <div className="flex items-center gap-1 opacity-100 group-hover/info:opacity-100 transition-all">
+                                {item.type === 'video' && isGoogleUrl && (
+                                    <button 
+                                        className="action-btn p-1.5 bg-yellow-50 hover:bg-yellow-100 rounded text-yellow-600 hover:text-yellow-700 transition-colors border border-yellow-200 shadow-sm mr-1"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onMigrate(item);
+                                        }}
+                                        title="Migrate to Permanent Cloudflare Storage"
+                                    >
+                                        <CloudUpload className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
                                 <button className="action-btn p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600" onClick={(e) => {
                                     e.stopPropagation();
                                     const newTagsString = prompt("Edit tags (comma separated):", (item.tags || []).join(", "));
@@ -204,7 +226,7 @@ export function MediaLibrary() {
     const [activeTab, setActiveTab] = useState<LibraryTab>('uploads');
     const [systemCategory, setSystemCategory] = useState<SystemCategory>('background');
 
-    const [media, setMedia] = useState<MediaItem[]>([]);
+    const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -234,6 +256,7 @@ export function MediaLibrary() {
     const [isImportingAmazon, setIsImportingAmazon] = useState(false);
     const [amazonBatchProgress, setAmazonBatchProgress] = useState<{ done: number, total: number } | null>(null);
     const [amazonImportError, setAmazonImportError] = useState<string>('');
+    const [useHls, setUseHls] = useState(false); // Toggle for HLS adaptive streaming
 
 
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -302,9 +325,9 @@ export function MediaLibrary() {
 
             try {
                 const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = 
-                    await storageService.persistGoogleMedia(item, googleAccessToken!, familyId, uploadFolder, (p) => {
+                    await storageService.persistGoogleMedia(item, googleAccessToken!, familyId, uploadFolder, (p: number) => {
                         setUploadProgress(prev => ({ ...prev, [name]: p }));
-                    });
+                    }, useHls);
 
                 setUploadProgress(prev => ({ ...prev, [name]: 100 }));
 
@@ -442,7 +465,7 @@ export function MediaLibrary() {
                 .order('created_at', { ascending: false });
 
             if (result.error) {
-                console.error('Error fetching family media:', result.error);
+                console.error('Error fetching family mediaItems:', result.error);
             }
             data = result.data || [];
         } else {
@@ -550,7 +573,7 @@ export function MediaLibrary() {
             if (s.hero_image_url) usageMap[s.hero_image_url] = (usageMap[s.hero_image_url] || 0) + 1;
         });
 
-        // F. Stacks (Media Items)
+        // F. Stacks (mediaItems Items)
         const { data: stackUsage } = await (supabase.from('stacks' as any) as any)
             .select('media_items')
             .eq('family_id', familyId!);
@@ -564,12 +587,12 @@ export function MediaLibrary() {
         });
 
 
-        // Add usage count to media items
+        // Add usage count to mediaItems items
         // Normalizing URLs can be tricky (parameters etc). We attempt exact match or base match.
         const mediaWithUsage = data.map(item => {
             // Simple normalization (ignore query params for matching?)
             // Many URLs in DB might have params or not.
-            // For robustness, check exact match first.
+            // This is expensive O(N) lookup without better structure, let's keep it simple for now.
             let count = usageMap[item.url] || 0;
 
             // If 0, try matching without query params if item.url has them
@@ -580,7 +603,7 @@ export function MediaLibrary() {
             return { ...item, usageCount: count };
         });
 
-        setMedia(mediaWithUsage as MediaItem[]);
+        setMediaItems(mediaWithUsage as MediaItem[]);
         setIsLoading(false);
     }
 
@@ -619,7 +642,7 @@ export function MediaLibrary() {
                 {currentPath === 'All' && (
                     <div className="flex items-center gap-1.5 shrink-0">
                         <ChevronRight className="w-3 h-3 text-gray-300" />
-                        <span className="text-catalog-accent">All Media</span>
+                        <span className="text-catalog-accent">All mediaItems</span>
                     </div>
                 )}
 
@@ -687,7 +710,7 @@ export function MediaLibrary() {
             let finalSize = file ? file.size : 0;
 
             if (activeTab === 'uploads') {
-                // EXCLUSIVELY GOOGLE DRIVE FOR FAMILY MEDIA
+                // EXCLUSIVELY GOOGLE DRIVE FOR FAMILY mediaItems
                 try {
                     if (source === 'google' && googlePhotoId && manualUrl) {
                         storageUrl = manualUrl;
@@ -702,15 +725,14 @@ export function MediaLibrary() {
                             break;
                         }
 
-                        const { url, error, r2Key: _r2Key, googlePhotoId: storageId } = await storageService.uploadFile(
+                        const pathPrefix = `mediaItems/${familyId}/vault/${uploadFolder}`;
+                        const { url, error, googlePhotoId: storageId } = await storageService.uploadFile(
                             file,
-                            'family-media',
-                            `media/${familyId}/vault/${uploadFolder}`,
-                            (progress) => {
-                                const percent = Math.round((progress.loaded / progress.total) * 100);
-                                setUploadProgress(prev => ({ ...prev, [name]: percent }));
-                            },
-                            googleAccessToken // passed for images
+                            'vault',
+                            pathPrefix,
+                            (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
+                            googleAccessToken,
+                            useHls
                         );
 
                         if (error) throw new Error(error);
@@ -732,7 +754,7 @@ export function MediaLibrary() {
                             category: 'general',
                             uploaded_by: user?.id,
                             metadata: finalType === 'video'
-                                ? { storage: 'r2' }
+                                ? { storage: 'r2', hls: useHls } // Add hls metadata
                                 : { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
                         } as any);
                     }
@@ -762,7 +784,7 @@ export function MediaLibrary() {
             }
         }
 
-        setUploadProgress(null);
+        setUploadProgress({});
         await fetchMedia();
     }
 
@@ -814,12 +836,12 @@ export function MediaLibrary() {
         for (const id of Array.from(selectedItems)) {
             await (supabase.from(table as any) as any).update({ tags: newTags }).eq('id', id);
         }
-        setMedia(prev => prev.map(m => selectedItems.has(m.id) ? { ...m, tags: newTags } : m));
+        setMediaItems(prev => prev.map(m => selectedItems.has(m.id) ? { ...m, tags: newTags } : m));
         setIsLoading(false);
     }
 
     async function handleDelete(ids: string[]) {
-        const itemsToDelete = media.filter(m => ids.includes(m.id));
+        const itemsToDelete = mediaItems.filter(m => ids.includes(m.id));
 
         // Strict Usage Check
         const usedItems = itemsToDelete.filter(m => (m.usageCount || 0) > 0);
@@ -861,11 +883,70 @@ export function MediaLibrary() {
         setIsLoading(false);
     }
 
+    const handleMigrateToR2 = async (item: any) => {
+        if (!googleAccessToken || !familyId) {
+            alert("Google connection required for migration. Please connect in the sidebar.");
+            return;
+        }
+
+        if (!confirm(`Migrate this video to permanent Cloudflare R2 storage? This will also create an HLS adaptive stream for fast playback.`)) {
+            return;
+        }
+
+        try {
+            const name = item.filename || `migrated_${item.id}`;
+            setUploadProgress(prev => ({ ...prev, [name]: 0 }));
+
+            const { storageService } = await import('../services/storage');
+            const { url: persistentUrl, r2Key } = await storageService.persistGoogleMedia(
+                item,
+                googleAccessToken,
+                familyId,
+                item.folder || 'Vault',
+                (p) => setUploadProgress(prev => ({ ...prev, [name]: p })),
+                true // Always use HLS for explicit migration
+            );
+
+            if (persistentUrl && (persistentUrl.includes('r2.dev') || persistentUrl.includes('cloudflare'))) {
+                // Update Supabase
+                const { error: updateError } = await (supabase
+                    .from('family_media') as any)
+                    .update({
+                        url: persistentUrl,
+                        metadata: { 
+                            ...item.metadata, 
+                            storage: 'r2', 
+                            hls: true, 
+                            migratedFromGoogle: true,
+                            r2Key 
+                        }
+                    })
+                    .eq('id', item.id);
+
+                if (updateError) throw updateError;
+
+                setUploadProgress(prev => ({ ...prev, [name]: 100 }));
+                setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[name]; return n; }), 1000);
+                
+                // Refresh list
+                const refreshed = mediaItems.map(m => m.id === item.id ? { 
+                    ...m, 
+                    url: persistentUrl, 
+                    metadata: { ...m.metadata, storage: 'r2', hls: true, migratedFromGoogle: true } 
+                } : m);
+                setMediaItems(refreshed);
+            }
+        } catch (err: any) {
+            console.error('[Migration] Failed:', err);
+            alert(`Migration failed: ${err.message}`);
+        }
+    };
+
     async function handleUpdateTags(id: string, newTags: string[]) {
         if (activeTab === 'system' && !isAdmin) return;
         const table = activeTab === 'uploads' ? 'family_media' : 'library_assets';
         await (supabase.from(table as any) as any).update({ tags: newTags }).eq('id', id);
-        setMedia(prev => prev.map(m => m.id === id ? { ...m, tags: newTags } : m));
+        setMediaItems(prev => prev.map(m => m.id === id ? { ...m, tags: newTags } : m));
     }
 
     async function handleRename(id: string, newName: string) {
@@ -875,11 +956,11 @@ export function MediaLibrary() {
         await (supabase.from(table as any) as any).update({ [field]: newName }).eq('id', id);
 
         // Optimistic update
-        setMedia(prev => prev.map(m => m.id === id ? { ...m, [field === 'filename' ? 'filename' : 'name']: newName } : m));
+        setMediaItems(prev => prev.map(m => m.id === id ? { ...m, [field === 'filename' ? 'filename' : 'name']: newName } : m));
         setEditingItem(null);
     }
 
-    const allFolders = Array.from(new Set(media.map(m => m.folder || '/'))).sort();
+    const allFolders = Array.from(new Set(mediaItems.map(m => m.folder || '/'))).sort();
 
     // Group folders by hierarchy based on currentPath
     const subFolders = useMemo(() => {
@@ -902,11 +983,11 @@ export function MediaLibrary() {
         return Array.from(childSet).sort().map(name => ({
             name,
             path: currentPath === '/' ? name : `${currentPath}/${name}`,
-            count: media.filter(m => m.folder === (currentPath === '/' ? name : `${currentPath}/${name}`) || (m.folder || '').startsWith((currentPath === '/' ? name : `${currentPath}/${name}`) + '/')).length
+            count: mediaItems.filter(m => m.folder === (currentPath === '/' ? name : `${currentPath}/${name}`) || (m.folder || '').startsWith((currentPath === '/' ? name : `${currentPath}/${name}`) + '/')).length
         }));
-    }, [allFolders, currentPath, media, activeTab]);
+    }, [allFolders, currentPath, mediaItems, activeTab]);
 
-    const displayedItems = media.filter(item => {
+    const displayedItems = mediaItems.filter(item => {
         const itemFolder = item.folder || '/';
         const matchesFolder = activeTab === 'system' || (currentPath === 'All' ? true : itemFolder === currentPath);
         const searchLower = searchQuery.toLowerCase();
@@ -965,9 +1046,28 @@ export function MediaLibrary() {
 
                     {(activeTab === 'uploads' || isAdmin) && (
                         <div className="space-y-2">
+                            {/* HLS Toggles */}
+                            <div className="flex items-center justify-between px-2 mb-2 bg-gray-50/50 p-2 rounded-lg border border-gray-100">
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-black uppercase text-gray-500 tracking-tighter">Adaptive Bitrate</span>
+                                    <span className="text-[7px] font-bold text-gray-400">HLS Streaming</span>
+                                </div>
+                                <button
+                                    onClick={() => setUseHls(!useHls)}
+                                    className={cn(
+                                        "relative w-8 h-4 rounded-full transition-all duration-300 p-0.5 shadow-inner",
+                                        useHls ? "bg-catalog-accent" : "bg-gray-200"
+                                    )}
+                                >
+                                    <div className={cn(
+                                        "absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-md transition-all duration-300",
+                                        useHls ? "left-[18px]" : "left-0.5"
+                                    )} />
+                                </button>
+                            </div>
                             <button onClick={() => setShowSourceModal(true)} className="w-full flex items-center justify-center gap-2 bg-catalog-accent text-white py-2.5 rounded-lg hover:bg-catalog-accent/90 transition-all shadow-sm font-medium text-sm">
                                 <Upload className="w-4 h-4" />
-                                {activeTab === 'system' ? 'Add Asset' : 'Add Media'}
+                                {activeTab === 'system' ? 'Add Asset' : 'Add mediaItems'}
                             </button>
 
                             {/* Google Connector */}
@@ -1005,7 +1105,7 @@ export function MediaLibrary() {
                 {activeTab === 'uploads' && (
                     <div className="flex-1 overflow-y-auto p-3 space-y-1">
                         <button onClick={() => setCurrentPath('All')} className={cn("w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all text-left", currentPath === 'All' ? "bg-catalog-accent/10 text-catalog-accent font-semibold" : "text-gray-600 hover:bg-gray-50")}>
-                            <Grid className="w-4 h-4" /> All Media
+                            <Grid className="w-4 h-4" /> All mediaItems
                         </button>
 
                         <div className="flex items-center justify-between pt-4 pb-2 px-3">
@@ -1013,7 +1113,7 @@ export function MediaLibrary() {
                         </div>
 
                         {/* Recursive Sidebar View or just Root Folders */}
-                        {Array.from(new Set(media.map(m => (m.folder || '').split('/')[0]).filter(Boolean))).sort().map(root => (
+                        {Array.from(new Set(mediaItems.map(m => (m.folder || '').split('/')[0]).filter(Boolean))).sort().map(root => (
                             <button
                                 key={root}
                                 onClick={() => setCurrentPath(root)}
@@ -1180,12 +1280,12 @@ export function MediaLibrary() {
                                         <FolderOpen className="w-8 h-8 text-catalog-accent/30" />
                                     </div>
                                     <h3 className="text-xl font-bold text-catalog-text mb-2">This folder is empty</h3>
-                                    <p className="text-[11px] font-black text-catalog-text/40 uppercase tracking-[0.3em] mb-8">Upload media or create sub-folders</p>
+                                    <p className="text-[11px] font-black text-catalog-text/40 uppercase tracking-[0.3em] mb-8">Upload mediaItems or create sub-folders</p>
                                     <button
                                         onClick={() => setShowSourceModal(true)}
                                         className="px-8 py-3 bg-catalog-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 active:scale-95 transition-all"
                                     >
-                                        Add Media
+                                        Add mediaItems
                                     </button>
                                 </div>
                             ) : displayedItems.length === 0 && currentPath === 'All' ? (
@@ -1199,7 +1299,7 @@ export function MediaLibrary() {
                                         onClick={() => setShowSourceModal(true)}
                                         className="px-8 py-3 bg-catalog-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 active:scale-95 transition-all"
                                     >
-                                        Add Media
+                                        Add mediaItems
                                     </button>
                                 </div>
                             ) : null}
@@ -1224,6 +1324,7 @@ export function MediaLibrary() {
                                     handleDelete={handleDelete}
                                     isAdmin={isAdmin}
                                     activeTab={activeTab}
+                                    onMigrate={handleMigrateToR2}
                                     onPreview={(item: any) => {
                                         const isGoogle = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
                                         const cleanUrl = GooglePhotosService.getCleanUrl(item.url);
@@ -1277,7 +1378,7 @@ export function MediaLibrary() {
                 <CreateStackModal
                     isOpen={isCreateStackModalOpen}
                     onClose={() => setIsCreateStackModalOpen(false)}
-                    initialSelected={media.filter(m => selectedItems.has(m.id))}
+                    initialSelected={mediaItems.filter(m => selectedItems.has(m.id))}
                     folders={allFolders}
                     onCreated={() => {
                         setIsCreateStackModalOpen(false);
@@ -1290,7 +1391,7 @@ export function MediaLibrary() {
                 <UrlInputModal
                     isOpen={showUrlInput}
                     onClose={() => setShowUrlInput(false)}
-                    onSubmit={(url) => processRemoteAsset(url, 'url')}
+                    onSubmit={(url: string) => processRemoteAsset(url, 'url')}
                 />
             )}
 
@@ -1338,7 +1439,7 @@ export function MediaLibrary() {
                                 <textarea 
                                     value={amazonUrlInput}
                                     onChange={e => setAmazonUrlInput(e.target.value)}
-                                    placeholder={`https://m.media-amazon.com/images/...jpg\nhttps://m.media-amazon.com/images/...mp4`}
+                                    placeholder={`https://m.mediaItems-amazon.com/images/...jpg\nhttps://m.mediaItems-amazon.com/images/...mp4`}
                                     rows={8}
                                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all font-mono text-[10px]"
                                 />

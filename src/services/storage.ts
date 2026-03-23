@@ -161,8 +161,10 @@ export const storageService = {
         item: any,
         googleAccessToken: string,
         familyId?: string,
-        folderName?: string
-    ): Promise<{ url: string; googlePhotoId: string; type: 'image' | 'video' }> {
+        folderName?: string,
+        onProgress?: (progress: number) => void,
+        useHls: boolean = false
+    ): Promise<{ url: string; googlePhotoId: string; type: 'image' | 'video'; r2Key?: string }> {
         // If already an R2 URL, just pass through
         let finalUrl = item.url || item.mediaFile?.baseUrl || item.baseUrl || '';
         const typeStr = (item.type || '').toUpperCase();
@@ -202,10 +204,19 @@ export const storageService = {
                 const file = new File([blob], item.filename || `gp-vid-${Date.now()}.mp4`, { type: mimeType });
                 
                 // Seamlessly push to R2 Storage bucket!
-                const { url } = await CloudflareR2Service.uploadFile(file, uploadPrefix, () => {});
-                
-                if (url) {
-                    return { url, googlePhotoId: finalId, type: 'video' };
+                if (useHls) {
+                    const result = await encodeAndUploadHls(file, uploadPrefix, onProgress);
+                    if (result.masterUrl) {
+                        return { url: result.masterUrl, googlePhotoId: finalId, type: 'video', r2Key: result.r2KeyPrefix };
+                    }
+                } else {
+                    const { url, key } = await CloudflareR2Service.uploadFile(file, uploadPrefix, (p) => {
+                        if (onProgress) onProgress(p);
+                    });
+                    
+                    if (url) {
+                        return { url, googlePhotoId: finalId, type: 'video', r2Key: key };
+                    }
                 }
             } catch (err) {
                 console.error('[Storage] Failed to transfer Google Photos Video to R2. Falling back to native URL.', err);

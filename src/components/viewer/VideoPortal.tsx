@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Globe, Maximize2, Minimize2 } from 'lucide-react';
+import Hls from 'hls.js';
 
 interface VideoPortalProps {
     videoUrl: string | null;
@@ -62,6 +63,32 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
             console.warn("[VideoPortal] Fullscreen error:", err);
         }
     };
+
+    // 3. HLS Support
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video || !videoUrl) return;
+
+        let hls: Hls | null = null;
+
+        if (videoUrl.includes('.m3u8')) {
+            if (Hls.isSupported()) {
+                hls = new Hls({ enableWorker: true });
+                hls.loadSource(videoUrl);
+                hls.attachMedia(video);
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = videoUrl;
+            }
+        } else {
+            video.src = videoUrl;
+        }
+
+        return () => {
+            if (hls) {
+                hls.destroy();
+            }
+        };
+    }, [videoUrl]);
 
     const handlePureExit = async (e?: React.MouseEvent) => {
         if (e) {
@@ -162,7 +189,6 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
                 >
                     <video
                         ref={videoRef}
-                        src={videoUrl}
                         poster={posterUrl}
                         controls={true}
                         autoPlay

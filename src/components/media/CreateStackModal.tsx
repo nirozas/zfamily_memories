@@ -347,7 +347,9 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         for (const item of selected) {
             try {
                 const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
-                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder);
+                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder, (p) => {
+                    setUploadProgress(prev => ({ ...prev, [item.id]: p }));
+                }, useHls);
 
                 setUploadProgress(prev => ({ ...prev, [item.id]: 100 }));
                 setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[item.id]; return n; }), 800);

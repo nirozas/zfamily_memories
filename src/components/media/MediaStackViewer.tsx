@@ -7,6 +7,7 @@ import { cn } from '../../lib/utils';
 import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { GooglePhotosService } from '../../services/googlePhotos';
 import { useAuth } from '../../contexts/AuthContext';
+import Hls from 'hls.js';
 
 export interface MediaItem {
     id: string;
@@ -79,7 +80,7 @@ export function MediaStackViewer({
     // Guard: prevent handleNext from firing more than once per slide
     const nextCalledRef = useRef(false);
     // Preloaded video elements (keyed by url)
-    const preloadedVideos = useRef<Map<string, HTMLVideoElement>>(new Map());
+    const preloadedVideos = useRef<Map<string, { video: HTMLVideoElement, hls?: Hls }>>(new Map());
 
     const { googleAccessToken } = useAuth();
     const activeItem = items[activeIndex];
@@ -99,12 +100,13 @@ export function MediaStackViewer({
             .filter(i => i < items.length);
 
         // Cleanup: remove videos that are no longer in the sliding window to save memory/bandwidth
-        map.forEach((vid, url) => {
+        map.forEach((entry, url) => {
             const isPriority = priorityIndices.some(idx => items[idx]?.url === url);
             if (!isPriority) {
-                vid.pause();
-                vid.src = '';
-                vid.load();
+                entry.video.pause();
+                entry.video.src = '';
+                entry.video.load();
+                entry.hls?.destroy();
                 map.delete(url);
             }
         });
@@ -126,8 +128,21 @@ export function MediaStackViewer({
                 vid.muted = true;
                 vid.playsInline = true;
                 vid.crossOrigin = 'anonymous';
-                vid.load();
-                map.set(item.url, vid);
+
+                let hls: Hls | undefined;
+                if (proxiedUrl.includes('.m3u8')) {
+                    if (Hls.isSupported()) {
+                        hls = new Hls({ enableWorker: true });
+                        hls.loadSource(proxiedUrl);
+                        hls.attachMedia(vid);
+                    } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+                        vid.src = proxiedUrl;
+                    }
+                } else {
+                    vid.load();
+                }
+
+                preloadedVideos.current.set(item.url, { video: vid, hls });
                 console.log(`[Preload] Priming buffer for: ${item.filename || item.url.substring(0, 20)}`);
             }
         });
@@ -178,14 +193,42 @@ export function MediaStackViewer({
             const end = activeItem.videoEndTime;
 
             // Copy preloaded buffer into the visible video element for fast playback
-            const preloaded = preloadedVideos.current.get(activeItem.url);
-            if (preloaded && preloaded.readyState >= 2) {
-                // The preloaded element has buffered data — just set src if different
-                if (video.src !== preloaded.src) {
+            const entry = preloadedVideos.current.get(activeItem.url);
+            
+            // Cleanup existing HLS instance if any
+            if ((video as any).hls) {
+                ((video as any).hls as Hls).destroy();
+                delete (video as any).hls;
+            }
+
+            if (entry) {
+                // If the preloaded video has an HLS instance, we should ideally swap the element
+                // but since we're using a single videoRef, we'll re-attach HLS to the visible video
+                if (activeItem.url.includes('.m3u8')) {
+                    if (Hls.isSupported()) {
+                        const hls = new Hls();
+                        hls.loadSource(displayUrl || '');
+                        hls.attachMedia(video);
+                        (video as any).hls = hls; // store for cleanup
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = displayUrl || '';
+                    }
+                } else {
                     video.src = displayUrl || '';
                 }
             } else if (video.src !== displayUrl) {
-                video.src = displayUrl || '';
+                if (displayUrl?.includes('.m3u8')) {
+                   if (Hls.isSupported()) {
+                        const hls = new Hls();
+                        hls.loadSource(displayUrl);
+                        hls.attachMedia(video);
+                        (video as any).hls = hls;
+                    } else {
+                        video.src = displayUrl;
+                    }
+                } else {
+                    video.src = displayUrl || '';
+                }
             }
 
             const applyTrim = () => {
@@ -200,7 +243,13 @@ export function MediaStackViewer({
                 video.addEventListener('loadedmetadata', applyTrim);
             }
 
-            video.play().catch(e => console.error("Video play error:", e));
+            video.play().catch(e => {
+                console.error("Video play error:", e);
+                // If play failed with NotSupportedError, try fallback to raw URL if it is a proxy
+                if (e.name === 'NotSupportedError' && displayUrl?.includes('.m3u8')) {
+                    console.warn("[MediaStackViewer] HLS play failed, checking if raw URL is better.");
+                }
+            });
 
             const updateProgress = () => {
                 if (!videoRef.current || nextCalledRef.current) return;
@@ -233,7 +282,14 @@ export function MediaStackViewer({
             return () => {
                 if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
                 video.removeEventListener('loadedmetadata', applyTrim);
-                if (videoRef.current) videoRef.current.removeEventListener('ended', handleEnded);
+                if (videoRef.current) {
+                    videoRef.current.removeEventListener('ended', handleEnded);
+                    // Cleanup HLS instance if any
+                    if ((videoRef.current as any).hls) {
+                        (videoRef.current as any).hls.destroy();
+                        delete (videoRef.current as any).hls;
+                    }
+                }
             };
         } else {
             // Image mode: Use item.duration (in seconds) or default to 5

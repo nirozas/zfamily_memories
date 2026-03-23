@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { X, Folder, ChevronRight, ChevronDown, Plus, FolderPlus, Check } from 'lucide-react';
+import { X, Folder, ChevronRight, ChevronDown, FolderPlus, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 interface FolderPickerModalProps {
