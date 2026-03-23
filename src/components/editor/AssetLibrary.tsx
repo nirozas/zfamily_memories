@@ -721,7 +721,7 @@ export function AssetLibrary() {
                             <div className="space-y-1">
                                 <div className="flex justify-between text-[8px] font-bold text-catalog-accent uppercase tracking-tighter">
                                     <span>Importing Assets...</span>
-                                    <span>{bulkSystemProgress.done} / {bulkSystemProgress.total}</span>
+                                    <span>{Math.round((bulkSystemProgress.done / bulkSystemProgress.total) * 100)}%</span>
                                 </div>
                                 <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
                                     <div 
@@ -1255,7 +1255,7 @@ export function AssetLibrary() {
                             <div className="space-y-1.5">
                                 <div className="flex items-center justify-between px-1">
                                     <span className="text-[9px] font-black text-orange-600 uppercase tracking-wider">Importing...</span>
-                                    <span className="text-[9px] font-bold text-orange-500">{amazonBatchProgress.done} / {amazonBatchProgress.total}</span>
+                                    <span className="text-[9px] font-bold text-orange-500">{Math.round((amazonBatchProgress.done / amazonBatchProgress.total) * 100)}%</span>
                                 </div>
                                 <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
                                     <div

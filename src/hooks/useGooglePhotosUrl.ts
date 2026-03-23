@@ -1,43 +1,61 @@
-import { useState, useEffect } from 'react';
+/**
+ * useMediaUrl — resolves the correct display URL for any media item.
+ *
+ * Cloudflare R2 URLs are permanent and public — no auth proxy needed.
+ * Legacy Google Photos URLs are redirected through the Supabase proxy.
+ * All other URLs are returned as-is.
+ */
+import { useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { GooglePhotosService } from '../services/googlePhotos';
+import { CloudflareR2Service } from '../services/cloudflareR2';
 
-export function useGooglePhotosUrl(googlePhotoId?: string, initialUrl?: string, shareToken?: string | null, isThumbnail?: boolean) {
+export function useMediaUrl(
+    url?: string | null,
+    /** Legacy: Google Photo ID for proxy lookup */
+    googlePhotoId?: string,
+    shareToken?: string | null,
+    isThumbnail?: boolean
+) {
     const { googleAccessToken } = useAuth();
-    const [resolvedUrl, setResolvedUrl] = useState<string | undefined>(() => {
-        const isGoogleUrl = initialUrl && (
-            initialUrl.includes('googleusercontent.com') ||
-            initialUrl.includes('photoslibrary.googleapis.com') ||
-            initialUrl.includes('drive.google.com') ||
-            initialUrl.includes('/functions/v1/get-google-media') // Already proxied
-        );
-        
-        if (isGoogleUrl || (!initialUrl && googlePhotoId)) {
-            return GooglePhotosService.getProxyUrl(initialUrl || '', googleAccessToken, shareToken, googlePhotoId, isThumbnail);
+
+    const resolvedUrl = useMemo(() => {
+        if (!url && !googlePhotoId) return undefined;
+
+        // ── Cloudflare R2 URLs: permanent public CDN — no proxy needed ────────
+        if (url && CloudflareR2Service.isR2Url(url)) {
+            return url;
         }
-        return initialUrl;
-    });
 
-    useEffect(() => {
-        const isGoogleUrl = initialUrl && (
-            initialUrl.includes('googleusercontent.com') ||
-            initialUrl.includes('photoslibrary.googleapis.com') ||
-            initialUrl.includes('drive.google.com') ||
-            initialUrl.includes('/functions/v1/get-google-media')
+        // ── Already a non-Google direct URL ───────────────────────────────────
+        const isGoogleUrl = url && (
+            url.includes('googleusercontent.com') ||
+            url.includes('photoslibrary.googleapis.com') ||
+            url.includes('drive.google.com') ||
+            url.includes('/functions/v1/get-google-media')
         );
 
-        const refreshUrl = async () => {
-            if (!isGoogleUrl && initialUrl) {
-                setResolvedUrl(initialUrl);
-                return;
-            }
+        if (!isGoogleUrl && !googlePhotoId && url) {
+            return url;
+        }
 
-            // Always use proxy for Google content (ID or URL)
-            setResolvedUrl(GooglePhotosService.getProxyUrl(initialUrl || '', googleAccessToken, shareToken, googlePhotoId, isThumbnail));
-        };
-
-        refreshUrl();
-    }, [googlePhotoId, googleAccessToken, initialUrl, shareToken, isThumbnail]);
+        // ── Legacy Google Photos items — proxy through Supabase Edge Function ─
+        return GooglePhotosService.getProxyUrl(
+            url || '',
+            googleAccessToken,
+            shareToken,
+            googlePhotoId,
+            isThumbnail
+        );
+    }, [url, googlePhotoId, googleAccessToken, shareToken, isThumbnail]);
 
     return { url: resolvedUrl };
+}
+
+/**
+ * @deprecated Use useMediaUrl instead.
+ * Kept for backward compatibility with components that import useGooglePhotosUrl.
+ */
+export function useGooglePhotosUrl(googlePhotoId?: string, initialUrl?: string, shareToken?: string | null, isThumbnail?: boolean) {
+    return useMediaUrl(initialUrl, googlePhotoId, shareToken, isThumbnail);
 }

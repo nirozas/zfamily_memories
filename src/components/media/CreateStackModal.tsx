@@ -16,6 +16,7 @@ import { Slider } from '../ui/Slider';
 import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { LocationPicker } from '../ui/LocationPicker';
 import { storageService } from '../../services/storage';
+import { FolderPickerModal } from './FolderPickerModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface TextLayer {
@@ -139,6 +140,11 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const [amazonImportError, setAmazonImportError] = useState('');
     const [isImportingAmazon, setIsImportingAmazon] = useState(false);
 
+    // New unified folder picker for uploads
+    const [showFolderPicker, setShowFolderPicker] = useState(false);
+    const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
+
+
     const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
     const [urlInput, setUrlInput] = useState('');
     const [urlImportError, setUrlImportError] = useState('');
@@ -238,62 +244,83 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const onDragEnd = () => { dragIdx.current = null; };
 
     // ── Media import ─────────────────────────────────────────────────────
-    const handleDeviceUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || !familyId) return;
+    const [useHls, setUseHls] = useState(false); // Toggle for HLS adaptive streaming
+
+    const handleDeviceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0 || !familyId) return;
+        setQueuedFiles(Array.from(e.target.files));
+        setShowFolderPicker(true);
+        if (e.target) e.target.value = '';
+    };
+
+    const executeDeviceUpload = async (selectedFolder: string) => {
+        setShowFolderPicker(false);
         setIsImporting(true);
-        for (const file of Array.from(e.target.files)) {
-            const isVideo = file.type.startsWith('video/') || !!file.name.match(/\.(mp4|mov|webm|mkv|avi)$/i);
+        for (const file of queuedFiles) {
+            const isVideo = file.type.startsWith('video/') || !!file.name.match(/\.(mp4|mov|webm|mkv|avi|m4v)$/i);
 
-            // Show file as queued at 0%
-            setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
-
-            if (googleAccessToken) {
-                try {
-                    setUploadProgress(prev => ({ ...prev, [file.name]: 30 }));
-
-                    const { url, error, googlePhotoId } = await storageService.uploadFile(
-                        file,
-                        'stacks',
-                        `stacks/${familyId}/${Date.now()}/`,
-                        (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
-                        googleAccessToken
-                    );
-
-                    if (error) throw new Error(error);
-                    if (!url) throw new Error('No URL returned from storage');
-
-                    setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
-                    setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; }), 800);
-
-                    const newItem = makeItem(`gp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, url, isVideo ? 'video' : 'image', file.name, googlePhotoId);
-                    setMediaItems(prev => [...prev, newItem]);
-
-                    // Record in family_media for indexing
-                    const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
-                    await supabase.from('family_media').insert({
-                        family_id: familyId,
-                        url: url,
-                        type: isVideo ? 'video' : 'image',
-                        category: 'stacks',
-                        folder: targetFolder,
-                        filename: file.name,
-                        size: file.size,
-                        uploaded_by: user?.id,
-                        metadata: { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
-                    } as any);
-                } catch (err) {
-                    console.error('Upload failed:', err);
-                    alert(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                    setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; });
-                }
-            } else {
-                if (confirm('Google integration required for upload. This will save your media to your Google Photos library. Sign in with Google now? (Note: This may refresh the page)')) {
+            // Images now go to Google Photos, Videos to Cloudflare R2
+            if (!isVideo && !googleAccessToken) {
+                if (confirm('Google integration required for image upload. Sign in with Google now?')) {
                     signInWithGoogle();
                 }
+                break;
+            }
+
+            // Show file queued at 0%
+            setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
+
+            try {
+                const targetFolder = selectedFolder === '/' ? 'Stacks' : selectedFolder;
+                const pathPrefix = `media/${familyId}/stacks/${Date.now()}`;
+
+                const { url, error, r2Key, googlePhotoId } = await storageService.uploadFile(
+                    file,
+                    'stacks', 
+                    pathPrefix,
+                    (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
+                    googleAccessToken, // passed for images
+                    isVideo && useHls // use HLS if enabled for videos
+                );
+
+                if (error) throw new Error(error);
+                if (!url) throw new Error('No URL returned from storage');
+
+                setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+                setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; }), 800);
+
+                const srcId = isVideo ? 'r2' : 'gp';
+                const newItem = makeItem(
+                    `${srcId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    url,
+                    isVideo ? 'video' : 'image',
+                    file.name,
+                    googlePhotoId
+                );
+                setMediaItems(prev => [...prev, newItem]);
+
+                // Record in family_media for indexing
+                await supabase.from('family_media').insert({
+                    family_id: familyId,
+                    url,
+                    type: isVideo ? 'video' : 'image',
+                    category: 'stacks',
+                    folder: targetFolder,
+                    filename: file.name,
+                    size: file.size,
+                    uploaded_by: user?.id,
+                    metadata: isVideo 
+                        ? { r2Key, isHls: useHls, storage: 'r2' }
+                        : { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
+                } as any);
+            } catch (err) {
+                console.error('Upload failed:', err);
+                alert(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; });
             }
         }
         setIsImporting(false);
-        if (e.target) e.target.value = '';
+        setQueuedFiles([]);
     };
 
     const handleLibrarySelect = (item: any) => {
@@ -319,7 +346,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setIsImporting(true);
         for (const item of selected) {
             try {
-                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken);
+                const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
+                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder);
 
                 setUploadProgress(prev => ({ ...prev, [item.id]: 100 }));
                 setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[item.id]; return n; }), 800);
@@ -333,8 +361,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                     .select('id')
                     .eq('url', persistentUrl)
                     .maybeSingle();
-
-                const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
 
                 if (existing) {
                     await (supabase.from('family_media') as any)
@@ -635,7 +661,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                     ) : (
                                         <div className="space-y-2">
                                             <button onClick={() => setShowMusicPicker(true)} className="w-full flex items-center gap-3 px-4 py-3 bg-gray-50 border border-dashed border-gray-200 rounded-2xl hover:border-catalog-accent/40 hover:bg-catalog-accent/5 transition-all group text-left">
-                                                <Music className="w-4 h-4 text-gray-400 group-hover:text-catalog-accent transition-colors" />
+                                                <Music className="w-4 h-4 text-gray-400 group-hover:text-catalog-accent" />
                                                 <span className="text-sm font-medium text-gray-500 group-hover:text-catalog-accent">Search Jamendo or upload file...</span>
                                             </button>
                                             <button onClick={() => setShowFreeMusic(!showFreeMusic)} className="text-xs text-catalog-accent/70 hover:text-catalog-accent font-bold flex items-center gap-1 transition-colors">
@@ -658,7 +684,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         <div className="flex items-center justify-between mb-2">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-2 h-2 rounded-full bg-catalog-accent animate-pulse" />
-                                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-catalog-accent">Syncing with Google Photos</p>
+                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-catalog-accent">Uploading to Cloud (R2)</p>
                                             </div>
                                             <span className="text-[10px] font-black text-catalog-accent/50">{Object.keys(uploadProgress).length} ITEM(S)</span>
                                         </div>
@@ -692,12 +718,32 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         <Plus className="w-4 h-4" /> Add Media
                                     </button>
                                 </div>
+
+                                {/* HLS Toggle */}
+                                <div className="flex items-center gap-2 px-4 py-2 bg-white/70 rounded-2xl border border-gray-100">
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Adaptive Streaming (HLS)</span>
+                                    <button
+                                        onClick={() => setUseHls(v => !v)}
+                                        className={cn(
+                                            "relative w-10 h-5 rounded-full transition-colors",
+                                            useHls ? "bg-catalog-accent" : "bg-gray-200"
+                                        )}
+                                        title="Enable HLS adaptive bitrate encoding for videos (1080p/720p/480p). Slower upload but better playback."
+                                    >
+                                        <span className={cn(
+                                            "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
+                                            useHls ? "left-[22px]" : "left-0.5"
+                                        )} />
+                                    </button>
+                                    {useHls && <span className="text-[9px] font-bold text-catalog-accent uppercase tracking-widest">On</span>}
+                                </div>
+
                                 {mediaItems.length === 0 ? (
                                     <button onClick={() => setShowSourcePicker(true)} className="flex-1 border-2 border-dashed border-gray-200 rounded-[3rem] flex flex-col items-center justify-center gap-4 hover:border-catalog-accent/40 hover:bg-catalog-accent/5 transition-all group min-h-[400px] bg-white/50">
                                         <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center group-hover:scale-110 transition-all shadow-sm border border-gray-100"><Plus className="w-10 h-10 text-gray-300 group-hover:text-catalog-accent" /></div>
                                         <div className="text-center">
                                             <p className="text-lg font-bold text-gray-600">Start your story</p>
-                                            <p className="text-sm text-gray-400 font-medium">Import from Library, Google Photos, or Device</p>
+                                            <p className="text-sm text-gray-400 font-medium">Import from Library, Cloud, or Device</p>
                                         </div>
                                     </button>
                                 ) : (
@@ -1267,7 +1313,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             {amazonBatchProgress && (
                                 <div className="space-y-2 px-1">
                                     <div className="flex justify-between text-[10px] font-black uppercase text-orange-600">
-                                        <span>Importing batch... {amazonBatchProgress.done} / {amazonBatchProgress.total}</span>
+                                        <span>Importing batch... {Math.round((amazonBatchProgress.done / amazonBatchProgress.total) * 100)}%</span>
                                     </div>
                                     <div className="h-1.5 bg-orange-100 rounded-full overflow-hidden">
                                         <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: `${(amazonBatchProgress.done / amazonBatchProgress.total) * 100}%` }} />
@@ -1330,6 +1376,15 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                     </div>
                 </div>
             )}
+
+            <FolderPickerModal
+                isOpen={showFolderPicker}
+                onClose={() => { setShowFolderPicker(false); setQueuedFiles([]); }}
+                onSelect={(folder) => executeDeviceUpload(folder)}
+                existingFolders={folders}
+                currentFolder={title.trim() ? `Stacks/${title.trim()}` : 'Stacks'}
+                title="Select Upload Destination"
+            />
         </>
     );
 }

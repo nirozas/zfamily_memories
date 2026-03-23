@@ -278,7 +278,7 @@ export function Events() {
                 const item = sourceUrlOrFile;
                 try {
                     if (googleAccessToken) {
-                        const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken);
+                        const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, 'Events');
                         finalUrl = persistentUrl;
                         googlePhotoId = persistentId;
                         mediaType = persistentType;

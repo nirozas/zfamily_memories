@@ -31,6 +31,7 @@ import { UrlInputModal } from '../components/media/UrlInputModal';
 import { CreateStackModal } from '../components/media/CreateStackModal';
 import { GooglePhotosService, type GoogleMediaItem } from '../services/googlePhotos';
 import { GooglePhotosSelector } from '../components/media/GooglePhotosSelector';
+import { FolderPickerModal } from '../components/media/FolderPickerModal';
 import { ImagePortal } from '../components/viewer/ImagePortal';
 import { VideoPortal } from '../components/viewer/VideoPortal';
 import { GoogleDriveService } from '../services/googleDrive';
@@ -216,7 +217,7 @@ export function MediaLibrary() {
     const [filterType, setFilterType] = useState<'all' | 'image' | 'video'>('all');
     const [editingItem, setEditingItem] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
-    const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number } | null>(null);
+    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
     const [uploadFolder, setUploadFolder] = useState<string>('/');
     const [showFolderPicker, setShowFolderPicker] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
@@ -290,17 +291,22 @@ export function MediaLibrary() {
 
         setIsGoogleSelectorOpen(false);
         setShowUrlInput(false);
-        setUploadProgress({ current: 0, total: items.length });
+        setUploadProgress({});
 
         const { storageService } = await import('../services/storage');
 
         for (let i = 0; i < items.length; i++) {
             const item = items[i];
-            setUploadProgress({ current: i + 1, total: items.length });
+            const name = item.filename || 'google-photo';
+            setUploadProgress(prev => ({ ...prev, [name]: 10 }));
 
             try {
                 const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = 
-                    await storageService.persistGoogleMedia(item, googleAccessToken!);
+                    await storageService.persistGoogleMedia(item, googleAccessToken!, familyId, uploadFolder, (p) => {
+                        setUploadProgress(prev => ({ ...prev, [name]: p }));
+                    });
+
+                setUploadProgress(prev => ({ ...prev, [name]: 100 }));
 
                 // Check if already exists to avoid 400 error on PostgREST upsert
                 const { data: existing } = await (supabase
@@ -337,7 +343,7 @@ export function MediaLibrary() {
             }
         }
 
-        setUploadProgress(null);
+        setTimeout(() => setUploadProgress({}), 2000);
         await fetchMedia();
     }
 
@@ -585,24 +591,11 @@ export function MediaLibrary() {
             fileInputRef.current?.click();
         }
     }
-
     function handleFolderSelection(folder: string) {
-        if (folder === '__new__') {
-            const newFolder = prompt('Enter new folder name:');
-            if (newFolder && newFolder.trim()) {
-                const fullPath = (currentPath === '/' || currentPath === 'All')
-                    ? newFolder.trim()
-                    : `${currentPath}/${newFolder.trim()}`;
-                setUploadFolder(fullPath);
-                setCurrentPath(fullPath);
-                fileInputRef.current?.click();
-            }
-        } else {
-            setUploadFolder(folder);
-            setCurrentPath(folder === '/' ? '/' : folder);
-            fileInputRef.current?.click();
-        }
+        setUploadFolder(folder);
+        setCurrentPath(folder === '/' ? '/' : folder);
         setShowFolderPicker(false);
+        fileInputRef.current?.click();
     }
 
     const Breadcrumbs = () => {
@@ -676,15 +669,16 @@ export function MediaLibrary() {
 
         const { storageService } = await import('../services/storage');
         if (source === 'upload' && files instanceof FileList) {
-            setUploadProgress({ current: 0, total: files.length });
+            setTimeout(() => setUploadProgress({}), 2000);
         }
 
         const itemsToProcess = source === 'google' ? [null] : Array.from(files);
 
         for (let i = 0; i < itemsToProcess.length; i++) {
             const file = itemsToProcess[i] as File | null;
+            const name = manualFilename || (file ? file.name : 'google-photo');
             if (source === 'upload' && files instanceof FileList) {
-                setUploadProgress({ current: i + 1, total: files.length });
+                setUploadProgress(prev => ({ ...prev, [name]: 0 }));
             }
 
             let storageUrl: string | null = manualUrl ?? null;
@@ -699,25 +693,32 @@ export function MediaLibrary() {
                         storageUrl = manualUrl;
                         finalType = (manualMimeType?.startsWith('video') || manualUrl.includes('video')) ? 'video' : 'image';
                     } else if (file) {
-                        if (!googleAccessToken) {
-                            if (confirm('Google integration required for upload. Sign in with Google now?')) {
+                        const isVideo = file.type.startsWith('video/') || !!file.name.match(/\.(mp4|mov|webm|mkv|avi|m4v)$/i);
+
+                        if (!isVideo && !googleAccessToken) {
+                            if (confirm('Google integration required for image upload. Sign in with Google now?')) {
                                 signInWithGoogle();
                             }
                             break;
                         }
 
-                        const { url, error, googlePhotoId: storageId } = await storageService.uploadFile(
+                        const { url, error, r2Key: _r2Key, googlePhotoId: storageId } = await storageService.uploadFile(
                             file,
                             'family-media',
-                            `vault/${familyId}/${uploadFolder}/`,
-                            undefined,
-                            googleAccessToken
+                            `media/${familyId}/vault/${uploadFolder}`,
+                            (progress) => {
+                                const percent = Math.round((progress.loaded / progress.total) * 100);
+                                setUploadProgress(prev => ({ ...prev, [name]: percent }));
+                            },
+                            googleAccessToken // passed for images
                         );
 
                         if (error) throw new Error(error);
                         storageUrl = url;
-                        finalType = file.type.startsWith('video') ? 'video' : 'image';
-                        googlePhotoId = storageId;
+                        finalType = isVideo ? 'video' : 'image';
+                        if (!isVideo) {
+                            googlePhotoId = storageId;
+                        }
                     }
 
                     if (storageUrl && familyId) {
@@ -730,7 +731,9 @@ export function MediaLibrary() {
                             folder: uploadFolder,
                             category: 'general',
                             uploaded_by: user?.id,
-                            metadata: { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
+                            metadata: finalType === 'video'
+                                ? { storage: 'r2' }
+                                : { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
                         } as any);
                     }
                 } catch (err: any) {
@@ -1120,15 +1123,25 @@ export function MediaLibrary() {
                     </div>
                 </div>
 
-                {uploadProgress && (
-                    <div className="px-6 py-3 bg-blue-50 border-b border-blue-200">
-                        <div className="flex items-center justify-between text-sm text-blue-900 mb-2">
-                            <span>Uploading {uploadProgress.current} of {uploadProgress.total} files...</span>
-                            <span>{Math.round((uploadProgress.current / uploadProgress.total) * 100)}%</span>
-                        </div>
-                        <div className="w-full bg-blue-200 rounded-full h-2">
-                            <div className="bg-blue-600 h-2 rounded-full transition-all" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}></div>
-                        </div>
+                {Object.keys(uploadProgress).length > 0 && (
+                    <div className="bg-catalog-stone/5 border border-catalog-accent/20 p-6 rounded-[2rem] mb-8 space-y-4 shadow-xl">
+                        {Object.entries(uploadProgress).map(([filename, progress]) => (
+                            <div key={filename} className="w-full">
+                                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-catalog-text/60 mb-2 px-1">
+                                    <span className="truncate max-w-[80%] flex items-center gap-2">
+                                        {progress >= 100 ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Loader2 className="w-3.5 h-3.5 text-catalog-accent animate-spin" />}
+                                        {filename}
+                                    </span>
+                                    <span className="text-catalog-accent font-serif tracking-normal text-sm italic">{Math.round(progress)}%</span>
+                                </div>
+                                <div className="w-full bg-white rounded-full h-1.5 overflow-hidden shadow-inner flex">
+                                    <div 
+                                        className="bg-catalog-accent h-full rounded-full transition-all duration-300 ease-out" 
+                                        style={{ width: `${progress}%` }} 
+                                    />
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
                 {/* Grid / Content Area */}
@@ -1241,25 +1254,14 @@ export function MediaLibrary() {
                 </div>
             </div>
 
-            {showFolderPicker && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowFolderPicker(false)}>
-                    <div className="bg-white rounded-lg p-6 w-96 max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="text-lg font-bold mb-4">Select Upload Folder</h3>
-                        <div className="space-y-2">
-                            <button onClick={() => handleFolderSelection('__new__')} className="w-full flex items-center gap-2 px-4 py-3 border-2 border-dashed border-catalog-accent text-catalog-accent rounded-lg hover:bg-catalog-accent/5 transition-colors text-left uppercase text-[10px] tracking-widest font-bold">
-                                <Plus className="w-4 h-4" />
-                                <span>Create Sub-folder</span>
-                            </button>
-                            {allFolders.map(folder => (
-                                <button key={folder} onClick={() => handleFolderSelection(folder)} className="w-full flex items-center gap-2 px-4 py-3 border border-gray-200 rounded-lg hover:border-catalog-accent hover:bg-catalog-accent/5 transition-colors text-left group">
-                                    <Folder className="w-5 h-5 text-gray-400 group-hover:text-catalog-accent" />
-                                    <span className="text-sm">{folder === '/' ? 'Unsorted' : folder}</span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <FolderPickerModal
+                isOpen={showFolderPicker}
+                onClose={() => setShowFolderPicker(false)}
+                onSelect={handleFolderSelection}
+                existingFolders={allFolders}
+                currentFolder={currentPath}
+                title="Select Upload Destination"
+            />
             {isGoogleSelectorOpen && (
                 <GooglePhotosSelector
                     googleAccessToken={googleAccessToken || ''}
@@ -1276,6 +1278,7 @@ export function MediaLibrary() {
                     isOpen={isCreateStackModalOpen}
                     onClose={() => setIsCreateStackModalOpen(false)}
                     initialSelected={media.filter(m => selectedItems.has(m.id))}
+                    folders={allFolders}
                     onCreated={() => {
                         setIsCreateStackModalOpen(false);
                         setSelectedItems(new Set());
@@ -1347,7 +1350,7 @@ export function MediaLibrary() {
                                 <div className="space-y-2">
                                     <div className="flex justify-between text-[10px] font-black uppercase text-orange-600">
                                         <span>Importing batch...</span>
-                                        <span>{amazonBatchProgress.done} / {amazonBatchProgress.total}</span>
+                                        <span>{Math.round((amazonBatchProgress.done / amazonBatchProgress.total) * 100)}%</span>
                                     </div>
                                     <div className="h-2 bg-orange-100 rounded-full overflow-hidden">
                                         <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: `${(amazonBatchProgress.done / amazonBatchProgress.total) * 100}%` }} />
