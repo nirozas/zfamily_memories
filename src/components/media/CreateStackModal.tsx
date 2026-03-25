@@ -2,7 +2,8 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     X, Plus, Music, Upload, Grid, Hash, Users, ChevronRight, ChevronLeft,
     Check, Loader2, Trash2, ExternalLink, Type, Star, Sparkles, Bold,
-    Palette, AlignCenter, Video, Clock, Eye, Play, MapPin, Calendar
+    Palette, AlignCenter, Video, Clock, Eye, Play, MapPin, Calendar,
+    LayoutGrid
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
@@ -17,6 +18,7 @@ import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { LocationPicker } from '../ui/LocationPicker';
 import { storageService } from '../../services/storage';
 import { FolderPickerModal } from './FolderPickerModal';
+import { UploadOverlay } from '../ui/UploadOverlay';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface TextLayer {
@@ -42,6 +44,7 @@ interface StackMediaItem {
     totalVideoDuration?: number;
     googlePhotoId?: string;
     isSyncedToGoogle?: boolean;
+    displaySize?: 'small' | 'medium' | 'original'; // relative size in viewer
 }
 
 type SelectedLayer = { kind: 'text' | 'sticker' | 'caption'; id: string } | null;
@@ -64,7 +67,8 @@ function makeItem(id: string, url: string, type: 'image' | 'video', filename: st
         duration: type === 'image' ? 5 : undefined,
         cropMode: 'contain',
         googlePhotoId,
-        isSyncedToGoogle: !!googlePhotoId
+        isSyncedToGoogle: !!googlePhotoId,
+        displaySize: 'original'
     };
 }
 
@@ -680,34 +684,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             </div>
                             {/* Right: media */}
                             <div className="p-8 flex flex-col gap-6 overflow-y-auto bg-gray-50/30">
-                                {/* Upload Progress Overlay/Banner */}
-                                {Object.keys(uploadProgress).length > 0 && (
-                                    <div className="space-y-3 p-6 bg-white rounded-3xl border border-catalog-accent/10 shadow-xl shadow-catalog-accent/5 animate-in slide-in-from-top-4 duration-500">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-2 h-2 rounded-full bg-catalog-accent animate-pulse" />
-                                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-catalog-accent">Uploading to Cloud (R2)</p>
-                                            </div>
-                                            <span className="text-[10px] font-black text-catalog-accent/50">{Object.keys(uploadProgress).length} ITEM(S)</span>
-                                        </div>
-                                        <div className="space-y-3">
-                                            {Object.entries(uploadProgress).map(([name, progress]) => (
-                                                <div key={name} className="space-y-1.5">
-                                                    <div className="flex justify-between text-[9px] font-black uppercase tracking-widest text-gray-500">
-                                                        <span className="truncate max-w-[200px]">{name}</span>
-                                                        <span>{progress}%</span>
-                                                    </div>
-                                                    <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                                                        <div
-                                                            className="h-full bg-catalog-accent transition-all duration-500 ease-out shadow-[0_0_8px_rgba(var(--catalog-accent-rgb),0.5)]"
-                                                            style={{ width: `${progress}%` }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+                                {/* Center Upload Overlay when active */}
+                                <UploadOverlay 
+                                    isOpen={isImporting || Object.keys(uploadProgress).length > 0} 
+                                    progress={uploadProgress} 
+                                    title={isImporting ? "Importing to Stack..." : "Uploading to Cloud..."}
+                                />
 
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="space-y-1">
@@ -851,6 +833,31 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                                             </button>
                                                         </div>
                                                     )}
+                                                    {/* Display Size Toggle */}
+                                                    <div className="flex items-center justify-between pt-1 border-t border-gray-50/50 mt-1">
+                                                        <div className="flex items-center gap-1.5 text-gray-400">
+                                                            <LayoutGrid className="w-3 h-3" />
+                                                            <span className="text-[10px] font-black uppercase tracking-widest">Size</span>
+                                                        </div>
+                                                        <div className="flex bg-gray-100 rounded-lg p-0.5">
+                                                            {(['small', 'medium', 'original'] as const).map(sz => (
+                                                                <button
+                                                                    key={sz}
+                                                                    onClick={() => {
+                                                                        setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, displaySize: sz } : it));
+                                                                    }}
+                                                                    className={cn(
+                                                                        "px-2 py-0.5 rounded-md text-[8px] font-black uppercase transition-all",
+                                                                        (item.displaySize || 'original') === sz 
+                                                                            ? "bg-white text-catalog-accent shadow-sm" 
+                                                                            : "text-gray-400 hover:text-gray-600"
+                                                                    )}
+                                                                >
+                                                                    {sz === 'small' ? '50%' : sz === 'medium' ? '75%' : '100%'}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}

@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import {
     Plus, Play, Music, Calendar, Grid, List, Search, Loader2,
-    PlaySquare, Sparkles, Pencil, Trash2, Users, Hash, Share
+    PlaySquare, Sparkles, Pencil, Trash2, Users, Hash, Share, MapPin
 } from 'lucide-react';
 import MediaStackViewer, { type MediaItem } from '../components/media/MediaStackViewer';
 import { CreateStackModal } from '../components/media/CreateStackModal';
@@ -54,7 +54,10 @@ interface Stack {
         videoStartTime?: number;
         videoEndTime?: number;
         googlePhotoId?: string;
+        displaySize?: 'small' | 'medium' | 'original';
     }>;
+    location?: string;
+    geotag?: { lat: number, lng: number } | null;
     created_at: string;
     updated_at: string;
 }
@@ -216,6 +219,7 @@ export function MediaStacks() {
             videoStartTime: item.videoStartTime,
             videoEndTime: item.videoEndTime,
             googlePhotoId: item.googlePhotoId,
+            displaySize: item.displaySize as any,
         }));
 
     return (
@@ -420,10 +424,29 @@ export function MediaStacks() {
                                                 ))}
                                             </div>
 
-                                            {/* Date */}
-                                            <div className="flex items-center gap-1.5 mt-3 text-[10px] text-gray-400 font-bold">
-                                                <Calendar className="w-3 h-3" />
-                                                {new Date(stack.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            {/* Footer Info: Date & Location */}
+                                            <div className="flex items-center gap-3 mt-3 text-[10px] text-gray-400 font-bold overflow-hidden">
+                                                <div className="flex items-center gap-1.5 whitespace-nowrap">
+                                                    <Calendar className="w-3 h-3" />
+                                                    {new Date(stack.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </div>
+                                                
+                                                {stack.location && (
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const url = stack.geotag 
+                                                                ? `https://www.google.com/maps/search/?api=1&query=${stack.geotag.lat},${stack.geotag.lng}`
+                                                                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stack.location!)}`;
+                                                            window.open(url, '_blank');
+                                                        }}
+                                                        className="flex items-center gap-1 hover:text-catalog-accent transition-colors truncate group/loc"
+                                                    >
+                                                        <div className="w-px h-2.5 bg-gray-200 mx-0.5 shrink-0" />
+                                                        <MapPin className="w-3 h-3 shrink-0 text-catalog-accent/60 group-hover/loc:scale-110 transition-transform" />
+                                                        <span className="truncate max-w-[120px]">{stack.location}</span>
+                                                    </button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -456,9 +479,30 @@ export function MediaStacks() {
                                             </div>
                                         </div>
                                         {/* Meta */}
-                                        <div className="text-right shrink-0 space-y-2">
-                                            <p className="text-xs font-bold text-gray-400">{stack.media_items?.length || 0} items</p>
-                                            {stack.music_url && <Music className="w-4 h-4 text-catalog-accent ml-auto" />}
+                                        <div className="text-right shrink-0 space-y-1 pr-2">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">{stack.media_items?.length || 0} items</p>
+                                            <div className="flex items-center gap-2 justify-end">
+                                                <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400">
+                                                    <Calendar className="w-2.5 h-2.5" />
+                                                    {new Date(stack.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                                                </div>
+                                                {stack.location && (
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            const url = stack.geotag 
+                                                                ? `https://www.google.com/maps/search/?api=1&query=${stack.geotag.lat},${stack.geotag.lng}`
+                                                                : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stack.location!)}`;
+                                                            window.open(url, '_blank');
+                                                        }}
+                                                        className="flex items-center gap-1 text-catalog-accent hover:text-catalog-accent/80 transition-colors font-bold text-[10px] truncate max-w-[120px]"
+                                                    >
+                                                        <MapPin className="w-2.5 h-2.5" />
+                                                        {stack.location}
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {stack.music_url && <Music className="w-3 h-3 text-catalog-accent/40 ml-auto" />}
                                         </div>
                                         {/* Actions */}
                                         <div className="flex items-center gap-1 shrink-0">

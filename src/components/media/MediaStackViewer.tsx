@@ -33,6 +33,7 @@ export interface MediaItem {
     videoStartTime?: number;
     videoEndTime?: number;
     googlePhotoId?: string;
+    displaySize?: 'small' | 'medium' | 'original';
 }
 
 interface MediaStackViewerProps {
@@ -478,7 +479,11 @@ export function MediaStackViewer({
                             ref={videoRef}
                             src={displayUrl}
                             playsInline
-                            className={cn("w-full h-full pointer-events-none select-none", activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
+                            className={cn(
+                                "w-full h-full pointer-events-none select-none transition-all duration-500", 
+                                activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain',
+                                activeItem.displaySize === 'small' ? 'scale-[0.5]' : activeItem.displaySize === 'medium' ? 'scale-[0.75]' : 'scale-100'
+                            )}
                         />
                         {/* Centered play/pause controller */}
                         <button
@@ -497,7 +502,11 @@ export function MediaStackViewer({
                     <img
                         src={displayUrl}
                         alt={activeItem.caption || 'Media'}
-                        className={cn("w-full h-full pointer-events-none select-none", activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
+                        className={cn(
+                            "w-full h-full pointer-events-none select-none transition-all duration-500", 
+                            activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain',
+                            activeItem.displaySize === 'small' ? 'scale-[0.5]' : activeItem.displaySize === 'medium' ? 'scale-[0.75]' : 'scale-100'
+                        )}
                     />
                 )}
 

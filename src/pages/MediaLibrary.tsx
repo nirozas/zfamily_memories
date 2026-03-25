@@ -37,6 +37,7 @@ import { ImagePortal } from '../components/viewer/ImagePortal';
 import { VideoPortal } from '../components/viewer/VideoPortal';
 import { GoogleDriveService } from '../services/googleDrive';
 import { cn } from '../lib/utils';
+import { UploadOverlay } from '../components/ui/UploadOverlay';
 
 interface MediaItem {
     id: string;
@@ -1220,27 +1221,11 @@ export function MediaLibrary() {
                     </div>
                 </div>
 
-                {Object.keys(uploadProgress).length > 0 && (
-                    <div className="bg-catalog-stone/5 border border-catalog-accent/20 p-6 rounded-[2rem] mb-8 space-y-4 shadow-xl">
-                        {Object.entries(uploadProgress).map(([filename, progress]) => (
-                            <div key={filename} className="w-full">
-                                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-catalog-text/60 mb-2 px-1">
-                                    <span className="truncate max-w-[80%] flex items-center gap-2">
-                                        {progress >= 100 ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Loader2 className="w-3.5 h-3.5 text-catalog-accent animate-spin" />}
-                                        {filename}
-                                    </span>
-                                    <span className="text-catalog-accent font-serif tracking-normal text-sm italic">{Math.round(progress)}%</span>
-                                </div>
-                                <div className="w-full bg-white rounded-full h-1.5 overflow-hidden shadow-inner flex">
-                                    <div 
-                                        className="bg-catalog-accent h-full rounded-full transition-all duration-300 ease-out" 
-                                        style={{ width: `${progress}%` }} 
-                                    />
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
+                <UploadOverlay 
+                    isOpen={Object.keys(uploadProgress).length > 0} 
+                    progress={uploadProgress} 
+                    title="Uploading to Library..."
+                />
                 {/* Grid / Content Area */}
                 <div className="flex-1 overflow-y-auto p-6 content-scrollbar">
                     <Breadcrumbs />

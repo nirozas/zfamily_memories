@@ -27,8 +27,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStr
 import { SortableAsset } from '../components/ui/SortableAsset';
 
 import { videoCompressionService } from '../services/videoCompression';
-import { Loader2 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { UploadOverlay } from '../components/ui/UploadOverlay';
 
 export function EventEditor() {
     const { id } = useParams<{ id: string }>();
@@ -39,6 +38,7 @@ export function EventEditor() {
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [uploading, setUploading] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
     const [compressionProgress, setCompressionProgress] = useState<number | null>(null);
 
     const [eventData, setEventData] = useState<Partial<Event>>({
@@ -549,21 +549,12 @@ export function EventEditor() {
                                         </Button>
                                     </div>
 
-                                    {/* Upload/Compression Indicator */}
-                                    {(uploading || compressionProgress !== null) && (
-                                        <motion.div
-                                            initial={{ opacity: 0, scale: 0.9 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 glass px-8 py-4 rounded-[2rem] shadow-2xl z-50 flex items-center gap-4 border border-white/40"
-                                        >
-                                            <div className="w-10 h-10 rounded-full bg-catalog-accent/10 flex items-center justify-center">
-                                                <Loader2 className="w-5 h-5 animate-spin text-catalog-accent" />
-                                            </div>
-                                            <span className="text-[10px] font-black text-catalog-text uppercase tracking-widest">
-                                                {compressionProgress !== null ? `Refining Video ${compressionProgress}%` : 'Archiving Media...'}
-                                            </span>
-                                        </motion.div>
-                                    )}
+                                    {/* Centered Upload Overlay */}
+                                    <UploadOverlay 
+                                        isOpen={uploading || Object.keys(uploadProgress).length > 0} 
+                                        progress={uploadProgress} 
+                                        title={compressionProgress !== null ? "Refining Video Assets..." : "Preserving Memories..."}
+                                    />
                                     <input
                                         type="file"
                                         ref={fileInputRef}
@@ -613,7 +604,7 @@ export function EventEditor() {
                                                             compressedFile,
                                                             'event-assets',
                                                             `events/${eventData.title}/`,
-                                                            undefined,
+                                                            (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
                                                             googleAccessToken
                                                         );
                                                         if (uploadError) throw uploadError;
@@ -639,6 +630,7 @@ export function EventEditor() {
                                                     } catch (err) {
                                                         console.error('Video processing failed', err);
                                                         setCompressionProgress(null);
+                                                        setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; });
                                                     }
                                                 }
 
@@ -648,7 +640,7 @@ export function EventEditor() {
                                                         file,
                                                         'event-assets',
                                                         `events/${eventData.title}/`,
-                                                        undefined,
+                                                        (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
                                                         googleAccessToken
                                                     );
 
@@ -693,6 +685,7 @@ export function EventEditor() {
                                             } finally {
                                                 setUploading(false);
                                                 setCompressionProgress(null);
+                                                setTimeout(() => setUploadProgress({}), 1000);
                                                 if (fileInputRef.current) fileInputRef.current.value = '';
                                             }
                                         }}

@@ -31,6 +31,7 @@ import {
 import { storageService } from '../../services/storage';
 import { UrlInputModal } from '../media/UrlInputModal';
 import { MediaPickerModal } from '../media/MediaPickerModal';
+import { UploadOverlay } from '../ui/UploadOverlay';
 
 // Helper for library thumbnails (not full assets)
 const getThumbnailUrl = (url: string) => {
@@ -1092,29 +1093,12 @@ export function AssetLibrary() {
                             )}
                         </div>
 
-                        {/* Upload Status (during upload) */}
-                        {isSaving && (
-                            <div className="space-y-3 p-3 bg-white border border-catalog-accent/10 rounded-lg animate-in fade-in slide-in-from-top-1 px-1">
-                                <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[10px] font-bold text-catalog-accent uppercase tracking-widest">Upload Status</span>
-                                    <div className="w-3 h-3 border-2 border-catalog-accent border-t-transparent rounded-full animate-spin" />
-                                </div>
-                                {Object.entries(uploadProgress).map(([fileName, progress]) => (
-                                    <div key={fileName} className="space-y-1">
-                                        <div className="flex justify-between text-[8px] font-bold text-catalog-text/60 truncate">
-                                            <span className="truncate flex-1 pr-2">{fileName}</span>
-                                            <span className="shrink-0">{progress}%</span>
-                                        </div>
-                                        <div className="w-full h-1 bg-gray-100 rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-catalog-accent transition-all duration-300"
-                                                style={{ width: `${progress}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                        {/* Center Upload Overlay when active */}
+                        <UploadOverlay 
+                            isOpen={isSaving} 
+                            progress={uploadProgress} 
+                            title="Uploading Highlights..."
+                        />
                     </div>
                 )}
 
