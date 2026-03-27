@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     X, Star, MoreVertical, Play, Pause, Share, Edit2, Trash,
-    MapPin, Volume2, VolumeX
+    MapPin, Volume2, VolumeX, Maximize, Minimize, Download,
+    MonitorPlay, Check, Settings2
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
@@ -33,7 +34,6 @@ export interface MediaItem {
     videoStartTime?: number;
     videoEndTime?: number;
     googlePhotoId?: string;
-    displaySize?: 'small' | 'medium' | 'original';
 }
 
 interface MediaStackViewerProps {
@@ -74,6 +74,13 @@ export function MediaStackViewer({
     const [showInfoDrawer, setShowInfoDrawer] = useState(false);
     const [captionText, setCaptionText] = useState('');
     const [isFavorite, setIsFavorite] = useState(false);
+    
+    // Video-specific controls
+    const [isVideoMuted, setIsVideoMuted] = useState(true);
+    const [playbackRate, setPlaybackRate] = useState(1);
+    const [showVideoMenu, setShowVideoMenu] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -394,8 +401,62 @@ export function MediaStackViewer({
 
     if (!items || items.length === 0 || !activeItem) return null;
 
+    // Update video settings when active item changes or rate changes
+    useEffect(() => {
+        if (videoRef.current && activeItem.type === 'video') {
+            videoRef.current.playbackRate = playbackRate;
+            videoRef.current.muted = isVideoMuted;
+        }
+    }, [activeItem, playbackRate, isVideoMuted]);
+
+    const toggleFullscreen = () => {
+        if (!containerRef.current) return;
+        if (!document.fullscreenElement) {
+            containerRef.current.requestFullscreen().catch(err => console.error(err));
+            setIsFullscreen(true);
+        } else {
+            document.exitFullscreen();
+            setIsFullscreen(false);
+        }
+    };
+
+    const handleDownload = async () => {
+        if (!displayUrl) return;
+        try {
+            const response = await fetch(displayUrl);
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = activeItem.filename || `video_${Date.now()}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (err) {
+            console.error('Download failed', err);
+            window.open(displayUrl, '_blank');
+        }
+    };
+
+    const togglePiP = async () => {
+        if (!videoRef.current) return;
+        try {
+            if (document.pictureInPictureElement) {
+                await document.exitPictureInPicture();
+            } else {
+                await videoRef.current.requestPictureInPicture();
+            }
+        } catch (err) {
+            console.error('PiP failed', err);
+        }
+    };
+
     return (
-        <div className="fixed inset-0 z-[200] bg-black text-white flex flex-col justify-between font-sans overflow-hidden">
+        <div 
+            ref={containerRef}
+            className="fixed top-16 inset-x-0 bottom-0 z-[200] bg-black text-white flex flex-col justify-between font-sans overflow-hidden"
+        >
             {/* Background Music */}
             {backgroundMusicUrl && (
                 <audio
@@ -407,7 +468,7 @@ export function MediaStackViewer({
             )}
 
             {/* Progress Bars */}
-            <div className="absolute top-0 left-0 right-0 flex gap-1 p-2 pt-12 z-20 bg-gradient-to-b from-black/60 to-transparent">
+            <div className="absolute top-0 left-0 right-0 flex gap-1 p-2 pt-4 z-20 bg-gradient-to-b from-black/60 to-transparent">
                 {items.map((_, idx) => (
                     <div key={idx} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden">
                         <div
@@ -421,13 +482,13 @@ export function MediaStackViewer({
             </div>
 
             {/* Top Nav */}
-            <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 pt-16 z-20 pointer-events-none">
+            <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 z-20 pointer-events-none">
                 <button onClick={onClose} className="p-2 pointer-events-auto bg-black/20 hover:bg-black/40 rounded-full transition-colors backdrop-blur-md">
                     <X className="w-6 h-6" />
                 </button>
                 <div className="text-center drop-shadow-md">
                     <span className="text-sm font-semibold block px-3 py-1 bg-black/20 backdrop-blur-md rounded-full">
-                        {typeof activeItem.date === 'string' ? activeItem.date : activeItem.date.toLocaleDateString()}
+                        {activeItem.date instanceof Date ? activeItem.date.toLocaleDateString() : typeof activeItem.date === 'string' ? activeItem.date : ''}
                     </span>
                 </div>
                 <div className="flex items-center gap-4 pointer-events-auto">
@@ -440,7 +501,6 @@ export function MediaStackViewer({
                             >
                                 {isMuted || bgmVolume === 0 ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
                             </button>
-                            {/* Volume slider popover */}
                             {showVolumeSlider && !isMuted && activeItem.type !== 'video' && (
                                 <div className="absolute top-full right-0 mt-2 bg-black/60 backdrop-blur-md p-3 rounded-2xl shadow-xl flex items-center gap-2 animate-in fade-in zoom-in w-32 border border-white/10">
                                     <VolumeX className="w-3 h-3 text-gray-400" />
@@ -456,10 +516,10 @@ export function MediaStackViewer({
                             )}
                         </div>
                     )}
-                    <button onClick={() => setIsFavorite(!isFavorite)} className="p-2 bg-black/20 hover:bg-black/40 rounded-full backdrop-blur-md transition-colors">
+                    <button onClick={() => setIsFavorite(!isFavorite)} className="p-2 bg-black/20 hover:bg-black/40 rounded-full backdrop-blur-md transition-colors border border-white/10">
                         <Star className={`w-5 h-5 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-white'}`} />
                     </button>
-                    <button onClick={() => setShowInfoDrawer(true)} className="p-2 bg-black/20 hover:bg-black/40 rounded-full backdrop-blur-md transition-colors">
+                    <button onClick={() => setShowInfoDrawer(true)} className="p-2 bg-black/20 hover:bg-black/40 rounded-full backdrop-blur-md transition-colors border border-white/10">
                         <MoreVertical className="w-5 h-5 text-white" />
                     </button>
                 </div>
@@ -481,11 +541,9 @@ export function MediaStackViewer({
                             playsInline
                             className={cn(
                                 "w-full h-full pointer-events-none select-none transition-all duration-500", 
-                                activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain',
-                                activeItem.displaySize === 'small' ? 'scale-[0.5]' : activeItem.displaySize === 'medium' ? 'scale-[0.75]' : 'scale-100'
+                                activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain'
                             )}
                         />
-                        {/* Centered play/pause controller */}
                         <button
                             onClick={(e) => { e.stopPropagation(); setIsPaused(p => !p); }}
                             className={cn(
@@ -504,14 +562,11 @@ export function MediaStackViewer({
                         alt={activeItem.caption || 'Media'}
                         className={cn(
                             "w-full h-full pointer-events-none select-none transition-all duration-500", 
-                            activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain',
-                            activeItem.displaySize === 'small' ? 'scale-[0.5]' : activeItem.displaySize === 'medium' ? 'scale-[0.75]' : 'scale-100'
+                            activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain'
                         )}
                     />
                 )}
 
-                {/* Overlays */}
-                {/* Text layers */}
                 {(activeItem.textLayers || []).map(layer => (
                     <div key={layer.id}
                         className="absolute pointer-events-none select-none px-1"
@@ -521,7 +576,6 @@ export function MediaStackViewer({
                     </div>
                 ))}
 
-                {/* Caption layer */}
                 {activeItem.caption && (
                     <div
                         className="absolute pointer-events-none select-none px-4 py-2 rounded-2xl"
@@ -531,7 +585,6 @@ export function MediaStackViewer({
                     </div>
                 )}
 
-                {/* Sticker layers */}
                 {(activeItem.stickerLayers || []).map(layer => (
                     <div key={layer.id}
                         className="absolute pointer-events-none select-none"
@@ -542,7 +595,6 @@ export function MediaStackViewer({
                 ))}
             </div>
 
-            {/* Preload next item */}
             {nextItem && nextItem.type === 'image' && (
                 <link rel="preload" as="image" href={nextProxiedUrl} />
             )}
@@ -550,15 +602,54 @@ export function MediaStackViewer({
             {/* Bottom Action Bar */}
             <div className="absolute bottom-0 left-0 right-0 p-4 pb-8 z-20 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-4">
                 {activeItem.type === 'video' && (
-                    <div className="flex items-center gap-4 pointer-events-auto">
-                        <button onClick={() => setIsPaused(!isPaused)}>
-                            {isPaused ? <Play className="w-6 h-6" /> : <Pause className="w-6 h-6" />}
+                    <div className="flex items-center gap-4 pointer-events-auto bg-black/20 backdrop-blur-md p-3 rounded-2xl border border-white/10">
+                        <button onClick={() => setIsPaused(!isPaused)} className="p-1.5 bg-white/10 rounded-full hover:bg-white/20 transition-all">
+                            {isPaused ? <Play className="w-5 h-5 fill-white text-white" /> : <Pause className="w-5 h-5 fill-white text-white" />}
                         </button>
-                        <div className="flex-1 h-1 bg-white/30 rounded cursor-pointer relative">
-                            <div
-                                className="absolute top-0 left-0 h-full bg-white rounded transition-all duration-75"
-                                style={{ width: `${progress}%` }}
-                            />
+                        
+                        <button onClick={() => setIsVideoMuted(!isVideoMuted)} className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
+                            {isVideoMuted ? <VolumeX className="w-5 h-5 text-white" /> : <Volume2 className="w-5 h-5 text-white" />}
+                        </button>
+
+                        <div className="flex-1 h-1.5 bg-white/30 rounded-full cursor-pointer relative group/progress">
+                            <div className="absolute top-0 left-0 h-full bg-white rounded-full transition-all duration-75" style={{ width: `${progress}%` }} />
+                            <div className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg opacity-0 group-hover/progress:opacity-100 transition-opacity" style={{ left: `${progress}%` }} />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button onClick={toggleFullscreen} className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
+                                {isFullscreen ? <Minimize className="w-5 h-5 text-white" /> : <Maximize className="w-5 h-5 text-white" />}
+                            </button>
+                            
+                            <div className="relative">
+                                <button onClick={() => setShowVideoMenu(!showVideoMenu)} className="p-1.5 hover:bg-white/10 rounded-full transition-colors">
+                                    <MoreVertical className="w-5 h-5 text-white" />
+                                </button>
+                                
+                                {showVideoMenu && (
+                                    <div className="absolute bottom-full right-0 mb-4 w-48 bg-[#1a1a1a] backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl z-50 animate-in fade-in slide-in-from-bottom-2 duration-200 origin-bottom-right">
+                                        <div className="p-1.5 border-b border-white/5">
+                                            <div className="px-3 py-2 text-[10px] font-black text-white/40 uppercase tracking-widest flex items-center gap-2">
+                                                <Settings2 className="w-3 h-3" /> Playback Speed
+                                            </div>
+                                            {[0.5, 0.75, 1, 1.25, 1.5, 2].map(rate => (
+                                                <button key={rate} onClick={() => { setPlaybackRate(rate); setShowVideoMenu(false); }} className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-white hover:bg-white/10 rounded-xl transition-colors">
+                                                    <span>{rate === 1 ? 'Normal' : `${rate}x`}</span>
+                                                    {playbackRate === rate && <Check className="w-3.5 h-3.5 text-blue-400" />}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="p-1.5">
+                                            <button onClick={() => { handleDownload(); setShowVideoMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-white hover:bg-white/10 rounded-xl transition-colors">
+                                                <Download className="w-4 h-4" /> <span>Download</span>
+                                            </button>
+                                            <button onClick={() => { togglePiP(); setShowVideoMenu(false); }} className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-bold text-white hover:bg-white/10 rounded-xl transition-colors">
+                                                <MonitorPlay className="w-4 h-4" /> <span>Picture-in-Picture</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
@@ -585,12 +676,10 @@ export function MediaStackViewer({
                 )}
             </div>
 
-            {/* Info / Details Drawer */}
+            {/* Info Drawer */}
             {showInfoDrawer && (
                 <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/40 backdrop-blur-sm"
-                    onClick={(e) => {
-                        if (e.target === e.currentTarget) setShowInfoDrawer(false);
-                    }}>
+                    onClick={(e) => { if (e.target === e.currentTarget) setShowInfoDrawer(false); }}>
                     <div className="bg-neutral-900 rounded-t-3xl p-6 flex flex-col gap-6 animate-in slide-in-from-bottom h-3/4 overflow-y-auto">
                         <div className="flex justify-between items-center">
                             <h3 className="text-xl font-semibold">Info</h3>

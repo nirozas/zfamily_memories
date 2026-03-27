@@ -14,55 +14,38 @@ export function SharedEventView() {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (token) fetchSharedEvent(token);
-    }, [token]);
-
-    const fetchSharedEvent = async (sharingToken: string) => {
-        try {
-            // First validate the token
-            const { data, error: linkError } = await supabase
-                .from('shared_links')
-                .select('*')
-                .eq('token', sharingToken)
-                .single();
-
-            const linkData = data as any;
-            if (linkError || !linkData) {
-                setError('Invalid or expired sharing link.');
-                return;
-            }
-
-            // Check expiration
-            if (new Date(linkData.expires_at) < new Date() || !linkData.is_active) {
-                setError('This sharing link has expired.');
-                return;
-            }
-
-            if (!linkData.event_id) {
-                setError('Link is not associated with an event.');
-                return;
-            }
-
-            // Fetch the event
-            const { data: eventData, error: eventError } = await supabase
-                .from('events')
-                .select('*')
-                .eq('id', linkData.event_id)
-                .single();
-
-            if (eventError || !eventData) {
-                setError('Could not find the associated story.');
-                return;
-            }
-
-            setEvent(eventData);
-        } catch (err) {
-            console.error('Error fetching shared event:', err);
-            setError('An unexpected error occurred.');
-        } finally {
+        if (!token) {
+            setError('Invalid link');
             setLoading(false);
+            return;
         }
-    };
+
+        const fetchSharedEvent = async () => {
+            try {
+                // Call the universal sharing RPC
+                const { data, error: fnError } = await (supabase.rpc as any)('get_shared_content', {
+                    token_param: token
+                });
+
+                if (fnError || !data || data.success === false) {
+                    throw new Error(fnError?.message || data?.error || 'Link is invalid or has expired after 48 hours.');
+                }
+
+                if (data.type !== 'event' || !data.event) {
+                    throw new Error('This link is not associated with a story.');
+                }
+
+                setEvent(data.event);
+            } catch (err: any) {
+                console.error('Error fetching shared event:', err);
+                setError(err.message || 'An unexpected error occurred.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchSharedEvent();
+    }, [token]);
 
     // Resolve Google Photo URLs in description HTML
     const resolvedDescription = (() => {

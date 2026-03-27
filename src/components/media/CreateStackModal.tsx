@@ -44,7 +44,6 @@ interface StackMediaItem {
     totalVideoDuration?: number;
     googlePhotoId?: string;
     isSyncedToGoogle?: boolean;
-    displaySize?: 'small' | 'medium' | 'original'; // relative size in viewer
 }
 
 type SelectedLayer = { kind: 'text' | 'sticker' | 'caption'; id: string } | null;
@@ -67,8 +66,7 @@ function makeItem(id: string, url: string, type: 'image' | 'video', filename: st
         duration: type === 'image' ? 5 : undefined,
         cropMode: 'contain',
         googlePhotoId,
-        isSyncedToGoogle: !!googlePhotoId,
-        displaySize: 'original'
+        isSyncedToGoogle: !!googlePhotoId
     };
 }
 
@@ -157,7 +155,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     // ── Load Initial Stack for Edit Mode ─────────────────────────────────
     useEffect(() => {
         if (isOpen && initialSelected && initialSelected.length > 0 && mediaItems.length === 0) {
-            const mapped = initialSelected.map(m => makeItem(m.id, m.url, m.type, m.filename));
+            const mapped = initialSelected.map(m => makeItem(m.id, m.url, m.type, m.filename, m.googlePhotoId));
             setMediaItems(mapped);
         }
     }, [isOpen, initialSelected, mediaItems.length]);
@@ -173,6 +171,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             setEventDate(initialStack.event_date ? new Date(initialStack.event_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
             setGeotag(initialStack.geotag || null);
             setMediaItems(initialStack.media_items || []);
+            // Step 1 grid zoom is not persisted, we default to 100 for editing
+            setGridZoom(100);
             setStep(1);
             setEditingIdx(0);
         } else if (!isOpen) {
@@ -249,6 +249,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
 
     // ── Media import ─────────────────────────────────────────────────────
     const [useHls, setUseHls] = useState(false); // Toggle for HLS adaptive streaming
+    const [gridZoom, setGridZoom] = useState<number>(100); // Grid density zoom for Step 1
 
     const handleDeviceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0 || !familyId) return;
@@ -348,7 +349,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setShowGooglePicker(false);
         if (!googleAccessToken || !familyId) return;
         setIsImporting(true);
-        for (const item of selected) {
+        for (let i = 0; i < selected.length; i++) {
+            const item = selected[i];
             try {
                 const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
                 const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder, (p) => {
@@ -400,7 +402,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const processRemoteUrl = (url: string): { processedUrl: string; type: 'image' | 'video'; filename: string } | null => {
         const trimmed = url.trim();
         if (!trimmed || !trimmed.startsWith('http')) return null;
-        
+
         // Dropbox optimization
         let finalUrl = trimmed;
         if (finalUrl.includes('dropbox.com')) {
@@ -467,7 +469,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         uploaded_by: user?.id,
                     });
                 }
-                
+
                 newItems.push(makeItem(`remote-${Date.now()}-${i}`, item.processedUrl, item.type, item.filename));
             } catch (err) {
                 console.error('Import failed for', item.processedUrl, err);
@@ -703,23 +705,45 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                     </button>
                                 </div>
 
-                                {/* HLS Toggle */}
-                                <div className="flex items-center gap-2 px-4 py-2 bg-white/70 rounded-2xl border border-gray-100">
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Adaptive Streaming (HLS)</span>
-                                    <button
-                                        onClick={() => setUseHls(v => !v)}
-                                        className={cn(
-                                            "relative w-10 h-5 rounded-full transition-colors",
-                                            useHls ? "bg-catalog-accent" : "bg-gray-200"
-                                        )}
-                                        title="Enable HLS adaptive bitrate encoding for videos (1080p/720p/480p). Slower upload but better playback."
-                                    >
-                                        <span className={cn(
-                                            "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
-                                            useHls ? "left-[22px]" : "left-0.5"
-                                        )} />
-                                    </button>
-                                    {useHls && <span className="text-[9px] font-bold text-catalog-accent uppercase tracking-widest">On</span>}
+                                {/* Controls Bar: HLS + Global Size */}
+                                <div className="flex flex-wrap items-center gap-4 px-5 py-3 bg-white/70 rounded-3xl border border-gray-100 shadow-sm">
+                                    {/* HLS Toggle */}
+                                    <div className="flex items-center gap-2 pr-4 border-r border-gray-100">
+                                        <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Adaptive Streaming (HLS)</span>
+                                        <button
+                                            onClick={() => setUseHls(v => !v)}
+                                            className={cn(
+                                                "relative w-10 h-5 rounded-full transition-colors",
+                                                useHls ? "bg-catalog-accent" : "bg-gray-200"
+                                            )}
+                                            title="Enable HLS adaptive bitrate encoding for videos (1080p/720p/480p). Slower upload but better playback."
+                                        >
+                                            <span className={cn(
+                                                "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all",
+                                                useHls ? "left-[22px]" : "left-0.5"
+                                            )} />
+                                        </button>
+                                        {useHls && <span className="text-[9px] font-bold text-catalog-accent uppercase tracking-widest">On</span>}
+                                    </div>
+
+                                    {/* Grid Zoom Slider */}
+                                    <div className="flex items-center gap-4 flex-1 min-w-[200px]">
+                                        <div className="flex items-center gap-1.5 text-gray-400 shrink-0">
+                                            <LayoutGrid className="w-3.5 h-3.5" />
+                                            <span className="text-[9px] font-black uppercase tracking-widest leading-none">Grid Zoom</span>
+                                        </div>
+                                        <div className="flex-1 flex items-center gap-3">
+                                            <Slider
+                                                min={20}
+                                                max={100}
+                                                step={1}
+                                                value={[gridZoom]}
+                                                onValueChange={([val]) => setGridZoom(val)}
+                                                className="flex-1"
+                                            />
+                                            <span className="text-[10px] font-black text-catalog-accent w-8">{gridZoom}%</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 {mediaItems.length === 0 ? (
@@ -731,7 +755,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         </div>
                                     </button>
                                 ) : (
-                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                                    <div 
+                                        className="grid gap-4 w-full"
+                                        style={{ 
+                                            gridTemplateColumns: `repeat(auto-fill, minmax(${Math.floor(60 + (gridZoom - 20) * 2.25)}px, 1fr))` 
+                                        }}
+                                    >
                                         {mediaItems.map((item, idx) => (
                                             <div
                                                 key={item.id + idx}
@@ -739,7 +768,10 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                                 onDragStart={() => onDragStart(idx)}
                                                 onDragOver={(e) => onDragOver(e, idx)}
                                                 onDragEnd={onDragEnd}
-                                                className="relative aspect-[3/4.5] rounded-3xl overflow-hidden group shadow-md border border-white bg-white flex flex-col cursor-grab active:cursor-grabbing hover:shadow-xl transition-all"
+                                                className={cn(
+                                                    "relative aspect-[3/4.5] rounded-3xl overflow-hidden group shadow-md border border-white bg-white flex flex-col cursor-grab active:cursor-grabbing hover:shadow-xl transition-all",
+                                                    gridZoom < 40 ? "rounded-xl" : "rounded-3xl"
+                                                )}
                                             >
                                                 <div className="flex-1 relative overflow-hidden bg-gray-50">
                                                     {item.type === 'video' ? (
@@ -782,83 +814,70 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); setLightboxItem(item); }}
-                                                            className="p-3 bg-white text-gray-900 rounded-2xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
+                                                            className="p-2 bg-white text-gray-900 rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
                                                         >
-                                                            <Eye className="w-5 h-5" />
+                                                            <Eye className="w-4 h-4" />
                                                         </button>
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); removeMedia(idx); }}
-                                                            className="p-3 bg-red-500 text-white rounded-2xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
+                                                            className="p-2 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
                                                         >
-                                                            <Trash2 className="w-5 h-5" />
+                                                            <Trash2 className="w-4 h-4" />
                                                         </button>
                                                     </div>
                                                 </div>
 
-                                                <div className="p-3 space-y-2 bg-white border-t border-gray-50">
-                                                    {item.type === 'image' && (
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-1.5 text-gray-400">
-                                                                <Clock className="w-3.5 h-3.5" />
-                                                                <span className="text-[10px] font-black uppercase tracking-widest">Duration</span>
+                                                {gridZoom >= 38 && (
+                                                    <div className={cn(
+                                                        "bg-white border-t border-gray-50 flex-shrink-0 flex flex-col justify-center transition-all",
+                                                        gridZoom < 60 ? "p-1.5 space-y-1" : "p-3 space-y-2"
+                                                    )}>
+                                                        {item.type === 'image' && (
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-1 text-gray-400">
+                                                                    <Clock className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
+                                                                    <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Duration</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-0.5">
+                                                                    <input
+                                                                        type="number"
+                                                                        min={1} max={30}
+                                                                        value={item.duration || 5}
+                                                                        onChange={e => {
+                                                                            const val = parseInt(e.target.value) || 5;
+                                                                            setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, duration: val } : it));
+                                                                        }}
+                                                                        className={cn(
+                                                                            "font-black text-center bg-gray-50 border border-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-catalog-accent/20",
+                                                                            gridZoom < 60 ? "w-7 text-[8px] py-0" : "w-10 text-[10px] py-0.5"
+                                                                        )}
+                                                                    />
+                                                                    <span className={cn("font-black text-gray-400", gridZoom < 60 ? "text-[7px]" : "text-[9px]")}>s</span>
+                                                                </div>
                                                             </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <input
-                                                                    type="number"
-                                                                    min={1} max={30}
-                                                                    value={item.duration || 5}
-                                                                    onChange={e => {
-                                                                        const val = parseInt(e.target.value) || 5;
-                                                                        setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, duration: val } : it));
-                                                                    }}
-                                                                    className="w-12 text-xs font-black text-center bg-gray-50 border border-gray-100 rounded-lg py-1 focus:outline-none focus:ring-2 focus:ring-catalog-accent/20"
-                                                                />
-                                                                <span className="text-[10px] font-black text-gray-400">s</span>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                    {item.type === 'video' && (
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-1.5 text-blue-500">
-                                                                <Video className="w-3.5 h-3.5" />
-                                                                <span className="text-[10px] font-black uppercase tracking-widest">Frame Fix</span>
-                                                            </div>
-                                                            <button
-                                                                onClick={() => {
-                                                                    setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, cropMode: it.cropMode === 'cover' ? 'contain' : 'cover' } : it));
-                                                                }}
-                                                                className={cn("px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all", item.cropMode === 'cover' ? "bg-blue-500 text-white shadow-md shadow-blue-200" : "bg-gray-100 text-gray-400")}
-                                                            >
-                                                                {item.cropMode === 'cover' ? 'Full' : 'Fit'}
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                    {/* Display Size Toggle */}
-                                                    <div className="flex items-center justify-between pt-1 border-t border-gray-50/50 mt-1">
-                                                        <div className="flex items-center gap-1.5 text-gray-400">
-                                                            <LayoutGrid className="w-3 h-3" />
-                                                            <span className="text-[10px] font-black uppercase tracking-widest">Size</span>
-                                                        </div>
-                                                        <div className="flex bg-gray-100 rounded-lg p-0.5">
-                                                            {(['small', 'medium', 'original'] as const).map(sz => (
+                                                        )}
+                                                        {item.type === 'video' && (
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-1 text-blue-500">
+                                                                    <Video className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
+                                                                    <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Frame</span>
+                                                                </div>
                                                                 <button
-                                                                    key={sz}
                                                                     onClick={() => {
-                                                                        setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, displaySize: sz } : it));
+                                                                        setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, cropMode: it.cropMode === 'cover' ? 'contain' : 'cover' } : it));
                                                                     }}
                                                                     className={cn(
-                                                                        "px-2 py-0.5 rounded-md text-[8px] font-black uppercase transition-all",
-                                                                        (item.displaySize || 'original') === sz 
-                                                                            ? "bg-white text-catalog-accent shadow-sm" 
-                                                                            : "text-gray-400 hover:text-gray-600"
+                                                                        "rounded-lg font-black uppercase tracking-widest transition-all", 
+                                                                        item.cropMode === 'cover' ? "bg-blue-500 text-white shadow-sm" : "bg-gray-100 text-gray-400",
+                                                                        gridZoom < 60 ? "px-1.5 py-0.5 text-[7px]" : "px-2.5 py-1 text-[9px]"
                                                                     )}
                                                                 >
-                                                                    {sz === 'small' ? '50%' : sz === 'medium' ? '75%' : '100%'}
+                                                                    {item.cropMode === 'cover' ? 'Full' : 'Fit'}
                                                                 </button>
-                                                            ))}
-                                                        </div>
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -895,7 +914,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         src={displayUrl} 
                                         poster={posterUrl}
                                         controls={selectedLayer?.kind !== 'trim' as any}
-                                        className={cn("absolute inset-0 w-full h-full pointer-events-auto", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
+                                        className={cn("absolute inset-0 w-full h-full pointer-events-auto transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
                                         autoPlay loop playsInline crossOrigin="anonymous"
                                         onLoadedMetadata={(e) => {
                                             const dur = e.currentTarget.duration;
@@ -914,7 +933,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                             }
                                         }}
                                     />
-                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />}
+                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />}
 
                                 {/* Text layers */}
                                 {(currentItem.textLayers || []).map(layer => (

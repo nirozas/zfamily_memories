@@ -1,92 +1,74 @@
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
-import { validateShareLink } from '../services/sharing';
-import { AlbumDataService } from '../services/albumDataService';
-import { unifiedAlbumToContextAlbum } from '../lib/albumAdapters';
-import { type Album } from '../contexts/AlbumContext';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { Button } from '../components/ui/Button';
 
 export function SharedAlbumView() {
     const { token } = useParams<{ token: string }>();
-    const navigate = useNavigate();
-    const [album, setAlbum] = useState<Album | null>(null);
+
+    const [album, setAlbum] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (!token) {
+            setError('Invalid link');
+            setLoading(false);
+            return;
+        }
+
         const fetchSharedAlbum = async () => {
-            if (!token) return;
-
-            // 1. Validate Token
-            const { valid, albumId, error: validationError } = await validateShareLink(token);
-
-            if (!valid || !albumId) {
-                setError(validationError || 'Invalid or expired shared link');
-                setLoading(false);
-                return;
-            }
-
-            // 2. Fetch Album Data
-            // We need to bypass RLS here if the user is anonymous. 
-            // In a production app, we would use a secure RPC function like 'get_shared_album(token)'.
-            // For now, we will try to fetch expecting the RLS to allow "public" reading if there's a token?
-            // Actually, the simplest implementation for now is to rely on 'is_published' or similar,
-            // OR we assume the user is just a 'viewer'.
-            // However, since we haven't implemented 'get_shared_album', we might hit RLS issues if we are not logged in.
-            // Let's assume for this step that we are fetching normally. If RLS blocks it, we know what to fix later.
-
             try {
-                console.log(`[SharedAlbumView] Fetching unified shared album: ${albumId}`);
-                const unifiedAlbum = await AlbumDataService.fetchAlbum(albumId);
+                // Call the Postgres function we created
+                const { data, error: fnError } = await (supabase.rpc as any)('get_shared_album_content', {
+                    token_param: token
+                });
 
-                if (!unifiedAlbum) {
-                    throw new Error('Album not found or failed to load');
+                if (fnError || !data || data.success === false) {
+                    throw new Error(fnError?.message || data?.error || 'Link is invalid or has expired after 48 hours.');
                 }
 
-                const album = unifiedAlbumToContextAlbum(unifiedAlbum);
-                setAlbum(album);
+                setAlbum(data.album);
+                // Attach pages to the album object if needed by FlipbookViewer
+                if (data.pages) {
+                    data.album.pages = data.pages;
+                }
+                setAlbum(data.album);
             } catch (err: any) {
-                console.error('Error loading shared album:', err);
-                setError(err.message || 'Failed to load album');
+                console.error(err);
+                setError(err.message || 'Failed to load shared album.');
             } finally {
                 setLoading(false);
             }
         };
-
         fetchSharedAlbum();
     }, [token]);
 
-    const handleClose = () => {
-        // For shared view, close might just redirect to home or login
-        navigate('/');
-    };
-
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <div className="text-center">
-                    <div className="w-12 h-12 border-4 border-catalog-accent border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                    <p className="font-serif italic text-white/70">Opening shared album...</p>
-                </div>
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
+                <Loader2 className="w-10 h-10 text-catalog-accent animate-spin mb-4" />
+                <p className="text-white font-bold">Opening Shared Memory Album...</p>
             </div>
         );
     }
 
     if (error || !album) {
         return (
-            <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-                <div className="text-center text-white max-w-md p-6">
-                    <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <span className="text-2xl">⚠️</span>
-                    </div>
-                    <h2 className="text-xl font-serif mb-2">Access Denied</h2>
-                    <p className="text-white/60 mb-6">{error || 'This link may have expired or is invalid.'}</p>
-                    <button
-                        onClick={() => navigate('/')}
-                        className="px-6 py-2 bg-catalog-accent text-white rounded-sm hover:bg-catalog-accent/90 transition-colors"
-                    >
-                        Go to Home
-                    </button>
+            <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
+                <div className="max-w-md w-full bg-white/10 backdrop-blur-md border border-white/20 p-8 rounded-3xl text-center">
+                    <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-6" />
+                    <h2 className="text-2xl font-black text-white mb-3">Link Expired</h2>
+                    <p className="text-gray-300 font-medium mb-8 leading-relaxed">
+                        {error}
+                        <br /><br />
+                        For security reasons, shared memory links automatically expire within 48 hours and cannot grant access to the main application portfolio.
+                    </p>
+                    <Button variant="primary" onClick={() => window.location.href = '/'} className="w-full">
+                        Close
+                    </Button>
                 </div>
             </div>
         );
@@ -95,9 +77,12 @@ export function SharedAlbumView() {
     return (
         <div className="min-h-screen bg-gray-900 flex items-center justify-center">
             <FlipbookViewer
-                pages={album.pages}
+                pages={album.pages || []}
                 album={album}
-                onClose={handleClose}
+                onClose={() => {
+                    // Exit cleanly out of the website since they have no auth rights.
+                    window.location.href = 'https://google.com';
+                }}
             />
         </div>
     );
