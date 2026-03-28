@@ -19,3 +19,13 @@ export function getFilterStyle(filterType?: string) {
 export function generateId() {
     return Math.random().toString(36).substring(2, 11);
 }
+
+export function slugify(text: string) {
+    return text
+        .toString()
+        .toLowerCase()
+        .trim()
+        .replace(/\s+/g, '-')     // Space to -
+        .replace(/[^\w-]+/g, '')  // Non-word to nothing
+        .replace(/--+/g, '-');    // Multi- - to single -
+}

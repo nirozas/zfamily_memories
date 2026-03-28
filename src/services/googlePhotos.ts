@@ -202,7 +202,7 @@ export class GooglePhotosService {
         return url;
     }
 
-    static getProxyUrl(googleUrl: string, token?: string | null, shareToken?: string | null, photoId?: string, isThumbnail?: boolean): string {
+    static getProxyUrl(googleUrl: string, token?: string | null, shareToken?: string | null, photoId?: string, isThumbnail?: boolean, userId?: string): string {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
         let url = `${supabaseUrl}/functions/v1/get-google-media?`;
@@ -213,6 +213,7 @@ export class GooglePhotosService {
         if (token) params.append('token', token);
         if (shareToken) params.append('share_token', shareToken);
         if (isThumbnail) params.append('is_thumb', 'true');
+        if (userId) params.append('uid', userId);
 
         return `${url}${params.toString()}`;
     }

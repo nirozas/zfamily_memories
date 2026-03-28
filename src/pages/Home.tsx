@@ -13,35 +13,43 @@ import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 import { WorldMapPreview } from '../components/home/WorldMapPreview';
 import { ImageCropper } from '../components/ui/ImageCropper';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
-import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play } from 'lucide-react';
+import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play, Video } from 'lucide-react';
 import type { Event, Profile } from '../types/supabase';
 import { motion } from 'framer-motion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { cn, slugify } from '../lib/utils';
 
 import { AlbumPage } from '../components/viewer/AlbumPage';
 
 const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=100&w=3840&auto=format&fit=crop';
 
 function HomeMediaItem({ item }: { item: any }) {
-    const { url: resolvedUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url);
-    const displayUrl = resolvedUrl || item.url;
-
-    if (item.type === 'video') {
-        return (
-            <div className="w-full h-full bg-gray-800 flex items-center justify-center">
-                <PlaySquare className="w-6 h-6 text-white/30" />
-            </div>
-        );
-    }
+    // Correctly handle both potential ID names
+    const googleId = item.google_id || item.googlePhotoId;
+    const { url: displayUrl } = useGooglePhotosUrl(googleId, item.url, null, true);
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [isError, setIsError] = useState(false);
 
     return (
-        <img
-            src={displayUrl}
-            alt=""
-            className="w-full h-full object-cover grayscale-[0.2] transition-all duration-700 group-hover:grayscale-0 group-hover:scale-110"
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-        />
+        <div className="w-full h-full relative">
+            <img
+                src={displayUrl || item.url}
+                alt=""
+                className={cn(
+                    "w-full h-full object-cover transition-opacity duration-500",
+                    isLoaded ? "opacity-100" : "opacity-0"
+                )}
+                onLoad={() => setIsLoaded(true)}
+                onError={() => setIsError(true)}
+                referrerPolicy="no-referrer"
+                crossOrigin="anonymous"
+            />
+            {(!isLoaded || isError) && (
+                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
+                    {item.type === 'video' ? <Video className="w-4 h-4 text-purple-200" /> : <ImageIcon className="w-4 h-4 text-purple-200" />}
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -751,7 +759,7 @@ export function Home() {
                         <div className="absolute bottom-0 left-0 w-32 h-[2px] bg-purple-600" />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
                         {recentStacks.length > 0 ? (
                             recentStacks.map((stack, idx) => (
                                 <motion.div
@@ -883,7 +891,7 @@ export function Home() {
                                                     key={`${album.id}-${index}`}
                                                     className="carousel-item"
                                                     style={{ '--i': index + 1 } as React.CSSProperties}
-                                                    onClick={() => navigate(`/album/${album.id}`)}
+                                                    onClick={() => navigate(`/album/${slugify(album.title)}`)}
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">

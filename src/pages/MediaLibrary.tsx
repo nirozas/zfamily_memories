@@ -458,7 +458,7 @@ export function MediaLibrary() {
         if (activeTab === 'uploads') {
             const result = await supabase
                 .from('family_media')
-                .select('id, family_id, url, type, category, folder, filename, size, tags, uploaded_by, created_at, metadata')
+                .select('id, family_id, url, type, category, folder, filename, size, tags, uploaded_by, created_at, metadata, google_id')
                 .eq('family_id', familyId!)
                 .order('created_at', { ascending: false });
 

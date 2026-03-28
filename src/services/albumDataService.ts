@@ -315,15 +315,23 @@ export class AlbumDataService {
      */
     static async fetchAlbum(albumId: string): Promise<UnifiedAlbum | null> {
         try {
-            // Fetch album metadata
-            const { data: albumData, error: albumError } = await supabase
-                .from('albums')
-                .select('*')
-                .eq('id', albumId)
-                .single();
+            const [idPart] = albumId.split('--');
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idPart);
+            let query = supabase.from('albums').select('*');
+
+            if (isUuid) {
+                // Support both pure ID and ID--Slug patterns
+                query = query.eq('id', idPart);
+            } else {
+                // PURE SLUG Pattern: Convert 'my-wedding' to '%my%wedding%' for robust matching
+                const slugMatch = `%${albumId.replace(/-/g, '%')}%`;
+                query = query.ilike('title', slugMatch).limit(1);
+            }
+
+            const { data: albumData, error: albumError } = await query.single();
 
             if (albumError || !albumData) {
-                console.error('Failed to fetch album:', albumError);
+                console.error(`Failed to fetch album (${albumId}):`, albumError);
                 return null;
             }
 
@@ -337,7 +345,7 @@ export class AlbumDataService {
                 const { data: unifiedPages, error: upError } = await supabase
                     .from('album_pages')
                     .select('*')
-                    .eq('album_id', albumId)
+                    .eq('album_id', albumData.id)
                     .order('page_number', { ascending: true });
 
                 if (!upError && unifiedPages && unifiedPages.length > 0) {
@@ -350,7 +358,7 @@ export class AlbumDataService {
                 const { data: legacyPages, error: lpError } = await supabase
                     .from('pages')
                     .select('*')
-                    .eq('album_id', albumId)
+                    .eq('album_id', albumData.id)
                     .order('page_number', { ascending: true });
 
                 if (!lpError && legacyPages) {

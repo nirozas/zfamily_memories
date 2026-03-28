@@ -6,7 +6,8 @@ import {
     Loader2,
     ChevronLeft,
     ChevronRight,
-    Camera
+    Camera,
+    ChevronDown
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
@@ -329,17 +330,24 @@ export function GooglePhotosSelector({ googleAccessToken, isOpen, onClose, onSel
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-1">
-                                    <select
-                                        className="h-8 pl-2 pr-8 text-xs bg-white border border-gray-200 rounded outline-none focus:border-catalog-accent font-medium min-w-[120px] appearance-none cursor-pointer"
-                                        value={targetFolder}
-                                        onChange={(e) => setTargetFolder(e.target.value)}
-                                    >
-                                        {folders.map(f => (
-                                            <option key={f} value={f}>{f === '/' ? 'Root Library' : f}</option>
-                                        ))}
-                                    </select>
-                                    <Button variant="glass" size="sm" onClick={() => setIsCreatingFolder(true)} className="h-8 w-8 p-0" title="Create New Folder">
-                                        <span className="text-blue-600 font-bold">+</span>
+                                    <div className="relative group/folder">
+                                        <select
+                                            className="h-8 pl-3 pr-8 text-[11px] font-black uppercase tracking-widest bg-white border border-gray-200 rounded-lg outline-none focus:border-catalog-accent focus:ring-1 focus:ring-catalog-accent appearance-none cursor-pointer min-w-[140px] shadow-sm hover:border-gray-300 transition-all"
+                                            value={targetFolder}
+                                            onChange={(e) => setTargetFolder(e.target.value)}
+                                        >
+                                            {folders.length === 0 ? (
+                                                <option value="/">Root Library</option>
+                                            ) : (
+                                                folders.map(f => (
+                                                    <option key={f} value={f}>{f === '/' ? 'Root Library' : f}</option>
+                                                ))
+                                            )}
+                                        </select>
+                                        <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none group-hover/folder:text-catalog-accent transition-colors" />
+                                    </div>
+                                    <Button variant="glass" size="sm" onClick={() => setIsCreatingFolder(true)} className="h-8 w-8 p-0 border border-gray-100" title="Create New Folder">
+                                        <span className="text-blue-600 font-black">+</span>
                                     </Button>
                                 </div>
                             )}

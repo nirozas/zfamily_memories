@@ -42,81 +42,100 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
 
         const layoutBoxes: LayoutBox[] = page.layoutConfig || [];
         const textLayers: LayoutBox[] = page.textLayers || [];
-        const freeformAssets = page.assets.filter(a => a.slotId === undefined || a.slotId === null);
+        const pageAssets = page.assets || [];
 
-        let combinedLayout: LayoutBox[] = [];
+        // Determine if we need to map assets to slots
+        // If layoutBoxes already have content.url, they're likely already normalized
+        const isAlreadyNormalized = layoutBoxes.some(b => b.content?.url || b.content?.text);
+        
+        let combinedLayout: LayoutBox[] = isAlreadyNormalized ? [...layoutBoxes] : [];
 
-        if (layoutBoxes.length > 0) {
-            combinedLayout = mapAssetsToLayoutSlots(layoutBoxes, page.assets);
+        if (!isAlreadyNormalized && layoutBoxes.length > 0) {
+            combinedLayout = mapAssetsToLayoutSlots(layoutBoxes, pageAssets);
         }
 
-        freeformAssets.forEach(asset => {
-            const role = asset.type === 'text' ? 'text' : 'decoration';
-            const zIndex = asset.zIndex ?? (role === 'text' ? 50 : 10);
+        // Add freeform assets only if we didn't already normalize (or if they are truly freeform)
+        if (!isAlreadyNormalized) {
+            const freeformAssets = pageAssets.filter(a => a.slotId === undefined || a.slotId === null);
+            freeformAssets.forEach(asset => {
+                const role = asset.type === 'text' ? 'text' : 'decoration';
+                const zIndex = asset.zIndex ?? (role === 'text' ? 50 : 10);
 
-            combinedLayout.push({
-                id: asset.id,
-                role: role,
-                left: asset.x,
-                top: asset.y,
-                width: asset.width,
-                height: asset.height,
-                zIndex: zIndex,
-                content: {
-                    type: asset.type === 'video' ? 'video' : (asset.type === 'text' ? 'text' : 'image'),
-                    url: asset.url,
-                    zoom: asset.crop?.zoom || 1,
-                    x: asset.crop?.x || 50,
-                    y: asset.crop?.y || 50,
-                    rotation: asset.rotation || 0,
-                    text: asset.content,
-                    config: { ...asset }
-                }
+                combinedLayout.push({
+                    id: asset.id,
+                    role: role,
+                    left: asset.x,
+                    top: asset.y,
+                    width: asset.width,
+                    height: asset.height,
+                    zIndex: zIndex,
+                    content: {
+                        type: asset.type === 'video' ? 'video' : (asset.type === 'text' ? 'text' : 'image'),
+                        url: asset.url,
+                        zoom: asset.crop?.zoom || 1,
+                        x: asset.crop?.x || 50,
+                        y: asset.crop?.y || 50,
+                        rotation: asset.rotation || 0,
+                        text: asset.content,
+                        config: { ...asset }
+                    }
+                });
             });
-        });
+        }
 
         return { styles, layout: combinedLayout, text: textLayers };
     }, [page]);
 
     // 2. Container Styles
     const containerStyle = useMemo(() => {
+        // In spread view on the left page, allow overflow so that freeform assets
+        // (not inside a layout slot) can visually bleed into the right page.
+        const overflowVal = (isSpread && side === 'left') ? 'visible' : 'hidden';
         return {
             position: 'relative' as const,
             width: `${dimensions.width}px`,
             height: `${dimensions.height}px`,
             backgroundColor: normalizedPage.styles.backgroundColor,
-            overflow: 'hidden' as const,
+            overflow: overflowVal as any,
             boxSizing: 'border-box' as const,
             border: '1px solid rgba(0,0,0,0.05)',
         };
-    }, [dimensions, normalizedPage.styles.backgroundColor]);
+    }, [dimensions, normalizedPage.styles.backgroundColor, isSpread, side]);
 
     // 3. Layer Rendering
     return (
         <div
             data-density={density}
             className={cn(
-                "relative select-none album-page overflow-hidden",
+                "relative select-none album-page",
+                // Only clip the container in solo mode — in spread view content
+                // must be able to bleed across the gutter to the adjacent page.
+                !(isSpread && side === 'left') && "overflow-hidden",
                 density !== 'hard' && "shadow-[inset_3px_0_20px_-7px_rgba(0,0,0,0.2)]",
                 (isSpread || page.isSpreadLayout) && "is-spread-layout"
             )}
             style={containerStyle}
         >
-            {/* LAYER 0: Background */}
+            {/* LAYER 0: Background — always clipped to this page */}
             {normalizedPage.styles.backgroundImage && (
-                <img
-                    src={normalizedPage.styles.backgroundImage}
-                    alt=""
-                    className="absolute inset-0 w-full h-full pointer-events-none z-0"
-                    style={{
-                        opacity: (normalizedPage.styles.backgroundOpacity || 100) / 100,
-                        objectFit: page.backgroundScale === 'contain' ? 'contain' : (page.backgroundScale === 'stretch' ? 'fill' : 'cover'),
-                        objectPosition: page.backgroundPosition || 'center'
-                    }}
-                />
+                <div
+                    className="absolute inset-0 overflow-hidden pointer-events-none z-0"
+                    style={{ width: `${dimensions.width}px`, height: `${dimensions.height}px` }}
+                >
+                    <img
+                        src={normalizedPage.styles.backgroundImage}
+                        alt=""
+                        className="absolute inset-0 w-full h-full"
+                        style={{
+                            opacity: (normalizedPage.styles.backgroundOpacity || 100) / 100,
+                            objectFit: page.backgroundScale === 'contain' ? 'contain' : (page.backgroundScale === 'stretch' ? 'fill' : 'cover'),
+                            objectPosition: page.backgroundPosition || 'center'
+                        }}
+                    />
+                </div>
             )}
 
-            {/* LAYER 10 & 50: Unified Content */}
+            {/* LAYER 10 & 50: Unified Content — allowed to overflow in spread view */}
             <div className="w-full h-full relative z-[20]">
                 {normalizedPage.layout.map((box, idx) => (
                     <LayoutFrame

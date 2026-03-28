@@ -5,23 +5,41 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import {
     Plus, Play, Music, Calendar, Grid, List, Search, Loader2,
-    PlaySquare, Sparkles, Pencil, Trash2, Users, Hash, Share, MapPin
+    PlaySquare, Sparkles, Pencil, Trash2, Users, Hash, Share, MapPin,
+    Video, Image as ImageIcon
 } from 'lucide-react';
 import MediaStackViewer, { type MediaItem } from '../components/media/MediaStackViewer';
 import { CreateStackModal } from '../components/media/CreateStackModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
+import { cn } from '../lib/utils';
 
-function StackMiniThumbnail({ item }: { item: { url: string; googlePhotoId?: string } }) {
-    const { url: displayUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
+function StackMiniThumbnail({ item }: { item: { url: string; google_id?: string; googlePhotoId?: string; type?: string } }) {
+    const googleId = item.google_id || item.googlePhotoId;
+    const { url: displayUrl } = useGooglePhotosUrl(googleId, item.url, null, true);
+    const [isLoaded, setIsLoaded] = useState(false);
+    const [isError, setIsError] = useState(false);
+
     return (
-        <img
-            src={displayUrl}
-            alt=""
-            className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
-            referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
-        />
+        <div className="w-full h-full relative bg-gray-100">
+            <img
+                src={displayUrl || item.url}
+                alt=""
+                className={cn(
+                    "w-full h-full object-cover transition-opacity duration-500 transition-transform duration-700 group-hover:scale-105",
+                    isLoaded ? "opacity-100" : "opacity-0"
+                )}
+                onLoad={() => setIsLoaded(true)}
+                onError={() => setIsError(true)}
+                referrerPolicy="no-referrer"
+                crossOrigin="anonymous"
+            />
+            {(!isLoaded || isError) && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                    {item.type === 'video' ? <Video className="w-4 h-4 text-purple-200" /> : <ImageIcon className="w-4 h-4 text-purple-200" />}
+                </div>
+            )}
+        </div>
     );
 }
 
@@ -300,7 +318,7 @@ export function MediaStacks() {
                     </div>
                 ) : filteredStacks.length > 0 ? (
                     <div className={viewMode === 'grid'
-                        ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+                        ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-8"
                         : "flex flex-col gap-4"
                     }>
                         {filteredStacks.map((stack, idx) => (

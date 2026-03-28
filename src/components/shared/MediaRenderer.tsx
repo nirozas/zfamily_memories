@@ -135,6 +135,22 @@ export const MediaRenderer = memo(function MediaRenderer({
                             e.stopPropagation();
                             e.nativeEvent.stopImmediatePropagation();
                         }}
+                        onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.nativeEvent.stopImmediatePropagation();
+                        }}
+                        onPointerUp={(e) => {
+                            e.stopPropagation();
+                            e.nativeEvent.stopImmediatePropagation();
+                        }}
+                        onTouchStart={(e) => {
+                            e.stopPropagation();
+                            e.nativeEvent.stopImmediatePropagation();
+                        }}
+                        onTouchEnd={(e) => {
+                            e.stopPropagation();
+                            e.nativeEvent.stopImmediatePropagation();
+                        }}
                         className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-catalog-accent text-white rounded-md opacity-0 group-hover:opacity-100 transition-all z-[60] pointer-events-auto cursor-pointer shadow-lg backdrop-blur-sm scale-90 hover:scale-100"
                         title="Open Fullscreen"
                     >

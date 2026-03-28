@@ -17,13 +17,15 @@ export function useMediaUrl(
     shareToken?: string | null,
     isThumbnail?: boolean
 ) {
-    const { googleAccessToken } = useAuth();
+    const { googleAccessToken, user } = useAuth();
 
     const resolvedUrl = useMemo(() => {
         if (!url && !googlePhotoId) return undefined;
 
         // ── Cloudflare R2 URLs: permanent public CDN — no proxy needed ────────
-        if (url && CloudflareR2Service.isR2Url(url)) {
+        // BUT: If it's a thumbnail request and we have a googlePhotoId, we prefer the Google proxy
+        // because Google can generate real image thumbnails for videos, whereas R2 cannot.
+        if (url && CloudflareR2Service.isR2Url(url) && !(isThumbnail && googlePhotoId)) {
             return url;
         }
 
@@ -49,9 +51,10 @@ export function useMediaUrl(
             googleAccessToken,
             shareToken,
             googlePhotoId,
-            isThumbnail
+            isThumbnail,
+            user?.id
         );
-    }, [url, googlePhotoId, googleAccessToken, shareToken, isThumbnail]);
+    }, [url, googlePhotoId, googleAccessToken, shareToken, isThumbnail, user?.id]);
 
     return { url: resolvedUrl };
 }

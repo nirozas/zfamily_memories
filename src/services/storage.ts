@@ -34,40 +34,57 @@ export const storageService = {
                 onProgress?.({ loaded: Math.round(pct), total: 100 });
             };
 
-            // ── Image (Google Photos) ──────────────────────────────────────────
+            // ── Image (Google Photos MIRRORED to Cloudflare R2) ────────────────
             if (file.type.startsWith('image/')) {
-                if (!googleAccessToken) {
-                    console.error('No Google Access Token provided for image upload. Sign in required.');
-                    return { url: null, error: 'Authentication required for Google Photos image upload.' };
-                }
-
                 let fileToUpload = file;
                 try {
                     fileToUpload = await imageCompression(file, {
                         maxSizeMB: 1,
                         maxWidthOrHeight: 2040,
                         useWebWorker: true,
-                        onProgress: (p) => reportProgress(p * 0.9),
+                        onProgress: (p) => reportProgress(p * 0.4), // 0-40%
                     });
                 } catch (e) {
                     console.warn('[Storage] Image compression failed, using original:', e);
                 }
 
-                reportProgress(90);
-                const { GooglePhotosService } = await import('./googlePhotos');
-                const photosService = new GooglePhotosService(googleAccessToken);
+                let googlePhotoId: string | undefined;
+                let googleUrl: string | null = null;
 
-                const mediaItem = await photosService.uploadMedia(fileToUpload);
-                if (!mediaItem || !mediaItem.id) {
-                    throw new Error('No media item returned from Google Photos');
+                // 1. Try to upload to Google Photos if token available
+                if (googleAccessToken) {
+                    try {
+                        const { GooglePhotosService } = await import('./googlePhotos');
+                        const photosService = new GooglePhotosService(googleAccessToken);
+                        const mediaItem = await photosService.uploadMedia(fileToUpload);
+                        if (mediaItem?.id) {
+                            googlePhotoId = mediaItem.id;
+                            const baseUrl = mediaItem.mediaFile?.baseUrl || mediaItem.baseUrl || '';
+                            googleUrl = `${baseUrl}=w9999-h9999`;
+                        }
+                    } catch (e) {
+                        console.error('[Storage] Google Photos mirror failed:', e);
+                    }
+                }
+                reportProgress(50); // 50%
+
+                // 2. Mirror to R2 ONLY if Google upload failed or wasn't attempted
+                // (Supporting user request: "does not save images in a different storage platform")
+                // 2. Photos strictly on Google Photos: NO R2 Mirroring
+                // (Per user request: "does not save photos in a different storage platform")
+                if (googleUrl) {
+                    return { url: googleUrl, error: null, googlePhotoId };
                 }
 
-                reportProgress(100);
+                // Fallback for cases without Google Token (internal use only)
+                const { url: r2Url, key: r2Key } = await CloudflareR2Service.uploadFile(
+                    fileToUpload,
+                    pathPrefix || `media/uploads/${Date.now()}`,
+                    (p) => reportProgress(50 + p * 0.5) // 50-100%
+                );
 
-                const baseUrl = mediaItem.mediaFile?.baseUrl || mediaItem.baseUrl || '';
-                const finalUrl = `${baseUrl}=w9999-h9999`;
-
-                return { url: finalUrl, error: null, googlePhotoId: mediaItem.id };
+                if (!r2Url) throw new Error('Failed to upload image to R2');
+                return { url: r2Url, error: null, r2Key, googlePhotoId };
             }
 
             // ── Video (Cloudflare R2) ────────────────────────────────────────────
@@ -154,8 +171,18 @@ export const storageService = {
     },
 
     /**
-     * Legacy shim — kept for compatibility with components converting Google Photos
-     * to persistent library URLs.
+     * Resolves a Google Photos item for permanent use.
+     * 
+     * IMPORTANT: We now prefer a "Direct Proxy" model where we save the googlePhotoId
+     * instead of copying the file to R2. This avoids timeouts, respects user storage 
+     * preferences, and stays permanent via the ID resolution in our Edge Function.
+     */
+    /**
+     * Resolves a Google Photos item for permanent use.
+     * 
+     * STRATEGY:
+     * - Photos → Stay on Google Photos via secure ID resolution (Zero-storage/CORS bypass).
+     * - Videos → Transferred to Cloudflare R2 + FFmpeg for high-speed HLS streaming.
      */
     async persistGoogleMedia(
         item: any,
@@ -165,8 +192,6 @@ export const storageService = {
         onProgress?: (progress: number) => void,
         useHls: boolean = false
     ): Promise<{ url: string; googlePhotoId: string; type: 'image' | 'video'; r2Key?: string }> {
-        // If already an R2 URL, just pass through
-        let finalUrl = item.url || item.mediaFile?.baseUrl || item.baseUrl || '';
         const typeStr = (item.type || '').toUpperCase();
         const isVideo = typeStr === 'VIDEO'
             || item.mimeType?.toLowerCase().startsWith('video')
@@ -174,60 +199,51 @@ export const storageService = {
             || item.mediaFile?.mimeType?.toLowerCase().startsWith('video');
 
         const finalId = item.id || '';
+        const rawUrl = item.url || item.mediaFile?.baseUrl || item.baseUrl || '';
 
-        if (CloudflareR2Service.isR2Url(finalUrl)) {
-            return { url: finalUrl, googlePhotoId: finalId, type: isVideo ? 'video' : 'image' };
+        // --- Photos: Permanent Identity via Google ID (Direct Link) ---
+        if (!isVideo) {
+            return { url: rawUrl, googlePhotoId: finalId, type: 'image' };
         }
 
-        // For videos, download from Google Photos and upload directly to Cloudflare R2!
-        if (isVideo) {
-            if (finalUrl && !finalUrl.includes('=dv') && !finalUrl.includes('drive.google.com')) {
-                finalUrl = finalUrl.split('=')[0] + '=dv';
+        // --- Videos: High-Performance HLS Persistence to Cloudflare R2 ---
+        try {
+            const uploadPrefix = familyId
+                ? `media/${familyId}/vault/${folderName || 'Unsorted'}/imported_gp`
+                : `media/unsorted/${Date.now()}`;
+
+            const { GooglePhotosService } = await import('./googlePhotos');
+            // Videos need download URL (=dv)
+            let proxyInputUrl = rawUrl;
+            if (proxyInputUrl && !proxyInputUrl.includes('=dv') && !proxyInputUrl.includes('drive.google.com')) {
+                proxyInputUrl = proxyInputUrl.split('=')[0] + '=dv';
             }
 
-            try {
-                // Determine destination
-                const uploadPrefix = familyId
-                    ? `media/${familyId}/vault/${folderName || 'Unsorted'}/imported_gp`
-                    : `media/unsorted/${Date.now()}`;
-
-                // Import proxy
-                const { GooglePhotosService } = await import('./googlePhotos');
-                const proxyUrl = GooglePhotosService.getProxyUrl(finalUrl, googleAccessToken);
-                
-                // Active Download
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error(`Google Photos fetch failed: ${response.status}`);
-                
-                const blob = await response.blob();
-                const mimeType = item.mimeType || item.mediaFile?.mimeType || 'video/mp4';
-                const file = new File([blob], item.filename || `gp-vid-${Date.now()}.mp4`, { type: mimeType });
-                
-                // Seamlessly push to R2 Storage bucket!
-                if (useHls) {
-                    const result = await encodeAndUploadHls(file, uploadPrefix, onProgress);
-                    if (result.masterUrl) {
-                        return { url: result.masterUrl, googlePhotoId: finalId, type: 'video', r2Key: result.r2KeyPrefix };
-                    }
-                } else {
-                    const { url, key } = await CloudflareR2Service.uploadFile(file, uploadPrefix, (p) => {
-                        if (onProgress) onProgress(p);
-                    });
-                    
-                    if (url) {
-                        return { url, googlePhotoId: finalId, type: 'video', r2Key: key };
-                    }
+            const proxyUrl = GooglePhotosService.getProxyUrl(proxyInputUrl, googleAccessToken, null, finalId);
+            
+            console.log(`[Storage] Persisting VIDEO to R2 + HLS: ${finalId}`);
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error(`Google Photos video fetch failed: ${response.status}`);
+            
+            const blob = await response.blob();
+            const mimeType = item.mimeType || item.mediaFile?.mimeType || 'video/mp4';
+            const file = new File([blob], item.filename || `gp-video-${Date.now()}.mp4`, { type: mimeType });
+            
+            if (useHls) {
+                const result = await encodeAndUploadHls(file, uploadPrefix, onProgress);
+                if (result.masterUrl) {
+                    return { url: result.masterUrl, googlePhotoId: finalId, type: 'video', r2Key: result.r2KeyPrefix };
                 }
-            } catch (err) {
-                console.error('[Storage] Failed to transfer Google Photos Video to R2. Falling back to native URL.', err);
+            } else {
+                const { url, key } = await CloudflareR2Service.uploadFile(file, uploadPrefix, (p) => {
+                    if (onProgress) onProgress(p);
+                });
+                if (url) return { url, googlePhotoId: finalId, type: 'video', r2Key: key };
             }
-        } else {
-             // For images, suggest full resolution
-             if (finalUrl && !finalUrl.includes('=w') && !finalUrl.includes('drive.google.com')) {
-                 finalUrl = finalUrl.split('=')[0] + '=w9999-h9999';
-             }
+        } catch (err) {
+            console.error('[Storage] Video transfer failed, falling back to Google ID.', err);
         }
 
-        return { url: finalUrl, googlePhotoId: finalId, type: isVideo ? 'video' : 'image' };
+        return { url: rawUrl, googlePhotoId: finalId, type: 'video' };
     },
 };

@@ -16,7 +16,7 @@ import { Filmstrip } from '../components/editor/Filmstrip';
 import { Button } from '../components/ui/Button';
 import { HashtagInput } from '../components/ui/HashtagInput';
 import { generateShareLink } from '../services/sharing';
-import { cn } from '../lib/utils';
+import { cn, slugify } from '../lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { useAlbumAutoSave } from '../hooks/useAlbumAutoSave';
@@ -67,8 +67,9 @@ function AlbumEditorContent() {
         if (!id || isLoading) return;
 
         const loadStudio = async () => {
-            // Only fetch if data is missing or ID changed
-            if (!album || album.id !== id) {
+            // Only fetch if data is missing or neither ID nor slug matches
+            const slug = album ? slugify(album.title) : '';
+            if (!album || (album.id !== id && slug !== id)) {
                 console.info(`[AlbumEditor] 🔄 Syncing Studio State for Asset: ${id}`);
                 const { success, error } = await fetchAlbum(id);
                 if (!success) {

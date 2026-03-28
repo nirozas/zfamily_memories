@@ -3,7 +3,7 @@ import {
     X, Plus, Music, Upload, Grid, Hash, Users, ChevronRight, ChevronLeft,
     Check, Loader2, Trash2, ExternalLink, Type, Star, Sparkles, Bold,
     Palette, AlignCenter, Video, Clock, Eye, Play, MapPin, Calendar,
-    LayoutGrid
+    LayoutGrid, ZoomIn, ZoomOut
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
@@ -70,6 +70,122 @@ function makeItem(id: string, url: string, type: 'image' | 'video', filename: st
     };
 }
 
+function StackMediaItemGridItem({ 
+    item, 
+    idx, 
+    gridZoom,
+    onDragStart,
+    onDragOver,
+    onDragEnd,
+    onView,
+    onRemove,
+    onUpdateDuration,
+    onUpdateCrop
+}: { 
+    item: StackMediaItem; 
+    idx: number; 
+    gridZoom: number;
+    onDragStart: (idx: number) => void;
+    onDragOver: (e: React.DragEvent, idx: number) => void;
+    onDragEnd: () => void;
+    onView: (item: StackMediaItem) => void;
+    onRemove: (idx: number) => void;
+    onUpdateDuration: (idx: number, duration: number) => void;
+    onUpdateCrop: (idx: number) => void;
+}) {
+    // Correctly utilize our smart hook for thumbnails
+    const { url: displayUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
+
+    return (
+        <div
+            draggable
+            onDragStart={() => onDragStart(idx)}
+            onDragOver={(e) => onDragOver(e, idx)}
+            onDragEnd={onDragEnd}
+            className={cn(
+                "relative aspect-[3/4.5] rounded-3xl overflow-hidden group shadow-md border border-white bg-white flex flex-col cursor-grab active:cursor-grabbing hover:shadow-xl transition-all",
+                gridZoom < 40 ? "rounded-xl" : "rounded-3xl"
+            )}
+        >
+            <div className="flex-1 relative overflow-hidden bg-gray-50">
+                <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
+                    <img
+                        src={displayUrl || item.url}
+                        alt=""
+                        className={cn(
+                            "w-full h-full transition-transform duration-700 group-hover:scale-110",
+                            item.cropMode === 'cover' ? 'object-cover' : 'object-contain'
+                        )}
+                        crossOrigin="anonymous"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                            if (item.type === 'video') {
+                                const img = e.currentTarget;
+                                img.style.display = 'none';
+                                const parent = img.parentElement;
+                                const video = parent?.querySelector('video');
+                                if (video) video.style.display = 'block';
+                            }
+                        }}
+                    />
+                    {item.type === 'video' && (
+                        <>
+                            <video
+                                src={`${item.url}#t=0.1`}
+                                className="w-full h-full object-cover hidden"
+                                muted
+                                playsInline
+                                preload="metadata"
+                                crossOrigin="anonymous"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
+                                    <Play className="w-5 h-5 text-white fill-white ml-1" />
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </div>
+
+                <div className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md text-white text-[10px] font-black flex items-center justify-center border border-white/20 shadow-xl">{idx + 1}</div>
+
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
+                    <button onClick={(e) => { e.stopPropagation(); onView(item); }} className="p-2 bg-white text-gray-900 rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"><Eye className="w-4 h-4" /></button>
+                    <button onClick={(e) => { e.stopPropagation(); onRemove(idx); }} className="p-2 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"><Trash2 className="w-4 h-4" /></button>
+                </div>
+            </div>
+
+            {gridZoom >= 38 && (
+                <div className={cn("bg-white border-t border-gray-50 flex-shrink-0 flex flex-col justify-center transition-all", gridZoom < 60 ? "p-1.5 space-y-1" : "p-3 space-y-2")}>
+                    {item.type === 'image' ? (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1 text-gray-400">
+                                <Clock className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
+                                <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Duration</span>
+                            </div>
+                            <div className="flex items-center gap-0.5">
+                                <input type="number" min={1} max={30} value={item.duration || 5} onChange={e => onUpdateDuration(idx, parseInt(e.target.value) || 5)}
+                                    className={cn("bg-gray-50 border-none rounded-lg text-center font-black text-catalog-accent focus:ring-1 focus:ring-catalog-accent/20", gridZoom < 60 ? "w-8 py-0.5 text-[8px]" : "w-12 py-1 text-xs")} />
+                                <span className={cn("text-gray-400 font-bold", gridZoom < 60 ? "text-[6px]" : "text-[8px]")}>s</span>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1 text-blue-500">
+                                <Video className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
+                                <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Frame</span>
+                            </div>
+                            <button onClick={() => onUpdateCrop(idx)} className={cn("rounded-lg font-black uppercase tracking-widest transition-all", item.cropMode === 'cover' ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-400", gridZoom < 60 ? "px-1.5 py-0.5 text-[7px]" : "px-2.5 py-1 text-[9px]")}>
+                                {item.cropMode === 'cover' ? 'Full' : 'Fit'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ── Draggable layer hook ──────────────────────────────────────────────────
 function useDrag(
     containerRef: React.RefObject<HTMLDivElement | null>,
@@ -94,6 +210,48 @@ function useDrag(
 
     const end = () => { startRef.current = null; };
     return { begin, move, end };
+}
+
+function StackThumbnailStripItem({ 
+    item, 
+    isSelected, 
+    idx, 
+    onClick 
+}: { 
+    item: StackMediaItem; 
+    isSelected: boolean; 
+    idx: number; 
+    onClick: () => void;
+}) {
+    const { url: thumbUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
+
+    return (
+        <button
+            onClick={onClick}
+            className={cn(
+                "relative aspect-square rounded-xl overflow-hidden border-2 transition-all bg-neutral-900 shadow-sm",
+                isSelected
+                    ? "border-catalog-accent shadow-lg scale-105 z-10"
+                    : "border-transparent opacity-60 hover:opacity-100 hover:scale-102"
+            )}
+        >
+            <img
+                src={thumbUrl || item.url}
+                alt=""
+                className="w-full h-full object-cover"
+                crossOrigin="anonymous"
+                referrerPolicy="no-referrer"
+            />
+            {item.type === 'video' && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40">
+                    <Play className="w-4 h-4 text-white fill-white opacity-80" />
+                </div>
+            )}
+            <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] font-black text-center py-0.5 tracking-widest uppercase">
+                {idx + 1}
+            </div>
+        </button>
+    );
 }
 
 // ── Main Component ────────────────────────────────────────────────────────
@@ -220,11 +378,11 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setSelectedLayer({ kind: 'sticker', id: layer.id });
     };
     const removeTextLayer = (id: string) => {
-        updateItem({ textLayers: currentItem.textLayers.filter(l => l.id !== id) });
+        updateItem({ textLayers: (currentItem.textLayers || []).filter(l => l.id !== id) });
         if (selectedLayer?.id === id) setSelectedLayer(null);
     };
     const removeStickerLayer = (id: string) => {
-        updateItem({ stickerLayers: currentItem.stickerLayers.filter(l => l.id !== id) });
+        updateItem({ stickerLayers: (currentItem.stickerLayers || []).filter(l => l.id !== id) });
         if (selectedLayer?.id === id) setSelectedLayer(null);
     };
     const showCaption = () => setSelectedLayer({ kind: 'caption', id: 'caption' });
@@ -250,6 +408,63 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     // ── Media import ─────────────────────────────────────────────────────
     const [useHls, setUseHls] = useState(false); // Toggle for HLS adaptive streaming
     const [gridZoom, setGridZoom] = useState<number>(100); // Grid density zoom for Step 1
+    const gridRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const grid = gridRef.current;
+        if (!grid) return;
+
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                setGridZoom(prev => {
+                    const delta = e.deltaY >  0 ? -5 : 5;
+                    return Math.max(20, Math.min(100, prev + delta));
+                });
+            }
+        };
+
+        let initialDist = 0;
+        const handleTouchStart = (e: TouchEvent) => {
+            if (e.touches.length === 2) {
+                initialDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+            }
+        };
+
+        const handleTouchMove = (e: TouchEvent) => {
+            if (e.touches.length === 2 && initialDist > 0) {
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                // Adjust zoom factor based on pinch speed - keep it subtle
+                const factor = dist / initialDist;
+                setGridZoom(prev => {
+                    const next = prev * factor;
+                    return Math.max(20, Math.min(100, next));
+                });
+                initialDist = dist;
+                if (e.cancelable) e.preventDefault();
+            }
+        };
+
+        const handleTouchEnd = () => { initialDist = 0; };
+
+        grid.addEventListener('wheel', handleWheel, { passive: false });
+        grid.addEventListener('touchstart', handleTouchStart);
+        grid.addEventListener('touchmove', handleTouchMove, { passive: false });
+        grid.addEventListener('touchend', handleTouchEnd);
+
+        return () => {
+            grid.removeEventListener('wheel', handleWheel);
+            grid.removeEventListener('touchstart', handleTouchStart);
+            grid.removeEventListener('touchmove', handleTouchMove);
+            grid.removeEventListener('touchend', handleTouchEnd);
+        };
+    }, [step]); // Re-attach when step changes to ensure gridRef is captured
 
     const handleDeviceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || e.target.files.length === 0 || !familyId) return;
@@ -733,6 +948,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                             <span className="text-[9px] font-black uppercase tracking-widest leading-none">Grid Zoom</span>
                                         </div>
                                         <div className="flex-1 flex items-center gap-3">
+                                            <button 
+                                                onClick={() => setGridZoom(prev => Math.max(20, prev - 5))}
+                                                className="p-1 px-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-catalog-accent transition-colors"
+                                            >
+                                                <ZoomOut className="w-4 h-4" />
+                                            </button>
                                             <Slider
                                                 min={20}
                                                 max={100}
@@ -741,7 +962,13 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                                 onValueChange={([val]) => setGridZoom(val)}
                                                 className="flex-1"
                                             />
-                                            <span className="text-[10px] font-black text-catalog-accent w-8">{gridZoom}%</span>
+                                            <button 
+                                                onClick={() => setGridZoom(prev => Math.min(100, prev + 5))}
+                                                className="p-1 px-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-catalog-accent transition-colors"
+                                            >
+                                                <ZoomIn className="w-4 h-4" />
+                                            </button>
+                                            <span className="text-[10px] font-black text-catalog-accent w-8 text-center">{Math.round(gridZoom)}%</span>
                                         </div>
                                     </div>
                                 </div>
@@ -756,129 +983,26 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                     </button>
                                 ) : (
                                     <div 
-                                        className="grid gap-4 w-full"
+                                        ref={gridRef}
+                                        className="grid gap-4 w-full select-none"
                                         style={{ 
                                             gridTemplateColumns: `repeat(auto-fill, minmax(${Math.floor(60 + (gridZoom - 20) * 2.25)}px, 1fr))` 
                                         }}
                                     >
                                         {mediaItems.map((item, idx) => (
-                                            <div
+                                            <StackMediaItemGridItem
                                                 key={item.id + idx}
-                                                draggable
-                                                onDragStart={() => onDragStart(idx)}
-                                                onDragOver={(e) => onDragOver(e, idx)}
+                                                item={item}
+                                                idx={idx}
+                                                gridZoom={gridZoom}
+                                                onDragStart={onDragStart}
+                                                onDragOver={onDragOver}
                                                 onDragEnd={onDragEnd}
-                                                className={cn(
-                                                    "relative aspect-[3/4.5] rounded-3xl overflow-hidden group shadow-md border border-white bg-white flex flex-col cursor-grab active:cursor-grabbing hover:shadow-xl transition-all",
-                                                    gridZoom < 40 ? "rounded-xl" : "rounded-3xl"
-                                                )}
-                                            >
-                                                <div className="flex-1 relative overflow-hidden bg-gray-50">
-                                                    {item.type === 'video' ? (
-                                                        <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
-                                                            {(item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) && (
-                                                                <img
-                                                                    src={GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true)}
-                                                                    alt=""
-                                                                    className="w-full h-full object-cover opacity-80"
-                                                                    crossOrigin="anonymous"
-                                                                    onError={(e) => {
-                                                                        e.currentTarget.style.display = 'none';
-                                                                        const vid = e.currentTarget.parentElement?.querySelector('video');
-                                                                        if (vid) vid.style.display = 'block';
-                                                                    }}
-                                                                />
-                                                            )}
-                                                            <video
-                                                                src={`${item.url}#t=0.1`}
-                                                                className={cn("w-full h-full object-cover", (item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? "hidden" : "block")}
-                                                                muted
-                                                                playsInline
-                                                                preload="metadata"
-                                                                crossOrigin="anonymous"
-                                                            />
-                                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
-                                                                    <Play className="w-5 h-5 text-white fill-white ml-1" />
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <img src={(item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true) : item.url} alt="" className={cn("w-full h-full transition-transform duration-700 group-hover:scale-110", item.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />
-                                                    )}
-
-                                                    {/* Position badge */}
-                                                    <div className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md text-white text-[10px] font-black flex items-center justify-center border border-white/20 shadow-xl">{idx + 1}</div>
-
-                                                    {/* Hover Overlay */}
-                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); setLightboxItem(item); }}
-                                                            className="p-2 bg-white text-gray-900 rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
-                                                        >
-                                                            <Eye className="w-4 h-4" />
-                                                        </button>
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); removeMedia(idx); }}
-                                                            className="p-2 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
-                                                        >
-                                                            <Trash2 className="w-4 h-4" />
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {gridZoom >= 38 && (
-                                                    <div className={cn(
-                                                        "bg-white border-t border-gray-50 flex-shrink-0 flex flex-col justify-center transition-all",
-                                                        gridZoom < 60 ? "p-1.5 space-y-1" : "p-3 space-y-2"
-                                                    )}>
-                                                        {item.type === 'image' && (
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-1 text-gray-400">
-                                                                    <Clock className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
-                                                                    <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Duration</span>
-                                                                </div>
-                                                                <div className="flex items-center gap-0.5">
-                                                                    <input
-                                                                        type="number"
-                                                                        min={1} max={30}
-                                                                        value={item.duration || 5}
-                                                                        onChange={e => {
-                                                                            const val = parseInt(e.target.value) || 5;
-                                                                            setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, duration: val } : it));
-                                                                        }}
-                                                                        className={cn(
-                                                                            "font-black text-center bg-gray-50 border border-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-catalog-accent/20",
-                                                                            gridZoom < 60 ? "w-7 text-[8px] py-0" : "w-10 text-[10px] py-0.5"
-                                                                        )}
-                                                                    />
-                                                                    <span className={cn("font-black text-gray-400", gridZoom < 60 ? "text-[7px]" : "text-[9px]")}>s</span>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                        {item.type === 'video' && (
-                                                            <div className="flex items-center justify-between">
-                                                                <div className="flex items-center gap-1 text-blue-500">
-                                                                    <Video className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
-                                                                    <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Frame</span>
-                                                                </div>
-                                                                <button
-                                                                    onClick={() => {
-                                                                        setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, cropMode: it.cropMode === 'cover' ? 'contain' : 'cover' } : it));
-                                                                    }}
-                                                                    className={cn(
-                                                                        "rounded-lg font-black uppercase tracking-widest transition-all", 
-                                                                        item.cropMode === 'cover' ? "bg-blue-500 text-white shadow-sm" : "bg-gray-100 text-gray-400",
-                                                                        gridZoom < 60 ? "px-1.5 py-0.5 text-[7px]" : "px-2.5 py-1 text-[9px]"
-                                                                    )}
-                                                                >
-                                                                    {item.cropMode === 'cover' ? 'Full' : 'Fit'}
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
+                                                onView={setLightboxItem}
+                                                onRemove={removeMedia}
+                                                onUpdateDuration={(i, d) => setMediaItems(prev => prev.map((it, idx) => idx === i ? { ...it, duration: d } : it))}
+                                                onUpdateCrop={(i) => setMediaItems(prev => prev.map((it, idx) => idx === i ? { ...it, cropMode: it.cropMode === 'cover' ? 'contain' : 'cover' } : it))}
+                                            />
                                         ))}
                                     </div>
                                 )}
@@ -892,12 +1016,13 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             {/* Thumbnail strip */}
                             <div className="w-24 bg-gray-50 border-r border-gray-100 flex flex-col gap-2 p-2.5 overflow-y-auto shrink-0">
                                 {mediaItems.map((item, idx) => (
-                                    <button key={idx} onClick={() => setEditingIdx(idx)}
-                                        className={cn("relative aspect-square rounded-xl overflow-hidden border-2 transition-all bg-gray-200", editingIdx === idx ? "border-catalog-accent shadow-lg scale-105" : "border-transparent opacity-60 hover:opacity-100")}>
-                                        {item.type === 'video' ? <video src={item.googlePhotoId || (item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true) : item.url} className="w-full h-full object-cover" autoPlay loop muted playsInline crossOrigin="anonymous" />
-                                            : <img src={item.googlePhotoId || (item.url && (item.url.includes('googleusercontent.com') || item.url.includes('drive.google.com'))) ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken, null, item.googlePhotoId, true) : item.url} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />}
-                                        <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[8px] font-black text-center py-0.5">{idx + 1}</div>
-                                    </button>
+                                    <StackThumbnailStripItem
+                                        key={idx}
+                                        item={item}
+                                        isSelected={editingIdx === idx}
+                                        idx={idx}
+                                        onClick={() => setEditingIdx(idx)}
+                                    />
                                 ))}
                             </div>
 

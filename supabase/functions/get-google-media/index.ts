@@ -17,6 +17,7 @@ serve(async (req) => {
         const mediaUrl = url.searchParams.get('url')
         const photoId = url.searchParams.get('id') || url.searchParams.get('photo_id')
         const shareToken = url.searchParams.get('share_token')
+        const userId = url.searchParams.get('uid')
 
         // Handle both query param token and Authorization header
         const tokenParam = url.searchParams.get('token')
@@ -31,68 +32,73 @@ serve(async (req) => {
             })
         }
 
-        // --- NEW: Handle Share Token for unauthenticated viewers ---
-        if (!accessToken && shareToken) {
-            console.log(`[Proxy] Using share_token: ${shareToken}`);
-            try {
-                // Initialize Supabase client with Service Role Key to bypass RLS
-                const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.39.0")
-                const supabaseAdmin = createClient(
-                    Deno.env.get('SUPABASE_URL') ?? '',
-                    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-                )
+        // --- REFRESH LOGIC: Get fresh token from Database if needed ---
+        if (!accessToken || accessToken === 'null' || accessToken === 'undefined') {
+            const lookUpId = userId || null;
+            
+            if (lookUpId || shareToken) {
+                console.log(`[Proxy] Attempting to find refresh token for ${lookUpId ? `user: ${lookUpId}` : `share: ${shareToken}`}`);
+                try {
+                    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.39.0")
+                    const supabaseAdmin = createClient(
+                        Deno.env.get('SUPABASE_URL') ?? '',
+                        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+                    )
 
-                // 1. Validate share token and get creator
-                const { data: shareLink, error: shareError } = await supabaseAdmin
-                    .from('shared_links')
-                    .select('created_by, expires_at, is_active')
-                    .eq('token', shareToken)
-                    .single()
+                    let targetUserId = lookUpId;
 
-                if (shareError || !shareLink || !shareLink.is_active || new Date(shareLink.expires_at) < new Date()) {
-                    console.error("[Proxy] Invalid or expired share token", shareError);
-                    // Continue anyway, maybe it's a public URL? 
-                } else {
-                    // 2. Get creator's refresh token
-                    const { data: creds, error: credError } = await supabaseAdmin
-                        .from('user_google_credentials')
-                        .select('refresh_token')
-                        .eq('user_id', shareLink.created_by)
-                        .single()
-
-                    if (creds?.refresh_token) {
-                        // 3. Refresh Google Token (Supabase secrets should be set in the function environment)
-                        const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: new URLSearchParams({
-                                client_id: Deno.env.get('GOOGLE_CLIENT_ID') || '',
-                                client_secret: Deno.env.get('GOOGLE_CLIENT_SECRET') || '',
-                                refresh_token: creds.refresh_token,
-                                grant_type: 'refresh_token',
-                            }),
-                        })
-
-                        const refreshData = await refreshResponse.json()
-                        if (refreshData.access_token) {
-                            accessToken = refreshData.access_token
-                            console.log("[Proxy] Successfully refreshed creator token");
+                    // If shareToken provided but no userId, find the link creator
+                    if (!targetUserId && shareToken) {
+                        const { data: shareLink } = await supabaseAdmin
+                            .from('shared_links')
+                            .select('created_by, expires_at, is_active')
+                            .eq('token', shareToken)
+                            .single()
+                        
+                        if (shareLink?.is_active && new Date(shareLink.expires_at) > new Date()) {
+                            targetUserId = shareLink.created_by;
                         }
                     }
+
+                    if (targetUserId) {
+                        const { data: creds } = await supabaseAdmin
+                            .from('user_google_credentials')
+                            .select('refresh_token')
+                            .eq('user_id', targetUserId)
+                            .single()
+
+                        if (creds?.refresh_token) {
+                            const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: new URLSearchParams({
+                                    client_id: Deno.env.get('GOOGLE_CLIENT_ID') || '',
+                                    client_secret: Deno.env.get('GOOGLE_CLIENT_SECRET') || '',
+                                    refresh_token: creds.refresh_token,
+                                    grant_type: 'refresh_token',
+                                }),
+                            })
+
+                            const refreshData = await refreshResponse.json()
+                            if (refreshData.access_token) {
+                                accessToken = refreshData.access_token
+                                console.log(`[Proxy] Successfully refreshed token for user: ${targetUserId}`);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("[Proxy] Token refresh failed:", e);
                 }
-            } catch (e) {
-                console.error("[Proxy] Share token auth failed:", e);
             }
         }
         // -------------------------------------------------------------
 
         // 2. Prepare headers for Google
-        // IMPORTANT: We REMOVE Referer because Google blocks mismatched referers
         const fetchHeaders: Record<string, string> = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         }
 
-        if (accessToken) {
+        if (accessToken && accessToken !== 'null' && accessToken !== 'undefined') {
             fetchHeaders['Authorization'] = `Bearer ${accessToken}`
         }
 
@@ -126,26 +132,78 @@ serve(async (req) => {
             let resolvedType = null;
             let resolutionErrors: string[] = [];
 
-            for (const api of apis) {
-                try {
-                    const apiResponse = await fetch(api.url, {
-                        headers: { 'Authorization': `Bearer ${accessToken}` }
-                    });
+            // Helper to try all APIs
+            async function tryResolution(currentToken: string) {
+                for (const api of apis) {
+                    try {
+                        const apiResponse = await fetch(api.url, {
+                            headers: { 'Authorization': `Bearer ${currentToken}` }
+                        });
 
-                    if (apiResponse.ok) {
-                        resolvedItem = await apiResponse.json();
-                        resolvedType = api.type;
-                        console.log(`[Proxy] Resolved via ${api.type} API (${api.url.substring(0, 30)}...)`);
-                        break;
-                    } else {
-                        const errText = await apiResponse.text().catch(() => 'No body');
-                        resolutionErrors.push(`${api.url} returned ${apiResponse.status}: ${errText}`);
+                        if (apiResponse.ok) {
+                            const item = await apiResponse.json();
+                            return { item, type: api.type };
+                        } else {
+                            const errText = await apiResponse.text();
+                            resolutionErrors.push(`${api.type} API ${apiResponse.status}: ${errText}`);
+                        }
+                    } catch (e: any) {
+                        resolutionErrors.push(`${api.type} API fetch failed: ${e.message}`);
                     }
-                } catch (e: any) {
-                    resolutionErrors.push(`${api.url} fetch failed: ${e.message}`);
                 }
+                return null;
             }
 
+            // Attempt 1 with current token
+            const result = await tryResolution(accessToken);
+            if (result) {
+                resolvedItem = result.item;
+                resolvedType = result.type;
+            } else if (userId || shareToken) {
+                // EXPIRED? Try refreshing once if we have IDs
+                console.log(`[Proxy] Initial resolution failed, attempting token refresh for ID: ${userId || shareToken}`);
+                try {
+                    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2.39.0")
+                    const supabaseAdmin = createClient(
+                        Deno.env.get('SUPABASE_URL') ?? '',
+                        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+                    )
+
+                    let targetUserId = userId;
+                    if (!targetUserId && shareToken) {
+                        const { data: shareLink } = await supabaseAdmin.from('shared_links').select('created_by').eq('token', shareToken).single();
+                        if (shareLink) targetUserId = shareLink.created_by;
+                    }
+
+                    if (targetUserId) {
+                        const { data: creds } = await supabaseAdmin.from('user_google_credentials').select('refresh_token').eq('user_id', targetUserId).single();
+                        if (creds?.refresh_token) {
+                            const refreshResponse = await fetch('https://oauth2.googleapis.com/token', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: new URLSearchParams({
+                                    client_id: Deno.env.get('GOOGLE_CLIENT_ID') || '',
+                                    client_secret: Deno.env.get('GOOGLE_CLIENT_SECRET') || '',
+                                    refresh_token: creds.refresh_token,
+                                    grant_type: 'refresh_token',
+                                }),
+                            })
+                            const refreshData = await refreshResponse.json()
+                            if (refreshData.access_token) {
+                                console.log(`[Proxy] Refreshed token after 401/fail, retrying...`);
+                                accessToken = refreshData.access_token;
+                                const retryResult = await tryResolution(accessToken);
+                                if (retryResult) {
+                                    resolvedItem = retryResult.item;
+                                    resolvedType = retryResult.type;
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.error("[Proxy] Double-refresh failed:", e);
+                }
+            }
             if (!resolvedItem) {
                 console.error(`[Proxy] Failed to resolve photoId ${photoId}. Errors:`, resolutionErrors);
                 // Fallback to mediaUrl if available

@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Calendar, Plus, Loader2, Edit, MapPin, Image, Link as LinkIcon, Upload, FolderOpen } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { cn, slugify } from '../lib/utils';
 
 import { ActionToolbar } from '../components/ui/ActionToolbar';
 import { SharingDialog } from '../components/sharing/SharingDialog';
@@ -25,7 +26,7 @@ function EventCard({
     navigate,
     setShowSourceModal,
     isUpdatingCover,
-    linkedAlbumId,
+    linkedAlbumSlug,
     handleDeleteEvent,
     handleShareEvent,
     handlePrintEvent,
@@ -135,9 +136,9 @@ function EventCard({
                     {/* Actions Area */}
                     <div className="mt-auto flex items-center justify-between pt-6 border-t border-black/5">
                         <div className="flex items-center gap-2">
-                            {linkedAlbumId ? (
+                            {linkedAlbumSlug ? (
                                 <button
-                                    onClick={() => navigate(`/album/${linkedAlbumId}`)}
+                                    onClick={() => navigate(`/album/${linkedAlbumSlug}`)}
                                     className="flex items-center gap-2 px-5 py-2.5 bg-catalog-text text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-catalog-accent transition-all shadow-lg shadow-black/10 active:scale-95"
                                 >
                                     Archive
@@ -373,14 +374,14 @@ export function Events() {
 
             const { data: albumsData } = await supabase
                 .from('albums')
-                .select('id, event_id')
+                .select('id, event_id, title')
                 .eq('family_id', familyId)
                 .not('event_id', 'is', null);
 
             const albumMap: Record<string, string> = {};
             if (albumsData) {
                 (albumsData as any[]).forEach(album => {
-                    if (album.event_id) albumMap[album.event_id] = album.id;
+                    if (album.event_id) albumMap[album.event_id] = slugify(album.title);
                 });
             }
             setLinkedAlbums(albumMap);
@@ -434,7 +435,7 @@ export function Events() {
                 is_published: false
             } as any).select().single();
             if (error) throw error;
-            navigate(`/album/${(data as any).id}/edit`);
+            navigate(`/album/${slugify(event.title)}/edit`);
         } catch (error) {
             console.error('Create album error:', error);
             setCreatingAlbumFor(null);
@@ -532,7 +533,7 @@ export function Events() {
                                             navigate={navigate}
                                             setShowSourceModal={setShowSourceModal}
                                             isUpdatingCover={isUpdatingCover}
-                                            linkedAlbumId={linkedAlbums[event.id]}
+                                            linkedAlbumSlug={linkedAlbums[event.id]}
                                             handleDeleteEvent={handleDeleteEvent}
                                             handleShareEvent={handleShareEvent}
                                             handlePrintEvent={handlePrintEvent}
