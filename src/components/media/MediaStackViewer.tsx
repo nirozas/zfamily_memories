@@ -89,8 +89,10 @@ export function MediaStackViewer({
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
     const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const pressTimeRef = useRef<number>(0);
     // Guard: prevent handleNext from firing more than once per slide
     const nextCalledRef = useRef(false);
+
     // Preloaded video elements (keyed by url)
     const preloadedVideos = useRef<Map<string, { video: HTMLVideoElement, hls?: Hls }>>(new Map());
 
@@ -434,20 +436,37 @@ export function MediaStackViewer({
         }
 
         const unscaledWidth = window.innerWidth;
-        if (clientX > unscaledWidth * 0.3) {
+        const clickRatio = clientX / unscaledWidth;
+        
+        // --- Action Zone Detection ---
+        // Center area (30% to 70%) toggles play/pause for videos
+        if (activeItem.type === 'video' && clickRatio > 0.3 && clickRatio < 0.7) {
+            setIsPaused(p => !p);
+            return;
+        }
+
+        // Navigation
+        if (clickRatio > 0.3) {
             handleNext();
         } else {
             handlePrev();
         }
     };
 
+
     const handlePointerDown = () => {
+        pressTimeRef.current = Date.now();
         setIsPaused(true);
     };
 
     const handlePointerUp = () => {
-        setIsPaused(false);
+        const duration = Date.now() - pressTimeRef.current;
+        // Only resume if it was a real "peek" hold (longer than 200ms)
+        if (duration > 200) {
+            setIsPaused(false);
+        }
     };
+
 
     if (!items || items.length === 0 || !activeItem) return null;
 
