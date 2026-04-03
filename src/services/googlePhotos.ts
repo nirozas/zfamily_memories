@@ -164,7 +164,10 @@ export class GooglePhotosService {
         });
 
         if (!uploadResponse.ok) {
-            throw new Error('Failed to upload bytes to Google Photos');
+            if (uploadResponse.status === 401 || uploadResponse.status === 403) {
+                 throw new Error('Google session expired. Please sign in again.');
+            }
+            throw new Error(`Failed to upload bytes to Google Photos: ${uploadResponse.status}`);
         }
 
         const uploadToken = await uploadResponse.text();

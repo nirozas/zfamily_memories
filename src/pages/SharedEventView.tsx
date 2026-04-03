@@ -59,7 +59,7 @@ export function SharedEventView() {
 
             if (googleId || isGoogleUrl) {
                 // Pass the share token to the proxy so it can refresh the creator's credentials
-                const proxyUrl = GooglePhotosService.getProxyUrl(googleId ? '' : src, null, token, googleId);
+                const proxyUrl = GooglePhotosService.getProxyUrl(src, null, token, googleId);
                 return `<img src="${proxyUrl}" ${rest} crossOrigin="anonymous">`;
             }
             return match;
@@ -168,3 +168,4 @@ export function SharedEventView() {
         </div>
     );
 }
+

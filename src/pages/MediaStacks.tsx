@@ -52,8 +52,6 @@ function StackMiniThumbnail({ item }: { item: { url: string; google_id?: string;
                     )}
                     onLoad={() => setIsLoaded(true)}
                     onError={() => setIsError(true)}
-                    referrerPolicy="no-referrer"
-                    crossOrigin="anonymous"
                 />
             )}
             {(!isLoaded || isError) && (

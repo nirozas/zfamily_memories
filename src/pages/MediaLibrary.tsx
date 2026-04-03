@@ -1391,11 +1391,11 @@ export function MediaLibrary() {
 
                                         if (isGoogle) {
                                             if (item.type === 'video') {
-                                                finalUrl = GooglePhotosService.getProxyUrl(item.metadata?.googlePhotoId ? '' : cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
+                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
                                                 // Always try to get a poster via proxy for Google videos (Photos or Drive)
-                                                posterUrl = GooglePhotosService.getProxyUrl(item.metadata?.googlePhotoId ? '' : cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId, true);
+                                                posterUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId, true);
                                             } else {
-                                                finalUrl = GooglePhotosService.getProxyUrl(item.metadata?.googlePhotoId ? '' : cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
+                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
                                             }
                                         }
 
@@ -1629,3 +1629,4 @@ export function MediaLibrary() {
         </div>
     );
 }
+

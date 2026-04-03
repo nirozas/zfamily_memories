@@ -114,7 +114,7 @@ export function MediaStackViewer({
     const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
     const isNextGoogle = nextItem?.url && (nextItem.url.includes('googleusercontent.com') || nextItem.url.includes('photoslibrary.googleapis.com') || nextItem.url.includes('drive.google.com'));
     const nextProxiedUrl = (nextItem && isNextGoogle)
-        ? GooglePhotosService.getProxyUrl(nextItem.googlePhotoId ? '' : nextItem.url, googleAccessToken, shareToken, nextItem.googlePhotoId)
+        ? GooglePhotosService.getProxyUrl(nextItem.url, googleAccessToken, shareToken, nextItem.googlePhotoId)
         : nextItem?.url;
 
     // 1. Sliding Window Preload: Focus bandwidth on current and next 2 items
@@ -144,7 +144,7 @@ export function MediaStackViewer({
                                item.url.includes('photoslibrary.googleapis.com') || 
                                item.url.includes('drive.google.com');
                 const proxiedUrl = isGoogle ? 
-                    GooglePhotosService.getProxyUrl(item.googlePhotoId ? '' : item.url, googleAccessToken, shareToken, item.googlePhotoId) : 
+                    GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : 
                     item.url;
 
                 const vid = document.createElement('video');
@@ -932,3 +932,4 @@ export function MediaStackViewer({
 }
 
 export default MediaStackViewer;
+

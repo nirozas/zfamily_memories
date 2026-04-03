@@ -31,7 +31,7 @@ export function useMediaUrl(
         if (url && url.startsWith('google-photos://')) {
             const explicitId = url.replace('google-photos://', '');
             return GooglePhotosService.getProxyUrl(
-                '',
+                url,
                 googleAccessToken,
                 shareToken,
                 googlePhotoId || explicitId,
@@ -59,7 +59,7 @@ export function useMediaUrl(
 
         // ── Legacy Google Photos items — proxy through Supabase Edge Function ─
         return GooglePhotosService.getProxyUrl(
-            googlePhotoId ? '' : (url || ''),
+            url || '',
             googleAccessToken,
             shareToken,
             googlePhotoId,

@@ -40,6 +40,11 @@ async function getSigningKey(secret: string, date: string, region: string, servi
     return hmacSha256(kService, 'aws4_request');
 }
 
+// AWS S3 strictly requires these characters to be encoded, but encodeURIComponent ignores them.
+function encodeAWSUri(str: string) {
+    return encodeURIComponent(str).replace(/[!'()*]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase());
+}
+
 /** Generate a presigned PUT URL for direct browser-to-R2 upload */
 async function createPresignedPutUrl(key: string, _contentType: string, expiresInSeconds = 3600): Promise<string> {
     const region = 'auto';
@@ -53,7 +58,7 @@ async function createPresignedPutUrl(key: string, _contentType: string, expiresI
     const host = R2_S3_ENDPOINT.replace('https://', '').replace('http://', '');
     const credentialScope = `${datestamp}/${region}/${service}/aws4_request`;
     const credential = `${R2_ACCESS_KEY}/${credentialScope}`;
-    const contentType = _contentType.toLowerCase();
+    const contentType = _contentType;
 
     const queryParams = new URLSearchParams({
         'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
@@ -69,9 +74,11 @@ async function createPresignedPutUrl(key: string, _contentType: string, expiresI
         .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
         .join('&');
 
+    const encodedKey = encodeAWSUri(key).replace(/%2F/g, '/');
+
     const canonicalRequest = [
         'PUT',
-        `/${R2_BUCKET}/${encodeURIComponent(key).replace(/%2F/g, '/')}`,
+        `/${R2_BUCKET}/${encodedKey}`,
         sortedParams,
         `content-type:${contentType}\nhost:${host}\n`,
         'content-type;host',
@@ -88,7 +95,7 @@ async function createPresignedPutUrl(key: string, _contentType: string, expiresI
     const signingKey = await getSigningKey(R2_SECRET_KEY, datestamp, region, service);
     const signature = toHex(await hmacSha256(signingKey, stringToSign));
 
-    return `${R2_S3_ENDPOINT}/${R2_BUCKET}/${encodeURIComponent(key).replace(/%2F/g, '/')}?${sortedParams}&X-Amz-Signature=${signature}`;
+    return `${R2_S3_ENDPOINT}/${R2_BUCKET}/${encodedKey}?${sortedParams}&X-Amz-Signature=${signature}`;
 }
 
 // ─── Public helpers ───────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@ const EventContent = ({ event }: { event: Event }) => {
 
             if (googleId || isGoogleUrl) {
                 // If we have an ID, we prioritize it for resilience. If not, just proxy the URL.
-                const proxyUrl = GooglePhotosService.getProxyUrl(googleId ? '' : src, googleAccessToken, null, googleId);
+                const proxyUrl = GooglePhotosService.getProxyUrl(src, googleAccessToken, null, googleId);
                 return `<img src="${proxyUrl}" ${rest} crossOrigin="anonymous">`;
             }
             return match;
@@ -217,3 +217,4 @@ export function EventView() {
         </GlobalLightboxProvider>
     );
 }
+
