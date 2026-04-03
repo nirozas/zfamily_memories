@@ -886,6 +886,7 @@ export function Home() {
                                         {recentAlbums.map((album, index) => {
                                             const pages = album.pages || [];
                                             const frontPage = pages.find((p: any) => p.pageNumber === 1 || p.page_number === 1) || pages[0];
+                                            const dims = album.config?.dimensions || { width: 800, height: 1028.5 };
 
                                             return (
                                                 <div
@@ -896,19 +897,20 @@ export function Home() {
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">
-                                                        {frontPage ? (
-                                                            <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white pointer-events-none">
+                                                        <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white flex items-center justify-center p-0" style={{ containerType: 'inline-size' }}>
+                                                            {frontPage ? (
                                                                 <div 
+                                                                    className="absolute inset-0 origin-top-left"
                                                                     style={{ 
-                                                                        transform: 'scale(0.2275)', 
-                                                                        transformOrigin: 'top left', 
-                                                                        width: '800px', 
-                                                                        height: '1028.5px' 
+                                                                        width: `${dims.width}px`, 
+                                                                        height: `${dims.height}px`,
+                                                                        transform: `scale(calc(100cqw / ${dims.width}))`,
+                                                                        pointerEvents: 'none'
                                                                     }}
                                                                 >
                                                                     <AlbumPage 
                                                                         page={frontPage as any} 
-                                                                        dimensions={{ width: 800, height: 1028.5 }} 
+                                                                        dimensions={dims} 
                                                                         side="single" 
                                                                         isCover={true} 
                                                                         density="hard"
@@ -916,16 +918,14 @@ export function Home() {
                                                                         showPageNumber={false}
                                                                     />
                                                                 </div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white flex items-center justify-center">
+                                                            ) : (
                                                                 <img
                                                                     src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
                                                                     alt={album.title}
                                                                     className="w-full h-full object-cover"
                                                                 />
-                                                            </div>
-                                                        )}
+                                                            )}
+                                                        </div>
                                                         <h3 className="carousel-title">{album.title}</h3>
                                                         <p className="carousel-date">
                                                             {new Date(album.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}

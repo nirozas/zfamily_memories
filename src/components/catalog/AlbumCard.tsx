@@ -71,7 +71,7 @@ export function AlbumCard(props: AlbumCardProps) {
         <div className="flex flex-col group/album relative w-full h-full">
             <div 
                 className="relative group w-full transition-all duration-700 hover-lift active:scale-[0.98] shadow-2xl rounded-[2.5rem] overflow-hidden bg-white ring-1 ring-black/5"
-                style={{ aspectRatio } as any}
+                style={{ aspectRatio, containerType: 'inline-size' } as any}
             >
                 <Link to={`/album/${slugify(title)}`} className="block w-full h-full no-underline relative group/card">
                     {/* 1. Pure Front Page Preview */}
