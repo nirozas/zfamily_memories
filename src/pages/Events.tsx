@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Calendar, Plus, Loader2, Edit, MapPin, Image, Link as LinkIcon, Upload, FolderOpen } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { cn, slugify } from '../lib/utils';
+import { slugify } from '../lib/utils';
 
 import { ActionToolbar } from '../components/ui/ActionToolbar';
 import { SharingDialog } from '../components/sharing/SharingDialog';
@@ -426,7 +426,7 @@ export function Events() {
         if (!familyId || creatingAlbumFor) return;
         setCreatingAlbumFor(event.id);
         try {
-            const { data, error } = await supabase.from('albums').insert({
+            const { error } = await supabase.from('albums').insert({
                 family_id: familyId,
                 event_id: event.id,
                 title: event.title,
