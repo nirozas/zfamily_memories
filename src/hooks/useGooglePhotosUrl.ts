@@ -59,7 +59,7 @@ export function useMediaUrl(
 
         // ── Legacy Google Photos items — proxy through Supabase Edge Function ─
         return GooglePhotosService.getProxyUrl(
-            url || '',
+            googlePhotoId ? '' : (url || ''),
             googleAccessToken,
             shareToken,
             googlePhotoId,

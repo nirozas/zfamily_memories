@@ -123,8 +123,6 @@ function StackMediaItemGridItem({
                             "w-full h-full transition-transform duration-700 group-hover:scale-110",
                             item.cropMode === 'cover' ? 'object-cover' : 'object-contain'
                         )}
-                        crossOrigin="anonymous"
-                        referrerPolicy="no-referrer"
                         onError={(e) => {
                             if (item.type === 'video' && !isGoogleUrl) {
                                 const img = e.currentTarget;
@@ -144,7 +142,6 @@ function StackMediaItemGridItem({
                                     muted
                                     playsInline
                                     preload="metadata"
-                                    crossOrigin="anonymous"
                                 />
                             )}
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -249,8 +246,6 @@ function StackThumbnailStripItem({
                 src={thumbUrl || item.url}
                 alt=""
                 className="w-full h-full object-cover"
-                crossOrigin="anonymous"
-                referrerPolicy="no-referrer"
             />
             {item.type === 'video' && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40">
@@ -1058,7 +1053,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         poster={posterUrl}
                                         controls={selectedLayer?.kind !== 'trim' as any}
                                         className={cn("absolute inset-0 w-full h-full pointer-events-auto transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
-                                        autoPlay loop playsInline crossOrigin="anonymous"
+                                        autoPlay loop playsInline
                                         onLoadedMetadata={(e) => {
                                             const dur = e.currentTarget.duration;
                                             if (dur && dur !== currentItem.totalVideoDuration) {
@@ -1076,7 +1071,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                             }
                                         }}
                                     />
-                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />}
+                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} />}
 
                                 {/* Text layers */}
                                 {(currentItem.textLayers || []).map(layer => (
@@ -1431,18 +1426,16 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         <div className="relative w-full max-w-5xl aspect-video md:aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-black" onClick={e => e.stopPropagation()}>
                             {lightboxItem?.type === 'video' ? (
                                 <video
-                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
+                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.googlePhotoId ? '' : lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
                                     className="w-full h-full object-contain"
                                     controls
                                     autoPlay
-                                    crossOrigin="anonymous"
                                 />
                             ) : (
                                 <img
-                                    src={lightboxItem?.url.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
+                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.googlePhotoId ? '' : lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
                                     alt=""
                                     className="w-full h-full object-contain"
-                                    crossOrigin="anonymous"
                                 />
                             )}
                             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-white text-sm font-medium">

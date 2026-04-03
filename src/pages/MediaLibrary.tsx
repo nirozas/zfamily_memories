@@ -1117,7 +1117,7 @@ export function MediaLibrary() {
                                 </div>
                             )}
 
-                            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
+                            <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleUpload} />
                         </div>
                     )}
                 </div>
@@ -1342,11 +1342,11 @@ export function MediaLibrary() {
 
                                         if (isGoogle) {
                                             if (item.type === 'video') {
-                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
+                                                finalUrl = GooglePhotosService.getProxyUrl(item.metadata?.googlePhotoId ? '' : cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
                                                 // Always try to get a poster via proxy for Google videos (Photos or Drive)
-                                                posterUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId, true);
+                                                posterUrl = GooglePhotosService.getProxyUrl(item.metadata?.googlePhotoId ? '' : cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId, true);
                                             } else {
-                                                finalUrl = GooglePhotosService.getProxyUrl(cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
+                                                finalUrl = GooglePhotosService.getProxyUrl(item.metadata?.googlePhotoId ? '' : cleanUrl, googleAccessToken, null, item.metadata?.googlePhotoId);
                                             }
                                         }
 
