@@ -557,7 +557,7 @@ export function Home() {
     return (
         <div className="space-y-12 pb-12">
             {/* 1. Hero Section */}
-            <section className="relative h-[65vh] w-full overflow-hidden group">
+            <section className="relative h-[32vh] w-full overflow-hidden group">
                 <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-catalog-stone/5 z-10" />
                 <img
                     src={resolvedHeroUrl || heroImageUrl}
@@ -759,7 +759,7 @@ export function Home() {
                         <div className="absolute bottom-0 left-0 w-32 h-[2px] bg-purple-600" />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-8">
                         {recentStacks.length > 0 ? (
                             recentStacks.map((stack, idx) => (
                                 <motion.div
@@ -884,7 +884,8 @@ export function Home() {
                                         } as React.CSSProperties}
                                     >
                                         {recentAlbums.map((album, index) => {
-                                            const coverPage = (album.pages && album.pages.length > 0) ? album.pages[0] : null;
+                                            const pages = album.pages || [];
+                                            const frontPage = pages.find((p: any) => p.pageNumber === 1 || p.page_number === 1) || pages[0];
 
                                             return (
                                                 <div
@@ -895,7 +896,7 @@ export function Home() {
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">
-                                                        {coverPage ? (
+                                                        {frontPage ? (
                                                             <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white pointer-events-none">
                                                                 <div 
                                                                     style={{ 
@@ -906,7 +907,7 @@ export function Home() {
                                                                     }}
                                                                 >
                                                                     <AlbumPage 
-                                                                        page={coverPage as any} 
+                                                                        page={frontPage as any} 
                                                                         dimensions={{ width: 800, height: 1028.5 }} 
                                                                         side="single" 
                                                                         isCover={true} 
@@ -917,10 +918,13 @@ export function Home() {
                                                                 </div>
                                                             </div>
                                                         ) : (
-                                                            <img
-                                                                src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
-                                                                alt={album.title}
-                                                            />
+                                                            <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white flex items-center justify-center">
+                                                                <img
+                                                                    src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
+                                                                    alt={album.title}
+                                                                    className="w-full h-full object-cover"
+                                                                />
+                                                            </div>
                                                         )}
                                                         <h3 className="carousel-title">{album.title}</h3>
                                                         <p className="carousel-date">
@@ -964,6 +968,11 @@ export function Home() {
                                     <div className="feature-icon">🎨</div>
                                     <h3>Create</h3>
                                     <p>Design beautiful new albums with our professional tools.</p>
+                                </div>
+                                <div className="feature" onClick={() => navigate('/stacks')}>
+                                    <div className="feature-icon">🎞️</div>
+                                    <h3>Stacks</h3>
+                                    <p>Relive your highlights through AI-powered episodic memory stacks.</p>
                                 </div>
                             </div>
                         </div>
