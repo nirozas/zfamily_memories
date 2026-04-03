@@ -77,6 +77,14 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
     // For the grid, we always want a thumbnail image, even for videos
     const { url: displayUrl } = useGooglePhotosUrl(photoId, initialUrl, null, true);
 
+    const [duration, setDuration] = useState<number | null>(item.metadata?.duration || item.metadata?.videoDuration || null);
+    const formatDuration = (seconds: number) => {
+        if (!seconds || isNaN(seconds)) return '';
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+
     return (
         <div key={item.id} className={cn("group relative bg-white border rounded-xl overflow-hidden transition-all duration-200", viewMode === 'list' ? "flex items-center p-3 gap-4 h-20 hover:border-catalog-accent/50" : "aspect-[10/11] hover:shadow-lg hover:-translate-y-1 hover:border-catalog-accent/50", selectedItems.has(item.id) ? "ring-2 ring-catalog-accent border-catalog-accent bg-catalog-accent/5" : "border-gray-200")} onClick={(e) => {
             if (!(e.target as HTMLElement).closest('.action-btn')) {
@@ -111,6 +119,11 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                     muted
                                     playsInline
                                     preload="metadata"
+                                    onLoadedMetadata={(e) => {
+                                        if (e.currentTarget.duration && !duration) {
+                                            setDuration(e.currentTarget.duration);
+                                        }
+                                    }}
                                     onLoadedData={(e) => {
                                         // Auto-pause just in case, though it's muted/playsInline/preload=metadata
                                         if (item.url.includes('.m3u8')) {
@@ -137,6 +150,11 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                     <Play className="w-4 h-4 text-catalog-accent fill-current" />
                                 </div>
                             </div>
+                            {duration !== null && duration > 0 && (
+                                <div className="absolute bottom-1 right-1 bg-black/70 text-white text-[9px] px-1 font-bold rounded shadow pointer-events-none tracking-wider">
+                                    {formatDuration(duration)}
+                                </div>
+                            )}
                         </div>
                     ) : (
                         <img
@@ -860,6 +878,34 @@ export function MediaLibrary() {
         setIsLoading(false);
     }
 
+    async function handleMoveToFolder(ids: string[]) {
+        if (activeTab === 'system') {
+            alert("System assets cannot be moved between folders.");
+            return;
+        }
+
+        const itemsToMove = mediaItems.filter(m => ids.includes(m.id));
+        const usedItems = itemsToMove.filter(m => (m.usageCount || 0) > 0);
+
+        if (usedItems.length > 0) {
+            alert(`Unable to move ${usedItems.length} item(s) because they are currently used in albums, events, or profiles.\n\nPlease only select unused items to restructure.`);
+            return;
+        }
+
+        const newFolder = prompt(`Move ${ids.length} item(s) to folder (e.g. Travel/2023 or / for root):`, '');
+        if (newFolder === null) return;
+        const formattedFolder = newFolder.trim() === '' || newFolder.trim() === '/' ? '/' : newFolder.trim();
+
+        setIsLoading(true);
+        for (const id of ids) {
+            await (supabase.from('family_media') as any).update({ folder: formattedFolder }).eq('id', id);
+        }
+        
+        setMediaItems(prev => prev.map(m => ids.includes(m.id) ? { ...m, folder: formattedFolder } : m));
+        setSelectedItems(new Set());
+        setIsLoading(false);
+    }
+
     async function handleDelete(ids: string[]) {
         const itemsToDelete = mediaItems.filter(m => ids.includes(m.id));
 
@@ -1187,6 +1233,9 @@ export function MediaLibrary() {
                             <>
                                 <button onClick={handleBulkEditTags} className="flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
                                     <Edit2 className="w-4 h-4" /> Edit Tags ({selectedItems.size})
+                                </button>
+                                <button onClick={() => handleMoveToFolder(Array.from(selectedItems))} className="flex items-center gap-1.5 text-purple-600 hover:bg-purple-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+                                    <FolderOpen className="w-4 h-4" /> Move ({selectedItems.size})
                                 </button>
                                 <button onClick={() => handleDelete(Array.from(selectedItems))} className="flex items-center gap-1.5 text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
                                     <Trash2 className="w-4 h-4" /> Delete ({selectedItems.size})
