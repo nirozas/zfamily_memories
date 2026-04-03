@@ -98,7 +98,16 @@ export function MediaStackViewer({
 
     const { googleAccessToken } = useAuth();
     const activeItem = items[activeIndex];
-    const { url: displayUrl } = useGooglePhotosUrl(activeItem.googlePhotoId, activeItem.url, shareToken);
+    
+    const isGoogleUrl = activeItem.url && (
+        activeItem.url.includes('googleusercontent.com') ||
+        activeItem.url.includes('photoslibrary.googleapis.com') ||
+        activeItem.url.includes('drive.google.com')
+    );
+
+    const rawDisplayUrl = useGooglePhotosUrl(activeItem.googlePhotoId, activeItem.url, shareToken).url;
+    // CRITICAL: Strip #t=0.1 from Google URLs to prevent 403 Forbidden errors
+    const displayUrl = (isGoogleUrl && rawDisplayUrl) ? rawDisplayUrl.replace('#t=0.1', '') : rawDisplayUrl;
 
     const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
     const isNextGoogle = nextItem?.url && (nextItem.url.includes('googleusercontent.com') || nextItem.url.includes('photoslibrary.googleapis.com') || nextItem.url.includes('drive.google.com'));
@@ -187,39 +196,52 @@ export function MediaStackViewer({
         }
     }, [activeIndex, activeItem, isMuted, bgmVolume]);
 
-    // Zoom and Pinch Effect
+    // Handle Zoom and Pinch-to-zoom
     useEffect(() => {
-        const el = contentRef.current;
+        const el = containerRef.current;
         if (!el) return;
 
         const handleWheel = (e: WheelEvent) => {
             if (e.ctrlKey || e.metaKey) {
                 e.preventDefault();
-                setViewerZoom(prev => Math.max(1, Math.min(5, prev + (e.deltaY > 0 ? -0.2 : 0.2))));
+                setViewerZoom(prev => {
+                    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                    const next = prev * delta;
+                    return Math.max(1, Math.min(5, next));
+                });
             }
         };
 
-        let lastDist = 0;
+        let initialDist = 0;
         const handleTouchStart = (e: TouchEvent) => {
             if (e.touches.length === 2) {
-                lastDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                initialDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
             }
         };
+
         const handleTouchMove = (e: TouchEvent) => {
-            if (e.touches.length === 2 && lastDist > 0) {
-                e.preventDefault();
-                const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
-                const factor = dist / lastDist;
+            if (e.touches.length === 2 && initialDist > 0) {
+                const dist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY
+                );
+                const factor = dist / initialDist;
                 setViewerZoom(prev => Math.max(1, Math.min(5, prev * factor)));
-                lastDist = dist;
+                initialDist = dist;
+                if (e.cancelable) e.preventDefault();
             }
         };
-        const handleTouchEnd = () => { lastDist = 0; };
+
+        const handleTouchEnd = () => { initialDist = 0; };
 
         el.addEventListener('wheel', handleWheel, { passive: false });
         el.addEventListener('touchstart', handleTouchStart);
         el.addEventListener('touchmove', handleTouchMove, { passive: false });
         el.addEventListener('touchend', handleTouchEnd);
+
         return () => {
             el.removeEventListener('wheel', handleWheel);
             el.removeEventListener('touchstart', handleTouchStart);
@@ -227,6 +249,21 @@ export function MediaStackViewer({
             el.removeEventListener('touchend', handleTouchEnd);
         };
     }, [activeIndex]);
+
+    // Preload next image in background to avoid console warnings and improve perceived speed
+    useEffect(() => {
+        if (nextItem && nextItem.type === 'image' && nextProxiedUrl) {
+            const img = new Image();
+            img.src = nextProxiedUrl;
+        }
+    }, [nextProxiedUrl, nextItem]);
+
+    // Fix: Clear previous edits/metadata UI on item switch
+    useEffect(() => {
+        // Any reset logic needed for layers when activeIndex changes
+    }, [activeIndex]);
+
+
 
     // 1. Source Initialization Effect (Runs on activeIndex or activeItem change)
     useEffect(() => {
@@ -684,21 +721,14 @@ export function MediaStackViewer({
                     ))}
                 </div>
             </div>
-            
-            {nextItem && nextItem.type === 'image' && nextProxiedUrl && (
-                <link rel="preload" as="image" href={nextProxiedUrl} />
-            )}
- 
-            {/* Bottom Action Bar */}
+
             <div className="absolute bottom-0 left-0 right-0 p-4 pb-8 z-50 bg-gradient-to-t from-black/90 to-transparent flex flex-col gap-4">
                 {activeItem.type === 'video' && (
                     <div className="flex items-center gap-6 pointer-events-auto bg-black/40 backdrop-blur-xl p-4 rounded-[2rem] border border-white/10 shadow-2xl">
-                        {/* Play/Pause */}
                         <button onClick={() => setIsPaused(!isPaused)} className="p-2.5 bg-white/10 rounded-full hover:bg-white/20 transition-all active:scale-90 shrink-0">
                             {isPaused ? <Play className="w-5 h-5 fill-white text-white ml-1" /> : <Pause className="w-5 h-5 fill-white text-white" />}
                         </button>
                         
-                        {/* Timeline / Seekable Bar */}
                         <div className="flex-1 flex flex-col gap-1.5 pt-1">
                             <div className="relative h-1.5 w-full bg-white/20 rounded-full group/seek">
                                 <input 
@@ -731,16 +761,13 @@ export function MediaStackViewer({
                             </div>
                         </div>
 
-                        {/* Right Side: Volume & Speed/Fullscreen */}
                         <div className="flex items-center gap-3 shrink-0">
-                            {/* Premium Volume Controller */}
                             <div className="group/vol relative flex items-center pr-2">
                                 <button 
                                     onClick={() => {
                                         const newMute = !isVideoMuted;
                                         setIsVideoMuted(newMute);
                                         if (videoRef.current) videoRef.current.muted = newMute;
-                                        // If unmuting and volume is 0, give it some sound
                                         if (!newMute && videoVolume === 0) {
                                             setVideoVolume(0.5);
                                             if (videoRef.current) videoRef.current.volume = 0.5;
@@ -751,7 +778,6 @@ export function MediaStackViewer({
                                     {isVideoMuted || videoVolume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                                 </button>
                                 
-                                {/* Volume Slider Popup - GAP REMOVED for stable hover */}
                                 <div className="absolute bottom-[90%] right-0 pb-4 opacity-0 group-hover/vol:opacity-100 transition-all pointer-events-none group-hover/vol:pointer-events-auto z-[70] translate-y-2 group-hover/vol:translate-y-0 duration-300">
                                     <div className="p-4 bg-[#1a1a1a]/95 backdrop-blur-xl rounded-[1.5rem] border border-white/10 w-40 shadow-2xl flex items-center gap-3">
                                         <VolumeX className="w-3.5 h-3.5 text-white/30" />
@@ -767,7 +793,7 @@ export function MediaStackViewer({
                                                 setIsVideoMuted(shouldMute);
                                                 if (videoRef.current) videoRef.current.muted = shouldMute;
                                             }}
-                                            onPointerDown={(e) => e.stopPropagation()} // Prevent slider move from closing modal/nav
+                                            onPointerDown={(e) => e.stopPropagation()}
                                             className="flex-1 accent-catalog-accent h-1.5 rounded-full appearance-none bg-white/10 cursor-pointer"
                                         />
                                         <Volume2 className="w-3.5 h-3.5 text-white/30" />

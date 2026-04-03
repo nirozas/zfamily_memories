@@ -93,8 +93,14 @@ function StackMediaItemGridItem({
     onUpdateDuration: (idx: number, duration: number) => void;
     onUpdateCrop: (idx: number) => void;
 }) {
-    // Correctly utilize our smart hook for thumbnails
+    // Utilize our smart hook for thumbnails
     const { url: displayUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
+    const isGoogleUrl = item.url && (
+        item.url.includes('googleusercontent.com') ||
+        item.url.includes('photoslibrary.googleapis.com') ||
+        item.url.includes('drive.google.com') ||
+        item.url.includes('ggpht.com')
+    );
 
     return (
         <div
@@ -119,7 +125,7 @@ function StackMediaItemGridItem({
                         crossOrigin="anonymous"
                         referrerPolicy="no-referrer"
                         onError={(e) => {
-                            if (item.type === 'video') {
+                            if (item.type === 'video' && !isGoogleUrl) {
                                 const img = e.currentTarget;
                                 img.style.display = 'none';
                                 const parent = img.parentElement;
@@ -130,14 +136,16 @@ function StackMediaItemGridItem({
                     />
                     {item.type === 'video' && (
                         <>
-                            <video
-                                src={`${item.url}#t=0.1`}
-                                className="w-full h-full object-cover hidden"
-                                muted
-                                playsInline
-                                preload="metadata"
-                                crossOrigin="anonymous"
-                            />
+                            {!isGoogleUrl && (
+                                <video
+                                    src={item.url.includes('.m3u8') ? item.url : item.url}
+                                    className="w-full h-full object-cover hidden"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                    crossOrigin="anonymous"
+                                />
+                            )}
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                 <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
                                     <Play className="w-5 h-5 text-white fill-white ml-1" />
@@ -146,6 +154,7 @@ function StackMediaItemGridItem({
                         </>
                     )}
                 </div>
+
 
                 <div className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md text-white text-[10px] font-black flex items-center justify-center border border-white/20 shadow-xl">{idx + 1}</div>
 
@@ -564,30 +573,44 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setShowGooglePicker(false);
         if (!googleAccessToken || !familyId) return;
         setIsImporting(true);
-        for (let i = 0; i < selected.length; i++) {
-            const item = selected[i];
-            try {
-                const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
-                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder, (p) => {
-                    setUploadProgress(prev => ({ ...prev, [item.id]: p }));
-                }, useHls);
+        try {
+            for (let i = 0; i < selected.length; i++) {
+                const item = selected[i];
+                try {
+                    const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
+                    const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder, (p) => {
+                        setUploadProgress(prev => ({ ...prev, [item.id]: p }));
+                    }, useHls);
 
-                setUploadProgress(prev => ({ ...prev, [item.id]: 100 }));
-                setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[item.id]; return n; }), 800);
+                    setUploadProgress(prev => ({ ...prev, [item.id]: 100 }));
+                    setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[item.id]; return n; }), 800);
 
-                const newItem = makeItem(item.id, persistentUrl, persistentType, item.filename || `gp_${item.id}`, persistentId);
-                setMediaItems(prev => [...prev, newItem]);
+                    const newItem = makeItem(item.id, persistentUrl, persistentType, item.filename || `gp_${item.id}`, persistentId);
+                    setMediaItems(prev => [...prev, newItem]);
 
-                // Check if already exists to avoid 400 error on PostgREST upsert
-                const { data: existing } = await (supabase
-                    .from('family_media') as any)
-                    .select('id')
-                    .eq('url', persistentUrl)
-                    .maybeSingle();
+                    // Record in family_media for indexing
+                    const { data: existing } = await (supabase
+                        .from('family_media') as any)
+                        .select('id')
+                        .eq('url', persistentUrl)
+                        .maybeSingle();
 
-                if (existing) {
-                    await (supabase.from('family_media') as any)
-                        .update({
+                    if (existing) {
+                        await (supabase.from('family_media') as any)
+                            .update({
+                                type: persistentType,
+                                category: 'stacks',
+                                folder: targetFolder,
+                                filename: item.filename || `gp_${item.id}`,
+                                uploaded_by: user?.id,
+                                google_id: persistentId,
+                                metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
+                            })
+                            .eq('id', (existing as any).id);
+                    } else {
+                        await (supabase.from('family_media') as any).insert({
+                            family_id: familyId,
+                            url: persistentUrl,
                             type: persistentType,
                             category: 'stacks',
                             folder: targetFolder,
@@ -595,22 +618,16 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             uploaded_by: user?.id,
                             google_id: persistentId,
                             metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
-                        })
-                        .eq('id', (existing as any).id);
-                } else {
-                    await (supabase.from('family_media') as any).insert({
-                        family_id: familyId,
-                        url: persistentUrl,
-                        type: persistentType,
-                        category: 'stacks',
-                        folder: targetFolder,
-                        filename: item.filename || `gp_${item.id}`,
-                        uploaded_by: user?.id,
-                        google_id: persistentId,
-                        metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
-                    });
+                        });
+                    }
+                } catch (err) {
+                    console.error('Google Photos item persist failed:', err);
                 }
-            } catch (_) { }
+            }
+        } catch (err) {
+            console.error('Google Photos selected import failed:', err);
+        } finally {
+            setIsImporting(false);
         }
     };
 

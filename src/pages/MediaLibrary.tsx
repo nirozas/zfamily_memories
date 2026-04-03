@@ -105,7 +105,7 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                             {/* Video element as fallback or for local uploads */}
                             {!isGoogleUrl ? (
                                 <video
-                                    src={item.url.includes('.m3u8') ? item.url : `${item.url}#t=0.1`}
+                                    src={item.url.includes('.m3u8') ? item.url : item.url}
                                     className="w-full h-full object-cover block"
                                     muted
                                     playsInline

@@ -20,20 +20,41 @@ function StackMiniThumbnail({ item }: { item: { url: string; google_id?: string;
     const [isLoaded, setIsLoaded] = useState(false);
     const [isError, setIsError] = useState(false);
 
+    const isGoogleUrl = item.url && (
+        item.url.includes('googleusercontent.com') ||
+        item.url.includes('photoslibrary.googleapis.com') ||
+        item.url.includes('drive.google.com') ||
+        item.url.includes('ggpht.com')
+    );
+
     return (
         <div className="w-full h-full relative bg-gray-100">
-            <img
-                src={displayUrl || item.url}
-                alt=""
-                className={cn(
-                    "w-full h-full object-cover transition-opacity duration-500 transition-transform duration-700 group-hover:scale-105",
-                    isLoaded ? "opacity-100" : "opacity-0"
-                )}
-                onLoad={() => setIsLoaded(true)}
-                onError={() => setIsError(true)}
-                referrerPolicy="no-referrer"
-                crossOrigin="anonymous"
-            />
+            {item.type === 'video' && !isGoogleUrl ? (
+                <video
+                    src={item.url.includes('.m3u8') ? item.url : `${item.url}#t=0.1`}
+                    className={cn(
+                        "w-full h-full object-cover transition-opacity duration-500 transition-transform duration-700 group-hover:scale-105",
+                        isLoaded ? "opacity-100" : "opacity-0"
+                    )}
+                    onLoadedData={() => setIsLoaded(true)}
+                    onError={() => setIsError(true)}
+                    muted
+                    playsInline
+                />
+            ) : (
+                <img
+                    src={displayUrl || item.url}
+                    alt=""
+                    className={cn(
+                        "w-full h-full object-cover transition-opacity duration-500 transition-transform duration-700 group-hover:scale-105",
+                        isLoaded ? "opacity-100" : "opacity-0"
+                    )}
+                    onLoad={() => setIsLoaded(true)}
+                    onError={() => setIsError(true)}
+                    referrerPolicy="no-referrer"
+                    crossOrigin="anonymous"
+                />
+            )}
             {(!isLoaded || isError) && (
                 <div className="absolute inset-0 flex items-center justify-center">
                     {item.type === 'video' ? <Video className="w-4 h-4 text-purple-200" /> : <ImageIcon className="w-4 h-4 text-purple-200" />}

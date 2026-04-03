@@ -39,10 +39,23 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
             )}
         >
             {asset.type === 'video' ? (
-                <video src={`${asset.url}#t=0.1`} className="w-full h-full object-cover pointer-events-none" muted playsInline />
+                (() => {
+                    const isGoogleUrl = asset.url && (
+                        asset.url.includes('googleusercontent.com') ||
+                        asset.url.includes('photoslibrary.googleapis.com') ||
+                        asset.url.includes('drive.google.com') ||
+                        asset.url.includes('ggpht.com')
+                    );
+                    return isGoogleUrl ? (
+                        <img src={asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
+                    ) : (
+                        <video src={asset.url.includes('.m3u8') ? asset.url : asset.url} className="w-full h-full object-cover pointer-events-none" muted playsInline />
+                    );
+                })()
             ) : (
                 <img src={asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
             )}
+
 
             {/* Overlay */}
             <div className={cn(
