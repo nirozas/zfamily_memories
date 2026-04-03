@@ -24,7 +24,8 @@ function StackMiniThumbnail({ item }: { item: { url: string; google_id?: string;
         item.url.includes('googleusercontent.com') ||
         item.url.includes('photoslibrary.googleapis.com') ||
         item.url.includes('drive.google.com') ||
-        item.url.includes('ggpht.com')
+        item.url.includes('ggpht.com') ||
+        item.url.startsWith('google-photos://')
     );
 
     return (

@@ -300,7 +300,7 @@ export function AssetLibrary() {
             try {
                 // 1. Download the file
                 // Use the proxy if it's a known restricted domain, though for general web we try direct
-                const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com');
+                const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com') || url.startsWith('google-photos://');
                 const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(url, googleAccessToken) : url;
                 
                 const response = await fetch(fetchUrl);

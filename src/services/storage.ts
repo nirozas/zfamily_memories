@@ -59,8 +59,8 @@ export const storageService = {
                         const mediaItem = await photosService.uploadMedia(fileToUpload);
                         if (mediaItem?.id) {
                             googlePhotoId = mediaItem.id;
-                            const baseUrl = mediaItem.mediaFile?.baseUrl || mediaItem.baseUrl || '';
-                            googleUrl = `${baseUrl}=w9999-h9999`;
+                            // instead of using mediaItem.mediaFile?.baseUrl
+                            googleUrl = `google-photos://${mediaItem.id}`;
                         }
                     } catch (e) {
                         console.error('[Storage] Google Photos mirror failed:', e);
@@ -203,7 +203,7 @@ export const storageService = {
 
         // --- Photos: Permanent Identity via Google ID (Direct Link) ---
         if (!isVideo) {
-            return { url: rawUrl, googlePhotoId: finalId, type: 'image' };
+            return { url: `google-photos://${finalId}`, googlePhotoId: finalId, type: 'image' };
         }
 
         // --- Videos: High-Performance HLS Persistence to Cloudflare R2 ---

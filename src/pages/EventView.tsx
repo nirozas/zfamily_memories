@@ -25,7 +25,7 @@ const EventContent = ({ event }: { event: Event }) => {
             const idMatch = rest.match(/data-google-id="([^"]+)"/);
             const googleId = idMatch ? idMatch[1] : undefined;
 
-            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com');
+            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com') || src.startsWith('google-photos://');
 
             if (googleId || isGoogleUrl) {
                 // If we have an ID, we prioritize it for resilience. If not, just proxy the URL.

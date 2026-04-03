@@ -102,7 +102,9 @@ export function MediaStackViewer({
     const isGoogleUrl = activeItem.url && (
         activeItem.url.includes('googleusercontent.com') ||
         activeItem.url.includes('photoslibrary.googleapis.com') ||
-        activeItem.url.includes('drive.google.com')
+        activeItem.url.includes('drive.google.com') ||
+        activeItem.url.includes('ggpht.com') ||
+        activeItem.url.startsWith('google-photos://')
     );
 
     const rawDisplayUrl = useGooglePhotosUrl(activeItem.googlePhotoId, activeItem.url, shareToken).url;

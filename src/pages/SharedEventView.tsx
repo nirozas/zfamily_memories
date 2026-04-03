@@ -55,7 +55,7 @@ export function SharedEventView() {
         return event.description.replace(/<img[^>]+src="([^">]+)"([^>]*)>/g, (match, src, rest) => {
             const idMatch = rest.match(/data-google-id="([^"]+)"/);
             const googleId = idMatch ? idMatch[1] : undefined;
-            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com');
+            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com') || src.startsWith('google-photos://');
 
             if (googleId || isGoogleUrl) {
                 // Pass the share token to the proxy so it can refresh the creator's credentials

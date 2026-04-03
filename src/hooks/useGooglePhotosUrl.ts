@@ -27,6 +27,19 @@ export function useMediaUrl(
             return url;
         }
 
+        // ── Handle our custom Google Photos ID scheme ─────────────────────────
+        if (url && url.startsWith('google-photos://')) {
+            const explicitId = url.replace('google-photos://', '');
+            return GooglePhotosService.getProxyUrl(
+                '',
+                googleAccessToken,
+                shareToken,
+                googlePhotoId || explicitId,
+                isThumbnail,
+                user?.id
+            );
+        }
+
         // ── Already a non-Google direct URL or ALREADY proxied ────────────────
         const isProxyUrl = url && url.includes('/functions/v1/get-google-media');
         const isGoogleUrl = url && (

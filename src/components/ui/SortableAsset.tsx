@@ -43,6 +43,7 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
                     const isGoogleUrl = asset.url && (
                         asset.url.includes('googleusercontent.com') ||
                         asset.url.includes('photoslibrary.googleapis.com') ||
+                        asset.url.startsWith('google-photos://') ||
                         asset.url.includes('drive.google.com') ||
                         asset.url.includes('ggpht.com')
                     );

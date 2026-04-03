@@ -64,7 +64,8 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
         item.url.includes('googleusercontent.com') ||
         item.url.includes('photoslibrary.googleapis.com') ||
         item.url.includes('drive.google.com') ||
-        item.url.includes('ggpht.com')
+        item.url.includes('ggpht.com') ||
+        item.url.startsWith('google-photos://')
     );
     // Fix: Use clean URL for grid to avoid expired session parameters
     const initialUrl = isGoogleUrl ? GooglePhotosService.getCleanUrl(item.url) : item.url;
@@ -309,7 +310,7 @@ export function MediaLibrary() {
 
         try {
             // For URLs, we download and re-upload to our primary Google Photos storage to ensure persistence
-            const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com');
+            const isGoogleUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com') || url.startsWith('google-photos://');
             const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(url, googleAccessToken) : url;
 
             const response = await fetch(fetchUrl);
