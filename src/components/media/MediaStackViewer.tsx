@@ -226,133 +226,133 @@ export function MediaStackViewer({
         };
     }, [activeIndex]);
 
-    // Handle auto-advance and progress bar
+    // 1. Source Initialization Effect (Runs on activeIndex or activeItem change)
     useEffect(() => {
+        if (!activeItem || activeItem.type !== 'video' || !videoRef.current) return;
+
+        const video = videoRef.current;
+
+
+        // Cleanup existing HLS instance
+        if ((video as any).hls) {
+            ((video as any).hls as Hls).destroy();
+            delete (video as any).hls;
+        }
+
+        const setupVideo = (url: string) => {
+            if (url.includes('.m3u8')) {
+                if (Hls.isSupported()) {
+                    const hls = new Hls({ enableWorker: true });
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    (video as any).hls = hls;
+
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        if (!isPaused && !showInfoDrawer) {
+                            video.play().catch(e => console.error("[MediaStackViewer] HLS play failed:", e));
+                        }
+                    });
+
+                    hls.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) {
+                            console.error("[MediaStackViewer] Fatal HLS error:", data.type, data.details);
+                        }
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                }
+            } else {
+                video.src = url;
+            }
+        };
+
+        setupVideo(displayUrl || '');
+
+        const applyTrim = () => {
+            const start = activeItem.videoStartTime || 0;
+            if (video.currentTime < start) {
+                video.currentTime = start;
+            }
+        };
+
+        if (video.readyState >= 1) {
+            applyTrim();
+        } else {
+            video.addEventListener('loadedmetadata', applyTrim);
+        }
+
+        const handleEnded = () => {
+            if (!nextCalledRef.current) {
+                nextCalledRef.current = true;
+                handleNext();
+            }
+        };
+        video.addEventListener('ended', handleEnded);
+
+        return () => {
+            video.removeEventListener('loadedmetadata', applyTrim);
+            video.removeEventListener('ended', handleEnded);
+            if ((video as any).hls) {
+                ((video as any).hls as Hls).destroy();
+                delete (video as any).hls;
+            }
+            video.src = '';
+        };
+    }, [activeIndex, activeItem.url, displayUrl]); // Only re-run when the item or URL actually changes
+
+    // 2. Playback Control Effect (Handles Pause/Info Drawer/Progress)
+    useEffect(() => {
+        if (!activeItem || !videoRef.current) return;
+
         if (showInfoDrawer || isPaused) {
             if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-            if (activeItem?.type === 'video' && videoRef.current) {
+            if (activeItem.type === 'video') {
                 videoRef.current.pause();
             }
             if (audioRef.current) audioRef.current.pause();
             return;
         }
 
-        // BGM Logic: If it's a video, pause BGM. If image, play BGM.
+        // BGM Logic
         if (audioRef.current) {
-            if (activeItem?.type === 'video') {
+            if (activeItem.type === 'video') {
                 audioRef.current.pause();
             } else if (!isMuted) {
-                audioRef.current.play().catch(e => console.error("Audio play error:", e));
+                audioRef.current.play().catch(e => console.warn("[MediaStackViewer] BGM play blocked:", e.message));
             }
         }
 
-        if (activeItem?.type === 'video' && videoRef.current) {
+        if (activeItem.type === 'video') {
             const video = videoRef.current;
-            const start = activeItem.videoStartTime || 0;
-            const end = activeItem.videoEndTime;
-
-            // Copy preloaded buffer into the visible video element for fast playback
-            const entry = preloadedVideos.current.get(activeItem.url);
             
-            // Cleanup existing HLS instance if any
-            if ((video as any).hls) {
-                ((video as any).hls as Hls).destroy();
-                delete (video as any).hls;
+            // Re-trigger play if we unpaused (HLS might already be attached)
+            if (video.readyState >= 2) {
+                video.play().catch(e => {
+                    if (e.name !== 'AbortError') console.error("[MediaStackViewer] Video play failed:", e);
+                });
             }
-
-            if (entry) {
-                // If the preloaded video has an HLS instance, we should ideally swap the element
-                // but since we're using a single videoRef, we'll re-attach HLS to the visible video
-                if (activeItem.url.includes('.m3u8')) {
-                    if (Hls.isSupported()) {
-                        const hls = new Hls();
-                        hls.loadSource(displayUrl || '');
-                        hls.attachMedia(video);
-                        (video as any).hls = hls; // store for cleanup
-                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        video.src = displayUrl || '';
-                    }
-                } else {
-                    video.src = displayUrl || '';
-                }
-            } else if (video.src !== displayUrl) {
-                if (displayUrl?.includes('.m3u8')) {
-                   if (Hls.isSupported()) {
-                        const hls = new Hls();
-                        hls.loadSource(displayUrl);
-                        hls.attachMedia(video);
-                        (video as any).hls = hls;
-                    } else {
-                        video.src = displayUrl;
-                    }
-                } else {
-                    video.src = displayUrl || '';
-                }
-            }
-
-            const applyTrim = () => {
-                if (video.currentTime < start) {
-                    video.currentTime = start;
-                }
-            };
-
-            if (video.readyState >= 1) {
-                applyTrim();
-            } else {
-                video.addEventListener('loadedmetadata', applyTrim);
-            }
-
-            video.play().catch(e => {
-                console.error("Video play error:", e);
-                // If play failed with NotSupportedError, try fallback to raw URL if it is a proxy
-                if (e.name === 'NotSupportedError' && displayUrl?.includes('.m3u8')) {
-                    console.warn("[MediaStackViewer] HLS play failed, checking if raw URL is better.");
-                }
-            });
 
             const updateProgress = () => {
                 if (!videoRef.current || nextCalledRef.current) return;
-                const durationRaw = videoRef.current.duration || 1;
-                const startTime = start;
-                const endTime = end || durationRaw;
+                const v = videoRef.current;
+                const start = activeItem.videoStartTime || 0;
+                const end = activeItem.videoEndTime || v.duration || 1;
 
-                const trimmedDuration = Math.max(0.1, endTime - startTime);
-                const current = Math.max(0, videoRef.current.currentTime - startTime);
+                const trimmedDuration = Math.max(0.1, end - start);
+                const current = Math.max(0, v.currentTime - start);
 
                 setProgress((current / trimmedDuration) * 100);
 
-                // Auto advance
-                if (videoRef.current.currentTime >= endTime && end) {
+                if (v.currentTime >= end && activeItem.videoEndTime) {
                     nextCalledRef.current = true;
                     handleNext();
                 }
             };
 
             progressIntervalRef.current = setInterval(updateProgress, 50);
-
-            const handleEnded = () => {
-                if (!nextCalledRef.current) {
-                    nextCalledRef.current = true;
-                    handleNext();
-                }
-            };
-            videoRef.current.addEventListener('ended', handleEnded);
-
-            return () => {
-                if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-                video.removeEventListener('loadedmetadata', applyTrim);
-                if (videoRef.current) {
-                    videoRef.current.removeEventListener('ended', handleEnded);
-                    // Cleanup HLS instance if any
-                    if ((videoRef.current as any).hls) {
-                        (videoRef.current as any).hls.destroy();
-                        delete (videoRef.current as any).hls;
-                    }
-                }
-            };
         } else {
-            // Image mode: Use item.duration (in seconds) or default to 5
-            const durationMs = (activeItem?.duration || 5) * 1000;
+            // Image mode
+            const durationMs = (activeItem.duration || 5) * 1000;
             const intervalTime = 50;
             const step = (intervalTime / durationMs) * 100;
 
@@ -360,21 +360,20 @@ export function MediaStackViewer({
                 if (nextCalledRef.current) return;
                 setProgress((prev) => {
                     if (prev >= 100) {
-                        if (!nextCalledRef.current) {
-                            nextCalledRef.current = true;
-                            handleNext();
-                        }
+                        nextCalledRef.current = true;
+                        handleNext();
                         return 100;
                     }
                     return prev + step;
                 });
             }, intervalTime);
-
-            return () => {
-                if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
-            };
         }
-    }, [activeIndex, isPaused, showInfoDrawer, activeItem, isMuted, bgmVolume]);
+
+        return () => {
+            if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
+        };
+    }, [activeIndex, isPaused, showInfoDrawer, isMuted, activeItem.videoStartTime, activeItem.videoEndTime]);
+
 
     const handleNext = useCallback(() => {
         if (activeIndex < items.length - 1) {

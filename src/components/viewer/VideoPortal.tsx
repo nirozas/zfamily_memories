@@ -64,31 +64,49 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
         }
     };
 
-    // 3. HLS Support
+    // 3. HLS & Source Support with Event Handling
     useEffect(() => {
         const video = videoRef.current;
         if (!video || !videoUrl) return;
 
         let hls: Hls | null = null;
 
-        if (videoUrl.includes('.m3u8')) {
-            if (Hls.isSupported()) {
-                hls = new Hls({ enableWorker: true });
-                hls.loadSource(videoUrl);
-                hls.attachMedia(video);
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = videoUrl;
+        const setupSource = (url: string) => {
+            if (url.includes('.m3u8')) {
+                if (Hls.isSupported()) {
+                    hls = new Hls({ enableWorker: true, autoStartLoad: true });
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        console.log("[VideoPortal] Manifest parsed, ready to play");
+                        // We don't call play() here as the video element has autoPlay attribute
+                        // But we could if we wanted to be explicit.
+                    });
+
+                    hls.on(Hls.Events.ERROR, (_, data) => {
+                        if (data.fatal) {
+                            console.error("[VideoPortal] Fatal HLS error:", data.type, data.details);
+                        }
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                }
+            } else {
+                video.src = url;
             }
-        } else {
-            video.src = videoUrl;
-        }
+        };
+
+        setupSource(videoUrl);
 
         return () => {
             if (hls) {
                 hls.destroy();
             }
+            video.src = '';
         };
     }, [videoUrl]);
+
 
     const handlePureExit = async (e?: React.MouseEvent) => {
         if (e) {

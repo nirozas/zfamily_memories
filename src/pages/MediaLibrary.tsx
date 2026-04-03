@@ -105,13 +105,24 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                             {/* Video element as fallback or for local uploads */}
                             {!isGoogleUrl ? (
                                 <video
-                                    src={`${item.url}#t=0.1`}
+                                    src={item.url.includes('.m3u8') ? item.url : `${item.url}#t=0.1`}
                                     className="w-full h-full object-cover block"
                                     muted
                                     playsInline
                                     preload="metadata"
+                                    onLoadedData={(e) => {
+                                        // Auto-pause just in case, though it's muted/playsInline/preload=metadata
+                                        if (item.url.includes('.m3u8')) {
+                                            // HLS native support check
+                                            if (!e.currentTarget.canPlayType('application/vnd.apple.mpegurl')) {
+                                                // If not native HLS, the video element won't show anything anyway
+                                                // We could initialize Hls.js here if we really wanted thumbnails
+                                            }
+                                        }
+                                    }}
                                 />
                             ) : (
+
                                 <div className="w-full h-full flex flex-col items-center justify-center p-4">
                                     {/* We don't load the direct video element for Google URLs to avoid CORS spam */}
                                     <div className="text-[8px] font-black uppercase text-gray-400 text-center tracking-widest bg-white/10 p-1 rounded backdrop-blur-sm">
