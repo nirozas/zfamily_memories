@@ -194,11 +194,15 @@ export class GooglePhotosService {
 
     static getCleanUrl(url: string | undefined | null): string {
         if (!url) return '';
-        // Google Photos baseUrls are fragile. If they have a suffix starting with = or -, we strip it.
-        // We only do this for googleusercontent or photoslibrary urls.
-        if (url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com')) {
-            return url.split('=')[0];
+        
+        const isPhotosUrl = url.includes('googleusercontent.com') || url.includes('photoslibrary.googleapis.com') || url.includes('ggpht.com');
+
+        if (isPhotosUrl) {
+            // Photos URLs use "=" or "-" suffixes for size/sharing. Strip them.
+            return url.split('=')[0].split('-no')[0];
         }
+
+        // Drive URLs (uc?id=...) MUST keep their parameters.
         return url;
     }
 

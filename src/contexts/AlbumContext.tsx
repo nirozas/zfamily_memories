@@ -76,6 +76,8 @@ export interface Asset {
     borderRadius?: number;
     borderColor?: string;
     borderWidth?: number;
+    borderStyle?: 'solid' | 'dashed' | 'dotted' | 'double' | string;
+    backgroundColor?: string;
 
     // AI Effects
     isRemovingBackground?: boolean;
@@ -244,7 +246,7 @@ interface AlbumContextType {
     album: Album | null;
     currentPageIndex: number;
     selectedAssetId: string | null;
-    setAlbum: (album: Album) => void;
+    setAlbum: (value: Album | ((prev: Album | null) => Album)) => void;
     setCurrentPageIndex: (index: number) => void;
     setSelectedAssetId: (id: string | null) => void;
     addPage: (template?: Page['layoutTemplate'], atIndex?: number) => void;
@@ -554,37 +556,54 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         if (!album || album.config.isLocked) return;
         setAlbum({
             ...album,
-            pages: album.pages.map(p =>
-                p.id === pageId ? { ...p, assets: p.assets.filter(a => a.id !== assetId) } : p
-            ),
+            pages: album.pages.map(p => {
+                if (p.id !== pageId) return p;
+                return {
+                    ...p,
+                    assets: p.assets.filter(a => a.id !== assetId),
+                    layoutConfig: (p.layoutConfig || []).filter(b => b.id !== assetId),
+                    textLayers: (p.textLayers || []).filter(l => l.id !== assetId)
+                };
+            }),
             updatedAt: new Date(),
         });
         if (selectedAssetId === assetId) setSelectedAssetId(null);
-    }, [album, selectedAssetId]);
+    }, [album, selectedAssetId, setAlbum]);
 
     const duplicateAsset = useCallback((pageId: string, assetId: string) => {
         if (!album || album.config.isLocked) return;
         const page = album.pages.find(p => p.id === pageId);
-        const sourceAsset = page?.assets.find(a => a.id === assetId);
-        if (!sourceAsset) return;
+        if (!page) return;
 
-        const newAsset: Asset = {
-            ...sourceAsset,
-            id: generateId(),
-            x: sourceAsset.x + 20, // Offset slightly
-            y: sourceAsset.y + 20,
-            zIndex: (sourceAsset.zIndex || 0) + 1
-        };
+        // Try to find in assets, layoutConfig, or textLayers
+        const sourceAsset = page.assets.find(a => a.id === assetId);
+        const sourceBox = page.layoutConfig?.find(b => b.id === assetId);
+        const sourceText = page.textLayers?.find(l => l.id === assetId);
 
-        setAlbum({
-            ...album,
-            pages: album.pages.map(p =>
-                p.id === pageId ? { ...p, assets: [...p.assets, newAsset] } : p
-            ),
-            updatedAt: new Date(),
+        const newId = generateId();
+
+        setAlbum(prev => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                pages: prev.pages.map(p => {
+                    if (p.id !== pageId) return p;
+                    if (sourceAsset) {
+                        return { ...p, assets: [...p.assets, { ...sourceAsset, id: newId, x: sourceAsset.x + 20, y: sourceAsset.y + 20 }] };
+                    }
+                    if (sourceBox) {
+                        return { ...p, layoutConfig: [...(p.layoutConfig || []), { ...sourceBox, id: newId, left: sourceBox.left + 20, top: sourceBox.top + 20 }] };
+                    }
+                    if (sourceText) {
+                        return { ...p, textLayers: [...(p.textLayers || []), { ...sourceText, id: newId, left: sourceText.left + 20, top: sourceText.top + 20 }] };
+                    }
+                    return p;
+                }),
+                updatedAt: new Date(),
+            };
         });
-        setSelectedAssetId(newAsset.id);
-    }, [album]);
+        setSelectedAssetId(newId);
+    }, [album, setAlbum]);
 
     const updateAssetZIndex = useCallback((pageId: string, assetId: string, direction: 'front' | 'back' | 'forward' | 'backward') => {
         if (!album || album.config.isLocked) return;
@@ -594,45 +613,49 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             const page = prev.pages.find(p => p.id === pageId);
             if (!page) return prev;
 
-            const sortedAssets = [...page.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
-            const assetIndex = sortedAssets.findIndex(a => a.id === assetId);
+            const allItems = [
+                ...page.assets,
+                ...(page.layoutConfig || []).map(b => ({ ...b, x: b.left, y: b.top, type: b.role === 'text' ? 'text' : 'image', unified: true })),
+                ...(page.textLayers || []).map(l => ({ ...l, x: l.left, y: l.top, type: 'text', unified: true }))
+            ];
+            
+            const sortedItems = [...allItems].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+            const assetIndex = sortedItems.findIndex(a => a.id === assetId);
             if (assetIndex === -1) return prev;
 
-            const asset = sortedAssets[assetIndex];
+            const asset = sortedItems[assetIndex];
             let newZ = asset.zIndex || 0;
 
             if (direction === 'front') {
-                newZ = Math.max(...page.assets.map(a => a.zIndex || 0), 0) + 1;
+                newZ = Math.max(...sortedItems.map(a => a.zIndex || 0), 0) + 1;
             } else if (direction === 'back') {
-                const currentMin = Math.min(...page.assets.map(a => a.zIndex || 0), 0);
+                const currentMin = Math.min(...sortedItems.map(a => a.zIndex || 0), 0);
                 newZ = currentMin - 1;
-                // Preserve visibility: regular assets stay at or above 0
-                if (asset.zIndex >= 0 && newZ < 0) newZ = 0;
             } else if (direction === 'forward') {
-                if (assetIndex < sortedAssets.length - 1) {
-                    const nextAsset = sortedAssets[assetIndex + 1];
-                    newZ = (nextAsset.zIndex || 0) + 1;
+                if (assetIndex < sortedItems.length - 1) {
+                    newZ = (sortedItems[assetIndex + 1].zIndex || 0) + 1;
                 }
             } else if (direction === 'backward') {
                 if (assetIndex > 0) {
-                    const prevAsset = sortedAssets[assetIndex - 1];
-                    newZ = (prevAsset.zIndex || 0) - 1;
-                    // Preserve visibility: regular assets stay at or above 0
-                    if (asset.zIndex >= 0 && newZ < 0) newZ = 0;
+                    newZ = (sortedItems[assetIndex - 1].zIndex || 0) - 1;
                 }
             }
 
             return {
                 ...prev,
-                pages: prev.pages.map(p =>
-                    p.id === pageId
-                        ? { ...p, assets: p.assets.map(a => a.id === assetId ? { ...a, zIndex: newZ } : a) }
-                        : p
-                ),
+                pages: prev.pages.map(p => {
+                    if (p.id !== pageId) return p;
+                    return {
+                        ...p,
+                        assets: p.assets.map(a => a.id === assetId ? { ...a, zIndex: newZ } : a),
+                        layoutConfig: (p.layoutConfig || []).map(b => b.id === assetId ? { ...b, zIndex: newZ } : b),
+                        textLayers: (p.textLayers || []).map(l => l.id === assetId ? { ...l, zIndex: newZ } : l)
+                    };
+                }),
                 updatedAt: new Date(),
             };
         });
-    }, [album]);
+    }, [album, setAlbum]);
 
     const uploadMedia = useCallback(async (files: File[], category: string = 'general') => {
         if (!album || album.config.isLocked) return;
@@ -964,12 +987,34 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         });
     }, [album]);
 
-    const updatePageAssets = useCallback((pageId: string, newAssets: Asset[], options?: { skipHistory?: boolean }) => {
+    const updatePageAssets = useCallback((pageId: string, newItems: any[], options?: { skipHistory?: boolean }) => {
         setAlbum(prev => {
             if (!prev || prev.config.isLocked) return prev;
             return {
                 ...prev,
-                pages: prev.pages.map(p => p.id === pageId ? { ...p, assets: newAssets } : p),
+                pages: prev.pages.map(p => {
+                    if (p.id !== pageId) return p;
+                    
+                    // Separate the combined items back into their respective arrays
+                    const updatedAssets = newItems.filter(item => 
+                        p.assets.some(a => a.id === item.id)
+                    );
+                    const updatedLayoutConfig = (p.layoutConfig || []).map(box => {
+                        const match = newItems.find(item => item.id === box.id);
+                        return match ? { ...box, zIndex: match.zIndex } : box;
+                    });
+                    const updatedTextLayers = (p.textLayers || []).map(layer => {
+                        const match = newItems.find(item => item.id === layer.id);
+                        return match ? { ...layer, zIndex: match.zIndex } : layer;
+                    });
+
+                    return { 
+                        ...p, 
+                        assets: updatedAssets, 
+                        layoutConfig: updatedLayoutConfig, 
+                        textLayers: updatedTextLayers 
+                    };
+                }),
                 updatedAt: new Date(),
             };
         }, options);

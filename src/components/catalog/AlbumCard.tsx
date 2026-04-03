@@ -3,6 +3,7 @@ import { Calendar, MapPin, BookOpen } from 'lucide-react';
 import { ActionToolbar } from '../ui/ActionToolbar';
 import { AlbumPage } from '../viewer/AlbumPage';
 import { cn, slugify } from '../../lib/utils';
+import { useState, useRef, useEffect } from 'react';
 
 interface AlbumCardProps {
     id: string;
@@ -46,65 +47,62 @@ export function AlbumCard(props: AlbumCardProps) {
     const dims = config?.dimensions || { width: 800, height: 1028.5 };
     const aspectRatio = `${dims.width} / ${dims.height}`;
 
-    // Priority preview cover image derivation
-    const displayCover = cover_url || (() => {
-        if (!pages || pages.length === 0) return null;
-        
-        const findImageInPage = (page: any) => {
-            if (page.backgroundImage || page.background_image) return page.backgroundImage || page.background_image;
-            if (page.background_config?.imageUrl) return page.background_config.imageUrl;
-            
-            // Check nested layouts
-            if (page.layout_json) {
-                const assets = Array.isArray(page.layout_json) ? page.layout_json : page.layout_json.assets || [];
-                const box = assets.find((b: any) => (b.content?.url || b.url) && (b.type === 'image' || b.content?.type === 'image'));
-                if (box) return box.content?.url || box.url;
-            }
-            return null;
-        };
 
-        const frontPage = pages.find(p => p.page_number === 1 || p.pageNumber === 1);
-        return findImageInPage(frontPage || pages[0]);
-    })();
+    const [scale, setScale] = useState(0.2);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const update = () => {
+            const rect = containerRef.current!.getBoundingClientRect();
+            if (rect.width > 0) {
+                setScale(rect.width / dims.width);
+            }
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, [dims.width]);
 
     return (
         <div className="flex flex-col group/album relative w-full h-full">
-            <div 
+            <div
+                ref={containerRef}
                 className="relative group w-full transition-all duration-700 hover-lift active:scale-[0.98] shadow-2xl rounded-[2.5rem] overflow-hidden bg-white ring-1 ring-black/5"
-                style={{ aspectRatio, containerType: 'inline-size' } as any}
+                style={{ aspectRatio } as any}
             >
                 <Link to={`/album/${slugify(title)}`} className="block w-full h-full no-underline relative group/card">
-                    {/* 1. Pure Front Page Preview */}
+                    {/* 1. Flat Snapshot Preview (High Fidelity) */}
                     <div className="absolute inset-0 z-0">
-                        {pages && pages.length > 0 ? (
+                        {cover_url ? (
+                            <div className="w-full h-full overflow-hidden bg-white">
+                                <img
+                                    src={cover_url}
+                                    alt={title}
+                                    className="w-full h-full object-cover transition-transform duration-1000 group-hover/card:scale-105"
+                                />
+                            </div>
+                        ) : pages && pages.length > 0 ? (
                             <div className="w-full h-full relative overflow-hidden bg-white">
-                                <div 
-                                    className="absolute inset-0 transition-all duration-1000 group-hover/card:scale-110 origin-top-left"
-                                    style={{ 
-                                        width: `${dims.width}px`, 
+                                <div
+                                    className="absolute top-1/2 left-1/2 transition-transform duration-1000 group-hover/card:scale-[1.05]"
+                                    style={{
+                                        width: `${dims.width}px`,
                                         height: `${dims.height}px`,
-                                        transform: `scale(calc(100cqw / ${dims.width}))`
+                                        transform: `translate(-50%, -50%) scale(${scale})`,
+                                        transformOrigin: 'center center'
                                     }}
                                 >
-                                    <AlbumPage 
-                                        page={pages[0] as any} 
-                                        dimensions={dims} 
-                                        side="single" 
-                                        isCover={true} 
-                                        density="hard"
-                                        onVideoClick={() => {}}
+                                    <AlbumPage
+                                        page={pages[0] as any}
+                                        dimensions={dims}
+                                        side="single"
+                                        isCover={true}
+                                        onVideoClick={() => { }}
                                         showPageNumber={false}
                                     />
                                 </div>
-                                <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/5 to-transparent z-10" />
-                            </div>
-                        ) : displayCover ? (
-                            <div className="w-full h-full overflow-hidden bg-zinc-100">
-                                <img
-                                    src={displayCover}
-                                    alt={title}
-                                    className="w-full h-full object-cover transition-all duration-1000 group-hover/card:scale-110"
-                                />
                             </div>
                         ) : (
                             <div className="w-full h-full flex items-center justify-center bg-zinc-50">
@@ -120,7 +118,7 @@ export function AlbumCard(props: AlbumCardProps) {
 
                     {/* 3. Minimal Badge Overlay */}
                     <div className="absolute top-5 left-5 z-30 pointer-events-none">
-                         <div className={cn(
+                        <div className={cn(
                             "px-3 py-1.5 backdrop-blur-md text-[8px] font-black rounded-lg uppercase tracking-[0.2em] border shadow-md",
                             getCategoryStyles(albumCategory)
                         )}>

@@ -23,9 +23,7 @@ export function useMediaUrl(
         if (!url && !googlePhotoId) return undefined;
 
         // ── Cloudflare R2 URLs: permanent public CDN — no proxy needed ────────
-        // BUT: If it's a thumbnail request and we have a googlePhotoId, we prefer the Google proxy
-        // because Google can generate real image thumbnails for videos, whereas R2 cannot.
-        if (url && CloudflareR2Service.isR2Url(url) && !(isThumbnail && googlePhotoId)) {
+        if (url && CloudflareR2Service.isR2Url(url)) {
             return url;
         }
 
@@ -34,7 +32,8 @@ export function useMediaUrl(
         const isGoogleUrl = url && (
             url.includes('googleusercontent.com') ||
             url.includes('photoslibrary.googleapis.com') ||
-            url.includes('drive.google.com')
+            url.includes('drive.google.com') ||
+            url.includes('ggpht.com')
         );
 
         if (isProxyUrl) {

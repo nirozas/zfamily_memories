@@ -131,9 +131,13 @@ export function LayersPanel({ activePageId }: { activePageId?: string | null }) 
                     {viewMode === 'spread' ? (
                         <>
                             {spreadPages.map((page, pIdx) => {
-                                const sortedAssets = [...page.assets].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
+                                const sortedAssets: any[] = [
+                                    ...page.assets,
+                                    ...(page.layoutConfig || []).map(b => ({ ...b, x: b.left, y: b.top, type: b.role === 'text' ? 'text' : 'image', unified: true })),
+                                    ...(page.textLayers || []).map(l => ({ ...l, x: l.left, y: l.top, type: 'text', unified: true }))
+                                ].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
 
-                                const handleReorder = (newOrder: Asset[]) => {
+                                const handleReorder = (newOrder: any[]) => {
                                     const updatedWithZ = newOrder.map((asset, idx) => ({
                                         ...asset,
                                         zIndex: newOrder.length - idx
@@ -181,9 +185,13 @@ export function LayersPanel({ activePageId }: { activePageId?: string | null }) 
                     ) : (
                         <div className="flex h-full w-full">
                             {spreadPages.filter((_, i) => (activeSide === 'left' ? i === 0 : i === 1)).map(page => {
-                                const sortedAssets = [...page.assets].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
+                                const sortedAssets: any[] = [
+                                    ...page.assets,
+                                    ...(page.layoutConfig || []).map(b => ({ ...b, x: b.left, y: b.top, type: b.role === 'text' ? 'text' : 'image', unified: true })),
+                                    ...(page.textLayers || []).map(l => ({ ...l, x: l.left, y: l.top, type: 'text', unified: true }))
+                                ].sort((a, b) => (b.zIndex || 0) - (a.zIndex || 0));
                                 return (
-                                    <Reorder.Group key={page.id} axis="y" values={sortedAssets} onReorder={(newOrder) => {
+                                    <Reorder.Group key={page.id} axis="y" values={sortedAssets} onReorder={(newOrder: any[]) => {
                                         const updatedWithZ = newOrder.map((asset, idx) => ({ ...asset, zIndex: newOrder.length - idx }));
                                         updatePageAssets(page.id, updatedWithZ);
                                     }} className="space-y-2 overflow-y-auto pr-2 flex-1 content-scrollbar min-w-[260px]">

@@ -479,11 +479,18 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                     onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontFamily: e.target.value })}
                                     className="w-full h-10 px-4 bg-white border border-black/5 rounded-xl text-[11px] font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-catalog-accent/5 appearance-none"
                                 >
-                                    <option value="Inter">Outfit (Modern)</option>
-                                    <option value="'Cormorant Garamond'">Garamond (Elegant)</option>
-                                    <option value="'Playfair Display'">Playfair (Classic)</option>
-                                    <option value="'Dancing Script'">Dancing (Script)</option>
-                                    <option value="Montserrat">Montserrat (Geometric)</option>
+                                    <option value="Inter">Inter (Swiss Modern)</option>
+                                    <option value="Outfit">Outfit (Tech Sans)</option>
+                                    <option value="'Plus Jakarta Sans'">Jakarta (Premium Sans)</option>
+                                    <option value="'Space Grotesk'">Grotesk (Brutalist)</option>
+                                    <option value="Orbitron">Orbitron (Cyber)</option>
+                                    <option value="'Cormorant Garamond'">Garamond (Imperial Serif)</option>
+                                    <option value="'Playfair Display'">Playfair (Chic Serif)</option>
+                                    <option value="'Libre Baskerville'">Baskerville (Legacy)</option>
+                                    <option value="'Dancing Script'">Dancing (Handwritten)</option>
+                                    <option value="Montserrat">Montserrat (Universal)</option>
+                                    <option value="Cinzel">Cinzel (Stone Cut)</option>
+                                    <option value="'EB Garamond'">EB Garamond (Poetry)</option>
                                 </select>
                             </div>
 
@@ -512,6 +519,50 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                                 className="absolute inset-0 w-full h-full scale-150 cursor-pointer border-none p-0"
                                             />
                                         </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Background Colors */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Text Backdrop</label>
+                                    <div className="flex gap-2 h-10">
+                                        <div className="flex-1 relative rounded-xl overflow-hidden border border-black/5">
+                                            <input
+                                                type="color"
+                                                disabled={isLockedForEditing}
+                                                value={asset.textBackgroundColor || '#ffffff00'}
+                                                onChange={(e) => updateAsset(parentPage!.id, asset!.id, { textBackgroundColor: e.target.value })}
+                                                className="absolute inset-0 w-full h-full scale-150 cursor-pointer border-none p-0"
+                                            />
+                                        </div>
+                                        <button 
+                                            onClick={() => updateAsset(parentPage!.id, asset!.id, { textBackgroundColor: 'transparent' })}
+                                            className="px-2 text-[8px] font-black border border-black/5 rounded-lg hover:bg-black/5"
+                                        >
+                                            Ø
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Box Surface</label>
+                                    <div className="flex gap-2 h-10">
+                                        <div className="flex-1 relative rounded-xl overflow-hidden border border-black/5">
+                                            <input
+                                                type="color"
+                                                disabled={isLockedForEditing}
+                                                value={asset.backgroundColor || '#ffffff00'}
+                                                onChange={(e) => updateAsset(parentPage!.id, asset!.id, { backgroundColor: e.target.value })}
+                                                className="absolute inset-0 w-full h-full scale-150 cursor-pointer border-none p-0"
+                                            />
+                                        </div>
+                                        <button 
+                                            onClick={() => updateAsset(parentPage!.id, asset!.id, { backgroundColor: 'transparent' })}
+                                            className="px-2 text-[8px] font-black border border-black/5 rounded-lg hover:bg-black/5"
+                                        >
+                                            Ø
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -561,36 +612,59 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                     </CollapsibleSection>
                 )}
 
-                {(asset.type === 'image' || asset.type === 'video' || asset.type === 'frame') && (
-                    <CollapsibleSection title="Borders & Shape" icon={Maximize2} defaultOpen={false}>
-                        <div className="space-y-4">
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
-                                    <span>Corner Radius</span>
-                                    <span className="text-catalog-accent">{asset.borderRadius || 0}px</span>
-                                </div>
-                                <Slider
-                                    value={[asset.borderRadius || 0]}
-                                    min={0}
-                                    max={100}
-                                    onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { borderRadius: v[0] })}
-                                />
+                <CollapsibleSection title="Borders & Shape" icon={Maximize2} defaultOpen={false}>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
+                                <span>Corner Radius</span>
+                                <span className="text-catalog-accent">{asset.borderRadius || 0}px</span>
                             </div>
+                            <Slider
+                                value={[asset.borderRadius || 0]}
+                                min={0}
+                                max={100}
+                                onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { borderRadius: v[0] })}
+                            />
+                        </div>
 
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
-                                    <span>Stroke Width</span>
-                                    <span className="text-catalog-accent">{asset.borderWidth || 0}px</span>
-                                </div>
-                                <Slider
-                                    value={[asset.borderWidth || 0]}
-                                    min={0}
-                                    max={20}
-                                    onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { borderWidth: v[0] })}
-                                />
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
+                                <span>Stroke Width</span>
+                                <span className="text-catalog-accent">{asset.borderWidth || 0}px</span>
                             </div>
+                            <Slider
+                                value={[asset.borderWidth || 0]}
+                                min={0}
+                                max={20}
+                                onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { borderWidth: v[0] })}
+                            />
+                        </div>
 
-                            {(asset.borderWidth || 0) > 0 && (
+                        {(asset.borderWidth || 0) > 0 && (
+                            <div className="space-y-4 animate-fade-in">
+                                <div className="space-y-2">
+                                    <label className="text-[8px] font-black text-catalog-text/20 uppercase tracking-widest px-1">Stroke Pattern</label>
+                                    <div className="grid grid-cols-4 gap-1.5 p-1 bg-black/5 rounded-xl border border-black/5">
+                                        {[
+                                            { id: 'solid', label: 'Solid' },
+                                            { id: 'dashed', label: 'Dashed' },
+                                            { id: 'dotted', label: 'Dotted' },
+                                            { id: 'double', label: 'Double' }
+                                        ].map((style) => (
+                                            <button
+                                                key={style.id}
+                                                onClick={() => updateAsset(parentPage!.id, asset!.id, { borderStyle: style.id })}
+                                                className={cn(
+                                                    "py-1.5 text-[7px] font-black uppercase tracking-widest rounded-lg transition-all",
+                                                    (asset.borderStyle || 'solid') === style.id ? "bg-white text-catalog-accent shadow-sm" : "text-catalog-text/40 hover:text-catalog-text/60"
+                                                )}
+                                            >
+                                                {style.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
                                     <label className="text-[8px] font-black text-catalog-text/20 uppercase tracking-widest px-1">Stroke Color</label>
                                     <div className="flex gap-2 h-10">
@@ -604,10 +678,10 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                                         </div>
                                     </div>
                                 </div>
-                            )}
-                        </div>
-                    </CollapsibleSection>
-                )}
+                            </div>
+                        )}
+                    </div>
+                </CollapsibleSection>
 
                 <CollapsibleSection title="Rotation" icon={RotateCw} defaultOpen={false}>
                     <div className="space-y-3">

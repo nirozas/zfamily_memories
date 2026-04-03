@@ -13,7 +13,7 @@ import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 import { WorldMapPreview } from '../components/home/WorldMapPreview';
 import { ImageCropper } from '../components/ui/ImageCropper';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
-import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play, Video } from 'lucide-react';
+import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play, Video, BookOpen } from 'lucide-react';
 import type { Event, Profile } from '../types/supabase';
 import { motion } from 'framer-motion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -47,6 +47,64 @@ function HomeMediaItem({ item }: { item: any }) {
             {(!isLoaded || isError) && (
                 <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
                     {item.type === 'video' ? <Video className="w-4 h-4 text-purple-200" /> : <ImageIcon className="w-4 h-4 text-purple-200" />}
+                </div>
+            )}
+        </div>
+    );
+}
+
+function AlbumPreviewFrame({ album, frontPage, dims }: { album: any, frontPage: any, dims: { width: number, height: number } }) {
+    const [scale, setScale] = useState(0.2);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const update = () => {
+            const rect = containerRef.current!.getBoundingClientRect();
+            if (rect.width > 0) {
+                setScale(rect.width / dims.width);
+            }
+        };
+        update();
+        const observer = new ResizeObserver(update);
+        observer.observe(containerRef.current);
+        return () => observer.disconnect();
+    }, [dims.width]);
+
+    return (
+        <div
+            ref={containerRef}
+            className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white flex items-center justify-center p-0"
+        >
+            {album.coverUrl || album.cover_url ? (
+                <img
+                    src={album.coverUrl || album.cover_url}
+                    alt={album.title}
+                    className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
+                />
+            ) : frontPage ? (
+                <div
+                    className="absolute top-1/2 left-1/2 transition-transform duration-1000"
+                    style={{
+                        width: `${dims.width}px`,
+                        height: `${dims.height}px`,
+                        transform: `translate(-50%, -50%) scale(${scale})`,
+                        transformOrigin: 'center center',
+                        pointerEvents: 'none'
+                    }}
+                >
+                    <AlbumPage
+                        page={frontPage as any}
+                        dimensions={dims}
+                        side="single"
+                        isCover={true}
+                        onVideoClick={() => { }}
+                        showPageNumber={false}
+                    />
+                </div>
+            ) : (
+                <div className="w-full h-full flex items-center justify-center bg-zinc-50">
+                    <BookOpen className="w-12 h-12 text-black/5" />
                 </div>
             )}
         </div>
@@ -419,7 +477,7 @@ export function Home() {
                 if (albums) {
                     const formatted = (albums || []).map((album: any) => {
                         let parsedPages = [];
-                        
+
                         // Pick album_pages if unified schema, otherwise fallback to legacy pages
                         if (album.album_pages && album.album_pages.length > 0) {
                             parsedPages = album.album_pages.map((ap: any) => {
@@ -432,7 +490,7 @@ export function Home() {
                                     assets = layoutJson.assets || [];
                                     slots = layoutJson.slots;
                                 }
-                                
+
                                 // Return loosely as a Page object
                                 return {
                                     id: ap.id,
@@ -897,35 +955,11 @@ export function Home() {
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">
-                                                        <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white flex items-center justify-center p-0" style={{ containerType: 'inline-size' }}>
-                                                            {frontPage ? (
-                                                                <div 
-                                                                    className="absolute inset-0 origin-top-left"
-                                                                    style={{ 
-                                                                        width: `${dims.width}px`, 
-                                                                        height: `${dims.height}px`,
-                                                                        transform: `scale(calc(100cqw / ${dims.width}))`,
-                                                                        pointerEvents: 'none'
-                                                                    }}
-                                                                >
-                                                                    <AlbumPage 
-                                                                        page={frontPage as any} 
-                                                                        dimensions={dims} 
-                                                                        side="single" 
-                                                                        isCover={true} 
-                                                                        density="hard"
-                                                                        onVideoClick={() => {}}
-                                                                        showPageNumber={false}
-                                                                    />
-                                                                </div>
-                                                            ) : (
-                                                                <img
-                                                                    src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
-                                                                    alt={album.title}
-                                                                    className="w-full h-full object-cover"
-                                                                />
-                                                            )}
-                                                        </div>
+                                                        <AlbumPreviewFrame
+                                                            album={album}
+                                                            frontPage={frontPage}
+                                                            dims={dims}
+                                                        />
                                                         <h3 className="carousel-title">{album.title}</h3>
                                                         <p className="carousel-date">
                                                             {new Date(album.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}

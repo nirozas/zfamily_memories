@@ -60,11 +60,21 @@ type SystemCategory = 'background' | 'sticker' | 'frame' | 'ribbon';
 import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 
 function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview, onMigrate }: any) {
-    const isGoogleUrl = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
-    const initialUrl = item.url;
-    const isGoogle = !!item.metadata?.googlePhotoId || isGoogleUrl;
+    const isGoogleUrl = item.url && (
+        item.url.includes('googleusercontent.com') ||
+        item.url.includes('photoslibrary.googleapis.com') ||
+        item.url.includes('drive.google.com') ||
+        item.url.includes('ggpht.com')
+    );
+    // Fix: Use clean URL for grid to avoid expired session parameters
+    const initialUrl = isGoogleUrl ? GooglePhotosService.getCleanUrl(item.url) : item.url;
+    
+    // CRITICAL: Ensure both ID fields are checked to restore expired links in the grid.
+    const photoId = item.metadata?.googlePhotoId || item.google_id;
+    const isGoogle = !!photoId || isGoogleUrl;
+    
     // For the grid, we always want a thumbnail image, even for videos
-    const { url: displayUrl } = useGooglePhotosUrl(item.metadata?.googlePhotoId, initialUrl, null, true);
+    const { url: displayUrl } = useGooglePhotosUrl(photoId, initialUrl, null, true);
 
     return (
         <div key={item.id} className={cn("group relative bg-white border rounded-xl overflow-hidden transition-all duration-200", viewMode === 'list' ? "flex items-center p-3 gap-4 h-20 hover:border-catalog-accent/50" : "aspect-[10/11] hover:shadow-lg hover:-translate-y-1 hover:border-catalog-accent/50", selectedItems.has(item.id) ? "ring-2 ring-catalog-accent border-catalog-accent bg-catalog-accent/5" : "border-gray-200")} onClick={(e) => {
@@ -74,56 +84,56 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
             }
         }}>
             <div className={cn("bg-gray-100 overflow-hidden relative", viewMode === 'list' ? "w-14 h-14 rounded-lg flex-shrink-0" : "h-[75%]")}>
-                        <div className="w-full h-full relative group/thumb">
-                            {item.type === 'video' ? (
-                                <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
-                                    {/* Try showing the proxied image thumbnail first if it's an external Google URL */}
-                                    {isGoogleUrl ? (
-                                        <img
-                                            src={displayUrl}
-                                            alt={item.filename}
-                                            className="w-full h-full object-cover"
-                                            onError={(e) => {
-                                                // If the image fails, show a video element fallback
-                                                e.currentTarget.style.display = 'none';
-                                                const vid = e.currentTarget.parentElement?.querySelector('video');
-                                                if (vid) vid.style.display = 'block';
-                                            }}
-                                        />
-                                    ) : null}
-                                    
-                                    {/* Video element as fallback or for local uploads */}
-                                    {!isGoogleUrl ? (
-                                        <video
-                                            src={`${item.url}#t=0.1`}
-                                            className="w-full h-full object-cover block"
-                                            muted
-                                            playsInline
-                                            preload="metadata"
-                                        />
-                                    ) : (
-                                        <div className="w-full h-full flex flex-col items-center justify-center p-4">
-                                            {/* We don't load the direct video element for Google URLs to avoid CORS spam */}
-                                            <div className="text-[8px] font-black uppercase text-gray-400 text-center tracking-widest bg-white/10 p-1 rounded backdrop-blur-sm">
-                                                Google Managed
-                                            </div>
-                                        </div>
-                                    )}
-                                    
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/20 pointer-events-none">
-                                        <div className="bg-white/90 p-2 rounded-full shadow-lg">
-                                            <Play className="w-4 h-4 text-catalog-accent fill-current" />
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
+                <div className="w-full h-full relative group/thumb">
+                    {item.type === 'video' ? (
+                        <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
+                            {/* Try showing the proxied image thumbnail first if it's an external Google URL */}
+                            {isGoogleUrl ? (
                                 <img
                                     src={displayUrl}
                                     alt={item.filename}
-                                    className={cn("w-full h-full", item.category === 'sticker' || item.category === 'frame' ? "object-contain p-2" : "object-cover")}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                        // If the image fails, show a video element fallback
+                                        e.currentTarget.style.display = 'none';
+                                        const vid = e.currentTarget.parentElement?.querySelector('video');
+                                        if (vid) vid.style.display = 'block';
+                                    }}
                                 />
+                            ) : null}
+
+                            {/* Video element as fallback or for local uploads */}
+                            {!isGoogleUrl ? (
+                                <video
+                                    src={`${item.url}#t=0.1`}
+                                    className="w-full h-full object-cover block"
+                                    muted
+                                    playsInline
+                                    preload="metadata"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center p-4">
+                                    {/* We don't load the direct video element for Google URLs to avoid CORS spam */}
+                                    <div className="text-[8px] font-black uppercase text-gray-400 text-center tracking-widest bg-white/10 p-1 rounded backdrop-blur-sm">
+                                        Google Managed
+                                    </div>
+                                </div>
                             )}
+
+                            <div className="absolute inset-0 flex items-center justify-center bg-black/10 transition-colors group-hover:bg-black/20 pointer-events-none">
+                                <div className="bg-white/90 p-2 rounded-full shadow-lg">
+                                    <Play className="w-4 h-4 text-catalog-accent fill-current" />
+                                </div>
+                            </div>
                         </div>
+                    ) : (
+                        <img
+                            src={displayUrl}
+                            alt={item.filename}
+                            className={cn("w-full h-full", item.category === 'sticker' || item.category === 'frame' ? "object-contain p-2" : "object-cover")}
+                        />
+                    )}
+                </div>
                 {isGoogle && (
                     <div className="absolute top-2 right-2 z-10">
                         <Camera className="w-3 h-3 text-white drop-shadow-md" />
@@ -182,7 +192,7 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                         {(activeTab === 'uploads' || isAdmin) && (
                             <div className="flex items-center gap-1 opacity-100 group-hover/info:opacity-100 transition-all">
                                 {item.type === 'video' && isGoogleUrl && (
-                                    <button 
+                                    <button
                                         className="action-btn p-1.5 bg-yellow-50 hover:bg-yellow-100 rounded text-yellow-600 hover:text-yellow-700 transition-colors border border-yellow-200 shadow-sm mr-1"
                                         onClick={(e) => {
                                             e.stopPropagation();
@@ -247,7 +257,7 @@ export function MediaLibrary() {
     const [showAmazonInput, setShowAmazonInput] = useState(false);
     const [isCreateStackModalOpen, setIsCreateStackModalOpen] = useState(false);
     const [currentPath, setCurrentPath] = useState<string>('/'); // Hierarchical path
-    
+
     // Amazon Photos states
     const [amazonFolderName, setAmazonFolderName] = useState<string>('');
     const [amazonUrlInput, setAmazonUrlInput] = useState<string>('');
@@ -322,7 +332,7 @@ export function MediaLibrary() {
             setUploadProgress(prev => ({ ...prev, [name]: 10 }));
 
             try {
-                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = 
+                const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } =
                     await storageService.persistGoogleMedia(item, googleAccessToken!, familyId, uploadFolder, (p: number) => {
                         setUploadProgress(prev => ({ ...prev, [name]: p }));
                     }, useHls);
@@ -430,7 +440,7 @@ export function MediaLibrary() {
                         });
                     error = insertErr;
                 }
-                
+
                 if (error) failCount++;
             } catch { failCount++; }
             setAmazonBatchProgress({ done: i + 1, total: validUrls.length });
@@ -566,7 +576,7 @@ export function MediaLibrary() {
         const { data: familySettings } = await (supabase.from('family_settings' as any) as any)
             .select('hero_image_url')
             .eq('family_id', familyId!);
-        
+
         familySettings?.forEach((s: any) => {
             if (s.hero_image_url) usageMap[s.hero_image_url] = (usageMap[s.hero_image_url] || 0) + 1;
         });
@@ -911,12 +921,12 @@ export function MediaLibrary() {
                     .from('family_media') as any)
                     .update({
                         url: persistentUrl,
-                        metadata: { 
-                            ...item.metadata, 
-                            storage: 'r2', 
-                            hls: true, 
+                        metadata: {
+                            ...item.metadata,
+                            storage: 'r2',
+                            hls: true,
                             migratedFromGoogle: true,
-                            r2Key 
+                            r2Key
                         }
                     })
                     .eq('id', item.id);
@@ -925,12 +935,12 @@ export function MediaLibrary() {
 
                 setUploadProgress(prev => ({ ...prev, [name]: 100 }));
                 setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[name]; return n; }), 1000);
-                
+
                 // Refresh list
-                const refreshed = mediaItems.map(m => m.id === item.id ? { 
-                    ...m, 
-                    url: persistentUrl, 
-                    metadata: { ...m.metadata, storage: 'r2', hls: true, migratedFromGoogle: true } 
+                const refreshed = mediaItems.map(m => m.id === item.id ? {
+                    ...m,
+                    url: persistentUrl,
+                    metadata: { ...m.metadata, storage: 'r2', hls: true, migratedFromGoogle: true }
                 } : m);
                 setMediaItems(refreshed);
             }
@@ -1221,9 +1231,9 @@ export function MediaLibrary() {
                     </div>
                 </div>
 
-                <UploadOverlay 
-                    isOpen={Object.keys(uploadProgress).length > 0} 
-                    progress={uploadProgress} 
+                <UploadOverlay
+                    isOpen={Object.keys(uploadProgress).length > 0}
+                    progress={uploadProgress}
                     title="Uploading to Library..."
                 />
                 {/* Grid / Content Area */}
@@ -1308,7 +1318,12 @@ export function MediaLibrary() {
                                     activeTab={activeTab}
                                     onMigrate={handleMigrateToR2}
                                     onPreview={(item: any) => {
-                                        const isGoogle = item.url && (item.url.includes('googleusercontent.com') || item.url.includes('photoslibrary.googleapis.com') || item.url.includes('drive.google.com'));
+                                        const isGoogle = item.url && (
+                                            item.url.includes('googleusercontent.com') ||
+                                            item.url.includes('photoslibrary.googleapis.com') ||
+                                            item.url.includes('drive.google.com') ||
+                                            item.url.includes('ggpht.com')
+                                        );
                                         const cleanUrl = GooglePhotosService.getCleanUrl(item.url);
                                         let finalUrl = item.url;
                                         let posterUrl = undefined;
@@ -1383,7 +1398,7 @@ export function MediaLibrary() {
                         <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
                             <h3 className="text-lg font-serif italic text-catalog-text flex items-center gap-2">
                                 <svg className="w-5 h-5 text-orange-600" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+                                    <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z" />
                                 </svg>
                                 Amazon Photos / Bulk URL Import
                             </h3>
@@ -1397,11 +1412,11 @@ export function MediaLibrary() {
                                     Tip: To import an Amazon Photos folder, paste the direct image/video URLs here. You can find these by inspecting the network tab in your browser while viewing the folder.
                                 </p>
                             </div>
-                            
+
                             <div className="space-y-1.5">
                                 <label className="text-xs font-bold text-gray-700">Folder Name</label>
-                                <input 
-                                    type="text" 
+                                <input
+                                    type="text"
                                     value={amazonFolderName}
                                     onChange={e => setAmazonFolderName(e.target.value)}
                                     placeholder="e.g. Amazon Import, Summer Trip 2024..."
@@ -1418,7 +1433,7 @@ export function MediaLibrary() {
                                         </span>
                                     )}
                                 </label>
-                                <textarea 
+                                <textarea
                                     value={amazonUrlInput}
                                     onChange={e => setAmazonUrlInput(e.target.value)}
                                     placeholder={`https://m.mediaItems-amazon.com/images/...jpg\nhttps://m.mediaItems-amazon.com/images/...mp4`}
@@ -1442,13 +1457,13 @@ export function MediaLibrary() {
                             )}
                         </div>
                         <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 shrink-0">
-                            <button 
+                            <button
                                 onClick={() => setShowAmazonInput(false)}
                                 className="px-5 py-2 text-sm font-medium text-gray-600 hover:text-gray-900"
                             >
                                 Cancel
                             </button>
-                            <button 
+                            <button
                                 onClick={handleAmazonBatchImport}
                                 disabled={isImportingAmazon || !amazonUrlInput.trim()}
                                 className="px-6 py-2 bg-gradient-to-r from-orange-500 to-amber-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-orange-200 hover:scale-105 active:scale-95 disabled:opacity-50 transition-all flex items-center gap-2"
@@ -1518,7 +1533,7 @@ export function MediaLibrary() {
                                     >
                                         <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center group-hover:scale-110 transition-transform">
                                             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                                <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/>
+                                                <path d="M18.42 14.58c.25-.26.22-.67.05-.93-.15-.22-.38-.3-.6-.22-1.94.73-4.08 1.11-6.46 1.11-3.08 0-5.84-.82-8.24-2.43-.25-.17-.57-.07-.7.19-.14.28-.05.6.2.76 2.62 1.74 5.66 2.65 8.97 2.65 2.55 0 4.86-.43 6.78-1.13zM21.6 13.4c-.37-.42-.92-.58-1.52-.41l-1.54.44c-.39.11-.61.52-.5.9s.52.62.91.5l.8-.23c-.63 2.88-2.2 5.41-4.52 7.2-.25.19-.3.54-.11.79.11.15.28.23.45.23.12 0 .24-.03.34-.11 2.62-1.99 4.36-4.84 4.98-8.06l.24.84c.1.38.51.6.89.49.38-.1.6-.5.49-.88l-.91-2.7zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10S22 17.52 22 12 17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z" />
                                             </svg>
                                         </div>
                                         <div>

@@ -213,11 +213,13 @@ export const MediaRenderer = memo(function MediaRenderer({
                     // Only stop propagation if we are already focused and editing
                     // This allows clicking to SELECT/DRAG the box initially, 
                     // and double-clicking to enter "Mode B" (editing)
-                    if (isEditable && isFocused) e.stopPropagation();
+                    if (isEditable && isFocused) {
+                        e.stopPropagation();
+                    }
                 }}
                 className={cn(
                     "w-full h-full p-4 break-words overflow-hidden flex flex-col justify-center outline-none selection:bg-catalog-accent/20",
-                    isEditable && "cursor-text",
+                    isEditable && (isFocused ? "cursor-text" : "cursor-move"),
                     isEmpty && isEditable && !isFocused && "after:content-['Insert_Story_Verse...'] after:opacity-20 after:italic",
                     className
                 )}
