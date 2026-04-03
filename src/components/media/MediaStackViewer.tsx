@@ -112,7 +112,7 @@ export function MediaStackViewer({
     const displayUrl = (isGoogleUrl && rawDisplayUrl) ? rawDisplayUrl.replace('#t=0.1', '') : rawDisplayUrl;
 
     const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
-    const isNextGoogle = nextItem?.url && (nextItem.url.includes('googleusercontent.com') || nextItem.url.includes('photoslibrary.googleapis.com') || nextItem.url.includes('drive.google.com'));
+    const isNextGoogle = nextItem?.url && (nextItem.url.includes('googleusercontent.com') || nextItem.url.includes('photoslibrary.googleapis.com') || nextItem.url.includes('drive.google.com') || nextItem.url.startsWith('google-photos://'));
     const nextProxiedUrl = (nextItem && isNextGoogle)
         ? GooglePhotosService.getProxyUrl(nextItem.url, googleAccessToken, shareToken, nextItem.googlePhotoId)
         : nextItem?.url;
@@ -142,7 +142,8 @@ export function MediaStackViewer({
             if (item.type === 'video' && item.url && !map.has(item.url)) {
                 const isGoogle = item.url.includes('googleusercontent.com') || 
                                item.url.includes('photoslibrary.googleapis.com') || 
-                               item.url.includes('drive.google.com');
+                               item.url.includes('drive.google.com') ||
+                               item.url.startsWith('google-photos://');
                 const proxiedUrl = isGoogle ? 
                     GooglePhotosService.getProxyUrl(item.url, googleAccessToken, shareToken, item.googlePhotoId) : 
                     item.url;

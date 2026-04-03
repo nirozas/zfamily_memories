@@ -664,9 +664,16 @@ export function AssetLibrary() {
         // Special handling for backgrounds/layouts if they need direct update instead of new asset?
         // For now we add them as background assets.
 
+        const isGoogleUrl = item.url && (
+            item.url.includes('googleusercontent.com') || 
+            item.url.includes('photoslibrary.googleapis.com') || 
+            item.url.startsWith('google-photos://')
+        );
+        const fetchUrl = isGoogleUrl ? GooglePhotosService.getProxyUrl(item.url, googleAccessToken) : item.url;
+
         if (item.type === 'video') {
             const video = document.createElement('video');
-            video.src = item.url;
+            video.src = fetchUrl;
             video.onloadedmetadata = () => {
                 const w = video.videoWidth || 1280;
                 const h = video.videoHeight || 720;
@@ -676,7 +683,8 @@ export function AssetLibrary() {
             video.onerror = () => addWithProportions('video', item.url, 1280, 720);
         } else {
             const img = new Image();
-            img.src = item.url;
+            img.crossOrigin = "anonymous"; // Safe for fetching dimensions from our proxy
+            img.src = fetchUrl;
             img.onload = () => {
                 addWithProportions(type === 'frames' ? 'frame' : 'image', item.url, img.naturalWidth, img.naturalHeight);
             };

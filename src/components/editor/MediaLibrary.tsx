@@ -2,6 +2,61 @@ import React, { useRef } from 'react';
 import { useAlbum } from '../../contexts/AlbumContext';
 import { cn } from '../../lib/utils';
 import { Upload, Plus, Image as ImageIcon, Video, Link as LinkIcon } from 'lucide-react';
+import { useMediaUrl } from '../../hooks/useGooglePhotosUrl';
+
+function MediaItemThumbnail({ asset, activeSlot, updateAsset, setActiveSlot, moveFromLibrary, album }: any) {
+    const { url: displayUrl } = useMediaUrl(asset.url, undefined, null, true);
+    
+    return (
+        <div
+            draggable="true"
+            onDragStart={(e) => {
+                e.dataTransfer.setData('asset', JSON.stringify({
+                    id: asset.id,
+                    url: asset.url,
+                    type: asset.type
+                }));
+            }}
+            className={cn(
+                "group relative aspect-square rounded-lg overflow-hidden border border-catalog-accent/5 bg-catalog-stone/20 hover:border-catalog-accent/40 transition-all cursor-pointer",
+                activeSlot && "ring-2 ring-catalog-accent shadow-[0_0_15px_rgba(194,65,12,0.4)]"
+            )}
+            onClick={() => {
+                if (activeSlot) {
+                    updateAsset(activeSlot.pageId, `slot-${activeSlot.index}`, {
+                        url: asset.url,
+                        type: asset.type,
+                        isPlaceholder: false,
+                        fitMode: 'cover'
+                    });
+                    setActiveSlot(null);
+                } else {
+                    moveFromLibrary(asset.id, album.pages[0].id);
+                }
+            }}
+        >
+            {asset.type === 'image' ? (
+                <img src={displayUrl || asset.url} alt="" className="w-full h-full object-cover" />
+            ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gray-900">
+                    <Video className="w-6 h-6 text-white" />
+                </div>
+            )}
+            <div className="absolute inset-0 bg-catalog-accent/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <Plus className="w-6 h-6 text-white" />
+            </div>
+        </div>
+    );
+}
+
+function PlacedThumbnail({ asset }: any) {
+    const { url: displayUrl } = useMediaUrl(asset.url, undefined, null, true);
+    return (
+        <div className="aspect-square rounded-lg overflow-hidden border border-catalog-accent/5">
+            <img src={displayUrl || asset.url} alt="" className="w-full h-full object-cover grayscale" />
+        </div>
+    );
+}
 
 export function MediaLibrary() {
     const { album, uploadMedia, moveFromLibrary, addMediaByUrl, isSaving, activeSlot, setActiveSlot, updateAsset } = useAlbum();
@@ -70,45 +125,7 @@ export function MediaLibrary() {
                     ) : (
                         <div className="grid grid-cols-2 gap-2">
                             {album.unplacedMedia.map((asset) => (
-                                <div
-                                    key={asset.id}
-                                    draggable="true"
-                                    onDragStart={(e) => {
-                                        e.dataTransfer.setData('asset', JSON.stringify({
-                                            id: asset.id,
-                                            url: asset.url,
-                                            type: asset.type
-                                        }));
-                                    }}
-                                    className={cn(
-                                        "group relative aspect-square rounded-lg overflow-hidden border border-catalog-accent/5 bg-catalog-stone/20 hover:border-catalog-accent/40 transition-all cursor-pointer",
-                                        activeSlot && "ring-2 ring-catalog-accent shadow-[0_0_15px_rgba(194,65,12,0.4)]"
-                                    )}
-                                    onClick={() => {
-                                        if (activeSlot) {
-                                            updateAsset(activeSlot.pageId, `slot-${activeSlot.index}`, {
-                                                url: asset.url,
-                                                type: asset.type,
-                                                isPlaceholder: false,
-                                                fitMode: 'cover'
-                                            });
-                                            setActiveSlot(null);
-                                        } else {
-                                            moveFromLibrary(asset.id, album.pages[0].id);
-                                        }
-                                    }}
-                                >
-                                    {asset.type === 'image' ? (
-                                        <img src={asset.url} alt="" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                                            <Video className="w-6 h-6 text-white" />
-                                        </div>
-                                    )}
-                                    <div className="absolute inset-0 bg-catalog-accent/60 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                        <Plus className="w-6 h-6 text-white" />
-                                    </div>
-                                </div>
+                                <MediaItemThumbnail key={asset.id} asset={asset} activeSlot={activeSlot} updateAsset={updateAsset} setActiveSlot={setActiveSlot} moveFromLibrary={moveFromLibrary} album={album} />
                             ))}
                             {isSaving && (
                                 <div className="aspect-square rounded-lg bg-catalog-stone/10 flex items-center justify-center">
@@ -127,9 +144,7 @@ export function MediaLibrary() {
                     </h4>
                     <div className="grid grid-cols-2 gap-2 opacity-60">
                         {album.pages.flatMap(p => p.assets).map(asset => (
-                            <div key={asset.id} className="aspect-square rounded-lg overflow-hidden border border-catalog-accent/5">
-                                <img src={asset.url} alt="" className="w-full h-full object-cover grayscale" />
-                            </div>
+                            <PlacedThumbnail key={asset.id} asset={asset} />
                         ))}
                     </div>
                 </section>

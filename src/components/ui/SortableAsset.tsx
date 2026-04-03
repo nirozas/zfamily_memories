@@ -2,6 +2,7 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils'; // Assuming cn utility exists, adjust if not
+import { useMediaUrl } from '../../hooks/useGooglePhotosUrl';
 
 interface SortableAssetProps {
     id: string;
@@ -27,6 +28,9 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
         opacity: isDragging ? 0.5 : 1,
     };
 
+    // Proxy the URL using useMediaUrl to handle Google Photos IDs properly
+    const { url: displayUrl } = useMediaUrl(asset.url, undefined, null, true);
+
     return (
         <div
             ref={setNodeRef}
@@ -48,13 +52,13 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
                         asset.url.includes('ggpht.com')
                     );
                     return isGoogleUrl ? (
-                        <img src={asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
+                        <img src={displayUrl || asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
                     ) : (
                         <video src={asset.url.includes('.m3u8') ? asset.url : asset.url} className="w-full h-full object-cover pointer-events-none" muted playsInline />
                     );
                 })()
             ) : (
-                <img src={asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
+                <img src={displayUrl || asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
             )}
 
 

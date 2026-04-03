@@ -1426,14 +1426,14 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         <div className="relative w-full max-w-5xl aspect-video md:aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-black" onClick={e => e.stopPropagation()}>
                             {lightboxItem?.type === 'video' ? (
                                 <video
-                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
+                                    src={(lightboxItem?.url?.includes('googleusercontent.com') || lightboxItem?.url?.includes('photoslibrary.googleapis.com') || lightboxItem?.url?.startsWith('google-photos://')) ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
                                     className="w-full h-full object-contain"
                                     controls
                                     autoPlay
                                 />
                             ) : (
                                 <img
-                                    src={lightboxItem?.url?.includes('googleusercontent.com') ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
+                                    src={(lightboxItem?.url?.includes('googleusercontent.com') || lightboxItem?.url?.includes('photoslibrary.googleapis.com') || lightboxItem?.url?.startsWith('google-photos://')) ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
                                     alt=""
                                     className="w-full h-full object-contain"
                                 />
