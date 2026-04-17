@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
-import { useAuth } from './AuthContext';
 import { AlbumDataService } from '../services/albumDataService';
 import {
     unifiedAlbumToContextAlbum,

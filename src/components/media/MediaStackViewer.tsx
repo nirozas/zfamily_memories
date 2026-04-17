@@ -54,8 +54,6 @@ export function MediaStackViewer({
     initialIndex = 0,
     backgroundMusicUrl,
     readOnly,
-    shareToken,
-    onShare,
     onEdit,
     onDelete,
 }: MediaStackViewerProps) {
@@ -101,7 +99,6 @@ export function MediaStackViewer({
     const isReady = !isR2 || activeAuthorizedUrl;
 
     const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
-    const nextProxiedUrl = nextItem?.url;
 
     // 1. Sliding Window Preload: Focus bandwidth on current and next 2 items
     useEffect(() => {
@@ -572,7 +569,7 @@ export function MediaStackViewer({
                     </>
                 ) : (
                     <img
-                        src={displayUrl}
+                        src={displayUrl || undefined}
                         alt={activeItem.caption || 'Media'}
                         referrerPolicy="no-referrer"
                         className={cn(

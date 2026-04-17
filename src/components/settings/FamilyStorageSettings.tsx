@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../ui/Button';
 import { Loader2, Save, Info, ExternalLink, Key, Database, Globe, HelpCircle } from 'lucide-react';
-import { cn } from '../../lib/utils';
 
 interface FamilyStorageSettingsProps {
     familyId: string;
@@ -38,11 +37,11 @@ export function FamilyStorageSettings({ familyId }: FamilyStorageSettingsProps) 
             if (error) throw error;
             if (data) {
                 setSettings({
-                    r2_access_key_id: data.r2_access_key_id || '',
-                    r2_secret_access_key: data.r2_secret_access_key || '',
-                    r2_endpoint: data.r2_endpoint || '',
-                    r2_bucket_name: data.r2_bucket_name || '',
-                    r2_public_url: data.r2_public_url || ''
+                    r2_access_key_id: (data as any).r2_access_key_id || '',
+                    r2_secret_access_key: (data as any).r2_secret_access_key || '',
+                    r2_endpoint: (data as any).r2_endpoint || '',
+                    r2_bucket_name: (data as any).r2_bucket_name || '',
+                    r2_public_url: (data as any).r2_public_url || ''
                 });
             }
         } catch (err: any) {
@@ -59,8 +58,8 @@ export function FamilyStorageSettings({ familyId }: FamilyStorageSettingsProps) 
             setError(null);
             setSuccess(false);
 
-            const { error } = await supabase
-                .from('family_settings')
+            const { error } = await (supabase
+                .from('family_settings') as any)
                 .upsert({
                     family_id: familyId,
                     ...settings,

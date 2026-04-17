@@ -18,7 +18,7 @@
 import { useRef, useState, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Upload, Link as LinkIcon, X, CloudUpload, Grid, Folder, Plus, ChevronRight, Check } from 'lucide-react';
-import { useUploadManager, type UseUploadManagerOptions, type UploadedItem } from '../../hooks/useUploadManager';
+import { type UseUploadManagerOptions, type UploadedItem } from '../../hooks/useUploadManager';
 import { useUpload } from '../../contexts/UploadContext';
 import { UploadOverlay } from './UploadOverlay';
 import { cn } from '../../lib/utils';
@@ -61,7 +61,7 @@ export function UniversalUploadButton({
             if (isSystemAsset) {
                 const { data, error } = await supabase.from('library_assets').select('category');
                 if (error) throw error;
-                const categories = Array.from(new Set(data?.map(i => i.category) || []))
+                const categories = Array.from(new Set((data as any[])?.map(i => i.category) || []))
                     .sort((a, b) => a.localeCompare(b)) as string[];
                 setExistingFolders(categories);
             } else {
@@ -89,7 +89,7 @@ export function UniversalUploadButton({
             const parts = path.split('/');
             let currentPath = '';
             
-            parts.forEach((part, idx) => {
+            parts.forEach((part) => {
                 const parentPath = currentPath || '/';
                 currentPath = currentPath ? `${currentPath}/${part}` : part;
                 

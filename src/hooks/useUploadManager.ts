@@ -12,6 +12,7 @@ export interface FileUploadState {
 
 export interface UploadManagerState {
     isOpen: boolean;
+    isMinimized: boolean;
     files: FileUploadState[];
     totalCount: number;
     doneCount: number;
