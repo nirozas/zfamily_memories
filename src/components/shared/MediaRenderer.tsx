@@ -2,7 +2,6 @@ import { memo, useRef, useEffect, useState } from 'react';
 import { Maximize2, MapPin } from 'lucide-react';
 import { getTransformedUrl, getFilterStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
-import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { cn } from '../../lib/utils';
 
 interface MediaRendererProps {
@@ -40,8 +39,7 @@ export const MediaRenderer = memo(function MediaRenderer({
     className
 }: MediaRendererProps) {
 
-    const { url: resolvedUrl } = useGooglePhotosUrl(config.googlePhotoId, url);
-    const displayUrl = resolvedUrl || url || null;
+    const displayUrl = url || null;
 
     // 1. Handle Images and Decorative Assets
     if (type === 'image' || type === 'sticker' || type === 'ribbon' || type === 'frame') {
@@ -135,22 +133,6 @@ export const MediaRenderer = memo(function MediaRenderer({
                             e.stopPropagation();
                             e.nativeEvent.stopImmediatePropagation();
                         }}
-                        onPointerDown={(e) => {
-                            e.stopPropagation();
-                            e.nativeEvent.stopImmediatePropagation();
-                        }}
-                        onPointerUp={(e) => {
-                            e.stopPropagation();
-                            e.nativeEvent.stopImmediatePropagation();
-                        }}
-                        onTouchStart={(e) => {
-                            e.stopPropagation();
-                            e.nativeEvent.stopImmediatePropagation();
-                        }}
-                        onTouchEnd={(e) => {
-                            e.stopPropagation();
-                            e.nativeEvent.stopImmediatePropagation();
-                        }}
                         className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-catalog-accent text-white rounded-md opacity-0 group-hover:opacity-100 transition-all z-[60] pointer-events-auto cursor-pointer shadow-lg backdrop-blur-sm scale-90 hover:scale-100"
                         title="Open Fullscreen"
                     >
@@ -213,13 +195,11 @@ export const MediaRenderer = memo(function MediaRenderer({
                     // Only stop propagation if we are already focused and editing
                     // This allows clicking to SELECT/DRAG the box initially, 
                     // and double-clicking to enter "Mode B" (editing)
-                    if (isEditable && isFocused) {
-                        e.stopPropagation();
-                    }
+                    if (isEditable && isFocused) e.stopPropagation();
                 }}
                 className={cn(
                     "w-full h-full p-4 break-words overflow-hidden flex flex-col justify-center outline-none selection:bg-catalog-accent/20",
-                    isEditable && (isFocused ? "cursor-text" : "cursor-move"),
+                    isEditable && "cursor-text",
                     isEmpty && isEditable && !isFocused && "after:content-['Insert_Story_Verse...'] after:opacity-20 after:italic",
                     className
                 )}

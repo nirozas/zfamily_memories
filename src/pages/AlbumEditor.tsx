@@ -16,7 +16,7 @@ import { Filmstrip } from '../components/editor/Filmstrip';
 import { Button } from '../components/ui/Button';
 import { HashtagInput } from '../components/ui/HashtagInput';
 import { generateShareLink } from '../services/sharing';
-import { cn, slugify } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 
 import { useAlbumAutoSave } from '../hooks/useAlbumAutoSave';
@@ -31,9 +31,6 @@ import { MapAssetModal } from '../components/ui/MapAssetModal';
 import { LayoutSidebar } from '../components/editor/LayoutSidebar';
 
 import { TextEditorModal } from '../components/editor/TextEditorModal';
-import html2canvas from 'html2canvas';
-import { CloudflareR2Service } from '../services/cloudflareR2';
-import { AlbumPage } from '../components/viewer/AlbumPage';
 
 function AlbumEditorContent() {
     const { id } = useParams<{ id: string }>();
@@ -70,9 +67,8 @@ function AlbumEditorContent() {
         if (!id || isLoading) return;
 
         const loadStudio = async () => {
-            // Only fetch if data is missing or neither ID nor slug matches
-            const slug = album ? slugify(album.title) : '';
-            if (!album || (album.id !== id && slug !== id)) {
+            // Only fetch if data is missing or ID changed
+            if (!album || album.id !== id) {
                 console.info(`[AlbumEditor] 🔄 Syncing Studio State for Asset: ${id}`);
                 const { success, error } = await fetchAlbum(id);
                 if (!success) {
@@ -98,59 +94,6 @@ function AlbumEditorContent() {
     const [showSettings, setShowSettings] = useState(false);
     const [hasCopied, setHasCopied] = useState(false);
     const [activeSidebarTab, setActiveSidebarTab] = useState<'properties' | 'layers' | 'layouts'>('properties');
-
-    // --- SNAPSHOT ENGINE (Unified Preview Generator) ---
-    const snapshotRef = useRef<HTMLDivElement>(null);
-
-    const handleStudioSave = async (showNotification = true) => {
-        try {
-            let coverUrl = album?.coverUrl;
-
-            // 1. GENERATE SNAPSHOT (High-fidelity flat image for preview)
-            // Access the first page (index 0)
-            if (snapshotRef.current && album?.pages?.[0]) {
-                console.info("[Snapshot] Generating preview for Cover...");
-                
-                // Slight delay to ensure textures/images are fully rendered in the hidden div
-                await new Promise(res => setTimeout(res, 600));
-
-                const canvas = await html2canvas(snapshotRef.current, {
-                    useCORS: true,
-                    logging: false,
-                    backgroundColor: null,
-                    scale: 1.5, // 1.5x resolution for balanced size/quality
-                    allowTaint: true
-                });
-
-                const blob = await new Promise<Blob | null>(res => canvas.toBlob(res, 'image/webp', 0.8));
-                if (blob) {
-                    const filename = `covers/${album.id}/snapshot_${Date.now()}.webp`;
-                    const uploadedUrl = await CloudflareR2Service.uploadBytes(blob, filename, 'image/webp');
-                    if (uploadedUrl) {
-                        coverUrl = uploadedUrl;
-                        console.info("[Snapshot] Cover generated:", coverUrl);
-                    }
-                }
-            }
-
-            // 2. APPLY COVER UPDATE TO ALBUM STATE
-            if (coverUrl && (coverUrl !== album?.coverUrl)) {
-                setAlbum((prev: any) => ({ ...prev, coverUrl }));
-                // Allow state to propagate briefy before saving
-                await new Promise(res => setTimeout(res, 50)); 
-            }
-
-            // 3. TRIGGER MAIN SAVE (Context provider handles DB sync)
-            const result = await saveAlbum();
-            
-            if (showNotification && result.success) {
-                console.info("[Studio] Sync to Library Successful");
-            }
-        } catch (err) {
-            console.error("[Snapshot] Failed to generate cover preview:", err);
-            await saveAlbum(); // Fallback to normal save
-        }
-    };
 
     // Editor State
     const [proTextAssetId, setProTextAssetId] = useState<string | null>(null);
@@ -639,7 +582,7 @@ function AlbumEditorContent() {
                         </div>
 
                         <div className="pt-4 flex justify-end">
-                            <Button variant="primary" onClick={() => { handleStudioSave(); setShowSettings(false); }}>
+                            <Button variant="primary" onClick={() => { saveAlbum(); setShowSettings(false); }}>
                                 Done
                             </Button>
                         </div>
@@ -858,7 +801,14 @@ function AlbumEditorContent() {
                     <div className="w-[1px] h-8 bg-black/5 mx-2" />
 
                     <Button
-                        onClick={() => handleStudioSave()}
+                        onClick={async () => {
+                            const { success, error } = await saveAlbum();
+                            if (success) {
+                                // Indication
+                            } else {
+                                alert('Failed to save: ' + error);
+                            }
+                        }}
                         isLoading={isManualSaving || autoSave.status === 'saving'}
                         className="h-10 px-8 bg-catalog-accent text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-catalog-accent/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
                     >
@@ -1741,25 +1691,6 @@ function AlbumEditorContent() {
                     />
                 )
             }
-            {/* --- SNAPSHOT TARGET (Hidden from UI, used by html2canvas) --- */}
-            <div 
-                className="fixed -left-[5000px] -top-[5000px] pointer-events-none opacity-0" 
-                aria-hidden="true"
-            >
-                <div ref={snapshotRef} style={{ width: '800px', backgroundColor: 'white' }}>
-                    {album?.pages?.[0] && (
-                        <AlbumPage
-                            page={album.pages[0]}
-                            dimensions={album.config?.dimensions || { width: 800, height: 1028.5 }}
-                            side="single"
-                            isCover={true}
-                            density="hard"
-                            onVideoClick={() => { }}
-                            showPageNumber={false}
-                        />
-                    )}
-                </div>
-            </div>
         </div>
     );
 }

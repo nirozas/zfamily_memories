@@ -7,7 +7,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Share2, Edit3, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { slugify } from '../lib/utils';
 
 export function AlbumView() {
     const { id } = useParams<{ id: string }>();
@@ -24,29 +23,21 @@ export function AlbumView() {
         }
     }, [id, fetchAlbum]);
 
-    // Real-Time Subscription for the Current Album
+    // Real-Time Subscription for the Current Album (Optional, context might eventually handle this)
     useEffect(() => {
-        const realId = album?.id;
-        if (!realId) return;
-        
-        console.log(`[AlbumView] Subscribing to real-time updates for: ${realId}`);
+        if (!id) return;
 
         const subscription = supabase
-            .channel(`album:${realId}`)
-            .on('postgres_changes', { 
-                event: '*', 
-                schema: 'public', 
-                table: 'album_pages', 
-                filter: `album_id=eq.${realId}` 
-            }, () => {
-                fetchAlbum(realId);
+            .channel(`album:${id}`)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'album_pages', filter: `album_id=eq.${id}` }, () => {
+                fetchAlbum(id);
             })
             .subscribe();
 
         return () => {
             supabase.removeChannel(subscription);
         };
-    }, [album?.id, fetchAlbum]);
+    }, [id, fetchAlbum]);
 
 
     if (loading) {
@@ -101,7 +92,7 @@ export function AlbumView() {
                     {canEdit && (
                         <Button
                             size="sm"
-                            onClick={() => navigate(`/album/${slugify(album.title)}/edit`)}
+                            onClick={() => navigate(`/editor/${album.id}`)}
                             className="gap-2"
                         >
                             <Edit3 className="w-4 h-4" />

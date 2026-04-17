@@ -1,8 +1,7 @@
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Trash2 } from 'lucide-react';
-import { cn } from '../../lib/utils'; // Assuming cn utility exists, adjust if not
-import { useMediaUrl } from '../../hooks/useGooglePhotosUrl';
+import { cn } from '../../lib/utils';
 
 interface SortableAssetProps {
     id: string;
@@ -28,8 +27,7 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
         opacity: isDragging ? 0.5 : 1,
     };
 
-    // Proxy the URL using useMediaUrl to handle Google Photos IDs properly
-    const { url: displayUrl } = useMediaUrl(asset.url, undefined, null, true);
+    const resolvedUrl = asset.url;
 
     return (
         <div
@@ -43,24 +41,10 @@ export function SortableAsset({ id, asset, onRemove, children }: SortableAssetPr
             )}
         >
             {asset.type === 'video' ? (
-                (() => {
-                    const isGoogleUrl = asset.url && (
-                        asset.url.includes('googleusercontent.com') ||
-                        asset.url.includes('photoslibrary.googleapis.com') ||
-                        asset.url.startsWith('google-photos://') ||
-                        asset.url.includes('drive.google.com') ||
-                        asset.url.includes('ggpht.com')
-                    );
-                    return isGoogleUrl ? (
-                        <img src={displayUrl || asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
-                    ) : (
-                        <video src={asset.url.includes('.m3u8') ? asset.url : asset.url} className="w-full h-full object-cover pointer-events-none" muted playsInline />
-                    );
-                })()
+                <video src={`${resolvedUrl}#t=0.1`} className="w-full h-full object-cover pointer-events-none" muted playsInline />
             ) : (
-                <img src={displayUrl || asset.url} className="w-full h-full object-cover pointer-events-none" alt="" />
+                <img src={resolvedUrl} className="w-full h-full object-cover pointer-events-none" alt="" referrerPolicy="no-referrer" />
             )}
-
 
             {/* Overlay */}
             <div className={cn(

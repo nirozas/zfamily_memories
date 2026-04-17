@@ -86,8 +86,9 @@ export function SharedStackView() {
         captionColor: item.captionColor,
         textLayers: item.textLayers,
         stickerLayers: item.stickerLayers,
-        googlePhotoId: item.googlePhotoId,
     }));
+
+    // Convert stack to MediaStackViewer format
 
     return (
         <MediaStackViewer

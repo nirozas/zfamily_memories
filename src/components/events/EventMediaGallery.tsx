@@ -1,21 +1,49 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Maximize2, Play, Pause, Camera } from 'lucide-react';
-import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { cn } from '../../lib/utils';
 import { useGlobalLightbox } from '../ui/GlobalLightbox';
+import { Maximize2, ChevronLeft, ChevronRight, Pause, Play } from 'lucide-react';
 
 export type GalleryMode = 'cards' | 'carousel' | 'clickable' | 'masonry' | 'grid' | 'polaroid';
 
 interface EventMediaGalleryProps {
-    assets: Array<{ url: string; type: 'image' | 'video'; caption?: string; googlePhotoId?: string }>;
+    assets: Array<{ url: string; type: 'image' | 'video'; caption?: string }>;
     mode: GalleryMode;
 }
 
 function GalleryItem({ asset, index, openLightbox, lightboxImages, currentMode }: any) {
-    const { url: resolvedUrl } = useGooglePhotosUrl(asset.googlePhotoId, asset.url);
-    const displayUrl = resolvedUrl || asset.url;
-    const isGoogle = !!asset.googlePhotoId;
+    const displayUrl = asset.url;
+    const isVideo = asset.type === 'video';
+
+    const renderMedia = () => {
+        if (isVideo) {
+            return (
+                <div className="w-full h-full relative">
+                    <video
+                        src={displayUrl}
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
+                        autoPlay
+                        loop
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/10">
+                        <Play className="w-8 h-8 text-white/70 fill-white/20" />
+                    </div>
+                </div>
+            );
+        }
+        return (
+            <motion.img
+                src={displayUrl}
+                alt={asset.caption || `Gallery image ${index + 1}`}
+                className="w-full h-full object-cover"
+                whileHover={{ scale: 1.1 }}
+                transition={{ duration: 0.6 }}
+                referrerPolicy="no-referrer"
+            />
+        );
+    };
 
     if (currentMode === 'cards') {
         const rotation = (index % 3 === 0) ? -2 : (index % 3 === 1) ? 2 : 1;
@@ -30,15 +58,7 @@ function GalleryItem({ asset, index, openLightbox, lightboxImages, currentMode }
             >
                 <div className="bg-white p-4 pb-12 shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-catalog-accent/5 rounded-sm relative z-10 transition-shadow group-hover:shadow-[0_40px_80px_rgba(0,0,0,0.15)]">
                     <div className="aspect-[4/5] overflow-hidden bg-catalog-stone/5 relative">
-                        <motion.img
-                            src={displayUrl}
-                            alt={asset.caption || `Gallery image ${index + 1}`}
-                            className="w-full h-full object-cover"
-                            whileHover={{ scale: 1.1 }}
-                            transition={{ duration: 0.6 }}
-                            referrerPolicy="no-referrer"
-                        />
-                        {isGoogle && <div className="absolute top-2 right-2 z-10 p-1 bg-black/40 rounded-full backdrop-blur-sm"><Camera className="w-3 h-3 text-white" /></div>}
+                        {renderMedia()}
                     </div>
                     <div className="absolute bottom-4 left-0 right-0 px-6">
                         <p className="font-serif italic text-catalog-text/60 text-center text-sm truncate">
@@ -56,8 +76,11 @@ function GalleryItem({ asset, index, openLightbox, lightboxImages, currentMode }
                 className="aspect-square overflow-hidden cursor-pointer relative group"
                 onClick={() => openLightbox(index, lightboxImages)}
             >
-                <img src={displayUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt="" referrerPolicy="no-referrer" />
-                {isGoogle && <div className="absolute top-2 right-2 z-10 p-1 bg-black/40 rounded-full backdrop-blur-sm"><Camera className="w-3 h-3 text-white" /></div>}
+                {isVideo ? (
+                    <video src={displayUrl} className="w-full h-full object-cover" muted playsInline />
+                ) : (
+                    <img src={displayUrl} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt="" referrerPolicy="no-referrer" />
+                )}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
                     <Maximize2 className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity transform scale-50 group-hover:scale-100" />
                 </div>
@@ -71,10 +94,13 @@ function GalleryItem({ asset, index, openLightbox, lightboxImages, currentMode }
                 className="break-inside-avoid relative group cursor-pointer rounded-lg overflow-hidden shadow-md"
                 onClick={() => openLightbox(index, lightboxImages)}
             >
-                <img src={displayUrl} className="w-full h-auto object-cover" alt="" referrerPolicy="no-referrer" />
-                {isGoogle && <div className="absolute top-2 right-2 z-10 p-1 bg-black/40 rounded-full backdrop-blur-sm"><Camera className="w-3 h-3 text-white" /></div>}
+                {isVideo ? (
+                    <video src={displayUrl} className="w-full h-auto object-cover" muted playsInline />
+                ) : (
+                    <img src={displayUrl} className="w-full h-auto object-cover" alt="" referrerPolicy="no-referrer" />
+                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                    <p className="text-white text-xs font-medium truncate w-full">{asset.caption || 'View Image'}</p>
+                    <p className="text-white text-xs font-medium truncate w-full">{asset.caption || 'View Media'}</p>
                 </div>
             </div>
         );
@@ -93,8 +119,11 @@ function GalleryItem({ asset, index, openLightbox, lightboxImages, currentMode }
                 onClick={() => openLightbox(index, lightboxImages)}
             >
                 <div className="aspect-square bg-gray-100 overflow-hidden mb-3 relative">
-                    <img src={displayUrl} className="w-full h-full object-cover filter sepia-[.2] contrast-[1.1]" alt="" referrerPolicy="no-referrer" />
-                    {isGoogle && <div className="absolute top-2 right-2 z-10 p-1 bg-white/40 rounded-full backdrop-blur-sm"><Camera className="w-3 h-3 text-gray-800" /></div>}
+                    {isVideo ? (
+                        <video src={displayUrl} className="w-full h-full object-cover" muted playsInline />
+                    ) : (
+                        <img src={displayUrl} className="w-full h-full object-cover filter sepia-[.2] contrast-[1.1]" alt="" referrerPolicy="no-referrer" />
+                    )}
                 </div>
                 <p className="font-handwriting text-catalog-text/80 text-center text-lg leading-none transform -rotate-1">
                     {asset.caption || 'Memories'}
@@ -109,8 +138,11 @@ function GalleryItem({ asset, index, openLightbox, lightboxImages, currentMode }
             className="aspect-square relative cursor-pointer group rounded-xl overflow-hidden shadow-lg"
             onClick={() => openLightbox(index, lightboxImages)}
         >
-            <img src={displayUrl} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
-            {isGoogle && <div className="absolute top-2 right-2 z-10 p-1 bg-black/40 rounded-full backdrop-blur-sm"><Camera className="w-3 h-3 text-white" /></div>}
+            {isVideo ? (
+                <video src={displayUrl} className="w-full h-full object-cover" muted playsInline />
+            ) : (
+                <img src={displayUrl} className="w-full h-full object-cover" alt="" referrerPolicy="no-referrer" />
+            )}
             <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Maximize2 className="w-6 h-6 text-white" />
             </div>
@@ -122,38 +154,35 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
     const { openLightbox } = useGlobalLightbox();
     const [currentMode, setCurrentMode] = useState<GalleryMode>(mode);
     const [[page, direction], setPage] = useState([0, 0]);
-    const [isPlaying, setIsPlaying] = useState(currentMode === 'carousel'); // Autoplay for sliders
+    const [isPlaying, setIsPlaying] = useState(mode === 'carousel');
 
-    // Update local mode if prop changes
     useEffect(() => {
         setCurrentMode(mode);
     }, [mode]);
 
     if (!assets || assets.length === 0) return null;
 
-    const lightboxImages = assets.map(a => ({ src: a.url, alt: a.caption }));
+    const lightboxImages = assets.map(a => ({ src: a.url, alt: a.caption, type: a.type }));
 
     const paginate = (newDirection: number) => {
         setPage([page + newDirection, newDirection]);
     };
 
-    // Autoplay for carousel
     useEffect(() => {
-        if (!isPlaying || mode !== 'carousel') return;
+        if (!isPlaying || currentMode !== 'carousel') return;
         const timer = setInterval(() => paginate(1), 5000);
         return () => clearInterval(timer);
-    }, [isPlaying, page, mode]);
+    }, [isPlaying, page, currentMode]);
 
-    // Keyboard navigation for carousel
     useEffect(() => {
-        if (mode !== 'carousel') return;
+        if (currentMode !== 'carousel') return;
         const handleKeyDown = (e: KeyboardEvent) => {
             if (e.key === 'ArrowRight') paginate(1);
             if (e.key === 'ArrowLeft') paginate(-1);
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [mode, page]);
+    }, [currentMode, page]);
 
     const variants = {
         enter: (direction: number) => ({
@@ -175,55 +204,48 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
         })
     };
 
-
-    const renderCards = () => (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 mt-16 px-4">
-            {assets.map((asset, index) => (
-                <GalleryItem
-                    key={index}
-                    asset={asset}
-                    index={index}
-                    openLightbox={openLightbox}
-                    lightboxImages={lightboxImages}
-                    currentMode="cards"
-                />
-            ))}
-        </div>
-    );
-
     const renderCarousel = () => {
         const activeIndex = ((page % assets.length) + assets.length) % assets.length;
         const activeAsset = assets[activeIndex];
-
-        // Inline a mini component to handle the hook for the active slide
-        const SlideImage = ({ asset, direction, page, activeIndex }: any) => {
-            const { url: resolvedUrl } = useGooglePhotosUrl(asset.googlePhotoId, asset.url);
-            return (
-                <motion.img
-                    key={page}
-                    src={resolvedUrl || asset.url}
-                    custom={direction}
-                    variants={variants}
-                    initial="enter"
-                    animate="center"
-                    exit="exit"
-                    transition={{
-                        x: { type: "spring", stiffness: 300, damping: 30 },
-                        opacity: { duration: 0.2 }
-                    }}
-                    className="absolute inset-0 w-full h-full object-contain cursor-zoom-in"
-                    onClick={() => openLightbox(activeIndex, lightboxImages)}
-                />
-            );
-        };
+        const isVideo = activeAsset.type === 'video';
 
         return (
             <div className="relative mt-16 w-full max-w-5xl mx-auto aspect-[16/9] bg-black rounded-xl overflow-hidden shadow-2xl group">
                 <AnimatePresence initial={false} custom={direction}>
-                    <SlideImage asset={activeAsset} direction={direction} page={page} activeIndex={activeIndex} />
+                    <motion.div
+                        key={page}
+                        custom={direction}
+                        variants={variants}
+                        initial="enter"
+                        animate="center"
+                        exit="exit"
+                        transition={{
+                            x: { type: "spring", stiffness: 300, damping: 30 },
+                            opacity: { duration: 0.2 }
+                        }}
+                        className="absolute inset-0 w-full h-full flex items-center justify-center cursor-zoom-in"
+                        onClick={() => openLightbox(activeIndex, lightboxImages)}
+                    >
+                        {isVideo ? (
+                            <video
+                                src={activeAsset.url}
+                                className="w-full h-full object-contain"
+                                autoPlay
+                                muted
+                                loop
+                                playsInline
+                            />
+                        ) : (
+                            <img
+                                src={activeAsset.url}
+                                className="w-full h-full object-contain"
+                                alt={activeAsset.caption || ""}
+                                referrerPolicy="no-referrer"
+                            />
+                        )}
+                    </motion.div>
                 </AnimatePresence>
 
-                {/* Controls */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-between px-4">
                     <button
                         onClick={(e) => { e.stopPropagation(); paginate(-1); }}
@@ -239,7 +261,6 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
                     </button>
                 </div>
 
-                {/* Play/Pause */}
                 <button
                     onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
                     className="absolute top-4 right-4 z-20 p-2 text-white/50 hover:text-white bg-black/20 hover:bg-black/40 rounded-full backdrop-blur-sm transition-all"
@@ -249,67 +270,6 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
             </div>
         );
     };
-
-    const renderGrid = () => (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 mt-12 bg-white p-1 shadow-sm border border-catalog-stone/10">
-            {assets.map((asset, index) => (
-                <GalleryItem
-                    key={index}
-                    asset={asset}
-                    index={index}
-                    openLightbox={openLightbox}
-                    lightboxImages={lightboxImages}
-                    currentMode="grid"
-                />
-            ))}
-        </div>
-    );
-
-    const renderMasonry = () => (
-        <div className="columns-1 md:columns-2 lg:columns-3 gap-4 mt-12 space-y-4 px-4">
-            {assets.map((asset, index) => (
-                <GalleryItem
-                    key={index}
-                    asset={asset}
-                    index={index}
-                    openLightbox={openLightbox}
-                    lightboxImages={lightboxImages}
-                    currentMode="masonry"
-                />
-            ))}
-        </div>
-    );
-
-    const renderPolaroid = () => (
-        <div className="flex flex-wrap justify-center gap-8 mt-16 px-8 overflow-hidden py-12">
-            {assets.map((asset, index) => (
-                <GalleryItem
-                    key={index}
-                    asset={asset}
-                    index={index}
-                    openLightbox={openLightbox}
-                    lightboxImages={lightboxImages}
-                    currentMode="polaroid"
-                />
-            ))}
-        </div>
-    );
-
-    const renderClickable = () => (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mt-16 px-4">
-            {assets.map((asset, index) => (
-                <GalleryItem
-                    key={index}
-                    asset={asset}
-                    index={index}
-                    openLightbox={openLightbox}
-                    lightboxImages={lightboxImages}
-                    currentMode="clickable"
-                />
-            ))}
-        </div>
-    );
-
     return (
         <section className="mt-24 pt-24 border-t border-catalog-accent/5 relative">
             <div className="flex flex-col items-center mb-12">
@@ -335,12 +295,42 @@ export function EventMediaGallery({ assets, mode }: EventMediaGalleryProps) {
             </div>
 
             <div className="max-w-7xl mx-auto">
-                {currentMode === 'cards' && renderCards()}
+                {currentMode === 'cards' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 mt-16 px-4">
+                        {assets.map((asset, index) => (
+                            <GalleryItem key={index} asset={asset} index={index} openLightbox={openLightbox} lightboxImages={lightboxImages} currentMode="cards" />
+                        ))}
+                    </div>
+                )}
                 {currentMode === 'carousel' && renderCarousel()}
-                {currentMode === 'grid' && renderGrid()}
-                {currentMode === 'masonry' && renderMasonry()}
-                {currentMode === 'polaroid' && renderPolaroid()}
-                {(!['cards', 'carousel', 'grid', 'masonry', 'polaroid'].includes(currentMode)) && renderClickable()}
+                {currentMode === 'grid' && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-1 mt-12 bg-white p-1 shadow-sm border border-catalog-stone/10">
+                        {assets.map((asset, index) => (
+                            <GalleryItem key={index} asset={asset} index={index} openLightbox={openLightbox} lightboxImages={lightboxImages} currentMode="grid" />
+                        ))}
+                    </div>
+                )}
+                {currentMode === 'masonry' && (
+                    <div className="columns-1 md:columns-2 lg:columns-3 gap-4 mt-12 space-y-4 px-4">
+                        {assets.map((asset, index) => (
+                            <GalleryItem key={index} asset={asset} index={index} openLightbox={openLightbox} lightboxImages={lightboxImages} currentMode="masonry" />
+                        ))}
+                    </div>
+                )}
+                {currentMode === 'polaroid' && (
+                    <div className="flex flex-wrap justify-center gap-8 mt-16 px-8 overflow-hidden py-12">
+                        {assets.map((asset, index) => (
+                            <GalleryItem key={index} asset={asset} index={index} openLightbox={openLightbox} lightboxImages={lightboxImages} currentMode="polaroid" />
+                        ))}
+                    </div>
+                )}
+                {(!['cards', 'carousel', 'grid', 'masonry', 'polaroid'].includes(currentMode)) && (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mt-16 px-4">
+                        {assets.map((asset, index) => (
+                            <GalleryItem key={index} asset={asset} index={index} openLightbox={openLightbox} lightboxImages={lightboxImages} currentMode="clickable" />
+                        ))}
+                    </div>
+                )}
             </div>
         </section>
     );

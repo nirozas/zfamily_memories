@@ -43,47 +43,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             if (!rightPage) break;
 
             // Only process spread pages
-            if (!leftPage.isSpreadLayout) {
-                // ── NON-SPREAD: Split freeform assets that bleed across the gutter ────────
-                // e.g. a large image placed on the left page that extends into the right page.
-                // The flipbook lib hard-clips each page, so we must clone the bleeding
-                // portion onto the right page with shifted coordinates.
-                const extraRightAssets: any[] = [];
-                const extraLeftAssets: any[] = [];
-
-                (leftPage.assets || []).forEach((asset: any) => {
-                    if (asset.slotId !== undefined && asset.slotId !== null) return; // Skip slotted
-                    const assetRight = asset.x + asset.width;
-                    if (assetRight > 100) {
-                        // This asset bleeds into the right page territory
-                        extraRightAssets.push({
-                            ...asset,
-                            id: `spill-${asset.id}`,
-                            x: asset.x - 100, // Shift so the right portion starts at the right page origin
-                        });
-                    }
-                });
-
-                (rightPage.assets || []).forEach((asset: any) => {
-                    if (asset.slotId !== undefined && asset.slotId !== null) return;
-                    if (asset.x < 0) {
-                        // Asset bleeds into the left page territory
-                        extraLeftAssets.push({
-                            ...asset,
-                            id: `spill-${asset.id}`,
-                            x: asset.x + 100,
-                        });
-                    }
-                });
-
-                if (extraRightAssets.length > 0) {
-                    rightPage.assets = [...(rightPage.assets || []), ...extraRightAssets];
-                }
-                if (extraLeftAssets.length > 0) {
-                    leftPage.assets = [...(leftPage.assets || []), ...extraLeftAssets];
-                }
-                continue;
-            }
+            if (!leftPage.isSpreadLayout) continue;
 
             // ═══════════════════════════════════════════════════════════════════
             // THE CORE MATH:

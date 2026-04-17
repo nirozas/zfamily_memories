@@ -5,61 +5,33 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
 import {
     Plus, Play, Music, Calendar, Grid, List, Search, Loader2,
-    PlaySquare, Sparkles, Pencil, Trash2, Users, Hash, Share, MapPin,
-    Video, Image as ImageIcon
+    PlaySquare, Sparkles, Pencil, Trash2, Users, Hash, Share, MapPin
 } from 'lucide-react';
 import MediaStackViewer, { type MediaItem } from '../components/media/MediaStackViewer';
 import { CreateStackModal } from '../components/media/CreateStackModal';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
-import { cn } from '../lib/utils';
 
-function StackMiniThumbnail({ item }: { item: { url: string; google_id?: string; googlePhotoId?: string; type?: string } }) {
-    const googleId = item.google_id || item.googlePhotoId;
-    const { url: displayUrl } = useGooglePhotosUrl(googleId, item.url, null, true);
-    const [isLoaded, setIsLoaded] = useState(false);
-    const [isError, setIsError] = useState(false);
+function StackMiniThumbnail({ item }: { item: { url: string; type?: string; metadata?: any } }) {
+    const displayUrl = item.url;
+    const isVideo = item.type === 'video' || (item.url && item.url.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i));
 
-    const isGoogleUrl = item.url && (
-        item.url.includes('googleusercontent.com') ||
-        item.url.includes('photoslibrary.googleapis.com') ||
-        item.url.includes('drive.google.com') ||
-        item.url.includes('ggpht.com') ||
-        item.url.startsWith('google-photos://')
-    );
+    if (isVideo) {
+        return (
+            <video
+                src={`${item.url}#t=0.1`}
+                className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
+                muted
+                playsInline
+            />
+        );
+    }
 
     return (
-        <div className="w-full h-full relative bg-gray-100">
-            {item.type === 'video' && !isGoogleUrl ? (
-                <video
-                    src={item.url.includes('.m3u8') ? item.url : `${item.url}#t=0.1`}
-                    className={cn(
-                        "w-full h-full object-cover transition-opacity duration-500 transition-transform duration-700 group-hover:scale-105",
-                        isLoaded ? "opacity-100" : "opacity-0"
-                    )}
-                    onLoadedData={() => setIsLoaded(true)}
-                    onError={() => setIsError(true)}
-                    muted
-                    playsInline
-                />
-            ) : (
-                <img
-                    src={displayUrl || item.url}
-                    alt=""
-                    className={cn(
-                        "w-full h-full object-cover transition-opacity duration-500 transition-transform duration-700 group-hover:scale-105",
-                        isLoaded ? "opacity-100" : "opacity-0"
-                    )}
-                    onLoad={() => setIsLoaded(true)}
-                    onError={() => setIsError(true)}
-                />
-            )}
-            {(!isLoaded || isError) && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                    {item.type === 'video' ? <Video className="w-4 h-4 text-purple-200" /> : <ImageIcon className="w-4 h-4 text-purple-200" />}
-                </div>
-            )}
-        </div>
+        <img
+            src={displayUrl}
+            alt=""
+            className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
+        />
     );
 }
 
@@ -91,7 +63,6 @@ interface Stack {
         stickerLayers?: any[];
         videoStartTime?: number;
         videoEndTime?: number;
-        googlePhotoId?: string;
         displaySize?: 'small' | 'medium' | 'original';
     }>;
     location?: string;
@@ -152,6 +123,20 @@ export function MediaStacks() {
         if (!confirm('Delete this stack? This action cannot be undone.')) return;
         setDeletingId(id);
         try {
+            // 1. Fetch stack to get cover and music URLs
+            const { data: stack, error: fetchError } = await (supabase
+                .from('stacks')
+                .select('cover_url, music_url') as any)
+                .eq('id', id)
+                .single();
+
+            if (!fetchError && stack) {
+                const { storageService } = await import('../services/storage');
+                if (stack.cover_url) await storageService.deleteFile(stack.cover_url);
+                if (stack.music_url) await storageService.deleteFile(stack.music_url);
+            }
+
+            // 2. Delete from DB
             await (supabase.from('stacks') as any).delete().eq('id', id);
             setStacks(s => s.filter(st => st.id !== id));
             if (viewingStack?.id === id) setViewingStack(null);
@@ -256,7 +241,6 @@ export function MediaStacks() {
             stickerLayers: item.stickerLayers,
             videoStartTime: item.videoStartTime,
             videoEndTime: item.videoEndTime,
-            googlePhotoId: item.googlePhotoId,
             displaySize: item.displaySize as any,
         }));
 
@@ -338,7 +322,7 @@ export function MediaStacks() {
                     </div>
                 ) : filteredStacks.length > 0 ? (
                     <div className={viewMode === 'grid'
-                        ? "grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-8"
+                        ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
                         : "flex flex-col gap-4"
                     }>
                         {filteredStacks.map((stack, idx) => (
@@ -496,8 +480,7 @@ export function MediaStacks() {
                                         <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-gray-100 shadow-sm bg-gray-100 flex items-center justify-center">
                                             {stack.cover_url || (stack.media_items && stack.media_items.length > 0) ? (
                                                 <StackMiniThumbnail item={{ 
-                                                    url: stack.cover_url || stack.media_items[0].url,
-                                                    googlePhotoId: stack.media_items[0]?.googlePhotoId
+                                                    url: stack.cover_url || stack.media_items[0].url
                                                 }} />
                                             ) : (
                                                 <PlaySquare className="w-8 h-8 text-gray-300" />
@@ -602,7 +585,6 @@ export function MediaStacks() {
                 initialStack={editingStack}
                 onClose={() => { setShowCreateModal(false); setEditingStack(null); }}
                 onCreated={() => { setShowCreateModal(false); setEditingStack(null); fetchStacks(); }}
-                folders={[]}
             />
 
             {/* ============ VIEWER ============ */}

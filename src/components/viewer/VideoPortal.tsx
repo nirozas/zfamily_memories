@@ -6,6 +6,7 @@ import Hls from 'hls.js';
 
 interface VideoPortalProps {
     videoUrl: string | null;
+    objectKey?: string;
     posterUrl?: string;
     rotation?: number;
     onClose: () => void;
@@ -21,10 +22,65 @@ interface VideoPortalProps {
  * 3. Aspect Ratio Control: Special sizing for 90/270 degree rotations.
  * 4. Safe Exit: document.fullscreenElement monitoring for non-destructive esc.
  */
-export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay }: VideoPortalProps) {
+export function VideoPortal({ videoUrl, objectKey, posterUrl, rotation = 0, onClose, onPlay }: VideoPortalProps) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+
+    // 0. Resolve Authorized URL
+    useEffect(() => {
+        let isMounted = true;
+        async function loadUrl() {
+            // Using objectKey is the preferred, most secure way
+            if (objectKey) {
+                try {
+                    const { CloudflareR2Service } = await import('../../services/cloudflareR2');
+                    const secure = await CloudflareR2Service.getAuthorizedUrl(objectKey, 7200);
+                    if (isMounted) setDisplayUrl(secure);
+                    return;
+                } catch (err) {
+                    console.error("[VideoPortal] Failed to authorize key:", err);
+                }
+            }
+
+            if (!videoUrl) {
+                if (isMounted) setDisplayUrl(null);
+                return;
+            }
+            if (videoUrl.includes('X-Amz-Signature')) {
+                if (isMounted) setDisplayUrl(videoUrl);
+                return;
+            }
+
+            try {
+                const { CloudflareR2Service } = await import('../../services/cloudflareR2');
+                if (CloudflareR2Service.isR2Url(videoUrl)) {
+                    let key = videoUrl;
+                    try {
+                        key = new URL(videoUrl).pathname.substring(1);
+                        // Strip bucket name if present in path (common in S3-style URLs)
+                        if (key.includes('/') && (key.startsWith('zoabimemories/') || key.startsWith('familyzoabi/'))) {
+                           key = key.split('/').slice(1).join('/');
+                        }
+                    } catch (e) {
+                        key = videoUrl.split('/').pop() || '';
+                    }
+                    if (key) {
+                        // Request a 2-hour signed URL for videos to allow long playback
+                        const secure = await CloudflareR2Service.getAuthorizedUrl(key, 7200);
+                        if (isMounted) setDisplayUrl(secure || videoUrl);
+                    }
+                } else {
+                    if (isMounted) setDisplayUrl(videoUrl);
+                }
+            } catch (err) {
+                if (isMounted) setDisplayUrl(videoUrl);
+            }
+        }
+        loadUrl();
+        return () => { isMounted = false; };
+    }, [videoUrl, objectKey]);
 
     // 1. Monitor Fullscreen state (for Esc key support)
     useEffect(() => {
@@ -64,49 +120,31 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
         }
     };
 
-    // 3. HLS & Source Support with Event Handling
+    // 3. HLS Support
     useEffect(() => {
         const video = videoRef.current;
-        if (!video || !videoUrl) return;
+        if (!video || !displayUrl) return;
 
         let hls: Hls | null = null;
 
-        const setupSource = (url: string) => {
-            if (url.includes('.m3u8')) {
-                if (Hls.isSupported()) {
-                    hls = new Hls({ enableWorker: true, autoStartLoad: true });
-                    hls.loadSource(url);
-                    hls.attachMedia(video);
-                    
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        console.log("[VideoPortal] Manifest parsed, ready to play");
-                        // We don't call play() here as the video element has autoPlay attribute
-                        // But we could if we wanted to be explicit.
-                    });
-
-                    hls.on(Hls.Events.ERROR, (_, data) => {
-                        if (data.fatal) {
-                            console.error("[VideoPortal] Fatal HLS error:", data.type, data.details);
-                        }
-                    });
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = url;
-                }
-            } else {
-                video.src = url;
+        if (displayUrl.includes('.m3u8')) {
+            if (Hls.isSupported()) {
+                hls = new Hls({ enableWorker: true });
+                hls.loadSource(displayUrl);
+                hls.attachMedia(video);
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = displayUrl;
             }
-        };
-
-        setupSource(videoUrl);
+        } else {
+            video.src = displayUrl;
+        }
 
         return () => {
             if (hls) {
                 hls.destroy();
             }
-            video.src = '';
         };
-    }, [videoUrl]);
-
+    }, [displayUrl]);
 
     const handlePureExit = async (e?: React.MouseEvent) => {
         if (e) {
@@ -214,7 +252,7 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
                         preload="auto"
                         onPlay={(e) => {
                             e.stopPropagation();
-                            window.dispatchEvent(new CustomEvent('globalPlay', { detail: videoUrl }));
+                            window.dispatchEvent(new CustomEvent('globalPlay', { detail: displayUrl }));
                             if (e.currentTarget.muted) e.currentTarget.muted = false;
                             onPlay?.();
                         }}
@@ -233,7 +271,7 @@ export function VideoPortal({ videoUrl, posterUrl, rotation = 0, onClose, onPlay
                     {/* Metadata Overlay (Lower Area) */}
                     <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 z-[1100] opacity-30 hover:opacity-100 transition-opacity">
                         <a
-                            href={videoUrl}
+                            href={displayUrl || undefined}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="flex items-center gap-2 px-6 py-3 bg-white/5 hover:bg-white/10 rounded-full text-[12px] font-bold uppercase tracking-widest text-white backdrop-blur-md border border-white/5 active:scale-95 transition-all"

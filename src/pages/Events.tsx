@@ -3,21 +3,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Calendar, Plus, Loader2, Edit, MapPin, Image, Link as LinkIcon, Upload, FolderOpen } from 'lucide-react';
+import { Calendar, Plus, Loader2, Edit, MapPin, Link as LinkIcon, Upload, FolderOpen } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { slugify } from '../lib/utils';
 
 import { ActionToolbar } from '../components/ui/ActionToolbar';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { FilterBar, type FilterState } from '../components/ui/FilterBar';
 import { motion } from 'framer-motion';
 import { storageService } from '../services/storage';
-import { GooglePhotosSelector } from '../components/media/GooglePhotosSelector';
-import type { GoogleMediaItem } from '../services/googlePhotos';
 import { UrlInputModal } from '../components/media/UrlInputModal';
 import { ImageCropper } from '../components/ui/ImageCropper';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
-import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 
 function EventCard({
     event,
@@ -26,7 +22,7 @@ function EventCard({
     navigate,
     setShowSourceModal,
     isUpdatingCover,
-    linkedAlbumSlug,
+    linkedAlbumId,
     handleDeleteEvent,
     handleShareEvent,
     handlePrintEvent,
@@ -40,14 +36,11 @@ function EventCard({
 
     const assets = currentContent?.assets || [];
     let initialImage = currentContent?.presentationUrl || assets.find((a: any) => a.type === 'image')?.url;
-    let googlePhotoId = currentContent?.googlePhotoId || assets.find((a: any) => a.type === 'image')?.googlePhotoId;
 
     if (!initialImage && event.description) {
         const imgMatch = event.description.match(/<img[^>]+src="([^">]+)"/);
         if (imgMatch) {
             initialImage = imgMatch[1];
-            const idMatch = event.description.match(/data-google-id="([^"]+)"/);
-            if (idMatch) googlePhotoId = idMatch[1];
         }
     }
 
@@ -61,7 +54,7 @@ function EventCard({
     ];
     const fallbackImage = fallbacks[event.id.charCodeAt(0) % fallbacks.length];
 
-    const { url: resolvedUrl } = useGooglePhotosUrl(googlePhotoId, initialImage || fallbackImage);
+    const resolvedUrl = initialImage || fallbackImage;
 
 
     return (
@@ -136,9 +129,9 @@ function EventCard({
                     {/* Actions Area */}
                     <div className="mt-auto flex items-center justify-between pt-6 border-t border-black/5">
                         <div className="flex items-center gap-2">
-                            {linkedAlbumSlug ? (
+                            {linkedAlbumId ? (
                                 <button
-                                    onClick={() => navigate(`/album/${linkedAlbumSlug}`)}
+                                    onClick={() => navigate(`/album/${linkedAlbumId}`)}
                                     className="flex items-center gap-2 px-5 py-2.5 bg-catalog-text text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-catalog-accent transition-all shadow-lg shadow-black/10 active:scale-95"
                                 >
                                     Archive
@@ -173,7 +166,7 @@ function EventCard({
 }
 
 export function Events() {
-    const { familyId, userRole, googleAccessToken, signInWithGoogle } = useAuth();
+    const { familyId, userRole } = useAuth();
     const navigate = useNavigate();
     const [events, setEvents] = useState<any[]>([]);
     const [linkedAlbums, setLinkedAlbums] = useState<Record<string, string>>({});
@@ -193,11 +186,10 @@ export function Events() {
 
     const [showSourceModal, setShowSourceModal] = useState<string | null>(null);
     const [showUrlInput, setShowUrlInput] = useState(false);
-    const [showGooglePhotos, setShowGooglePhotos] = useState(false);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
     const [showCropper, setShowCropper] = useState<{ src: string } | null>(null);
 
-    const handleSourceSelect = (source: 'upload' | 'google' | 'url' | 'library') => {
+    const handleSourceSelect = (source: 'upload' | 'url' | 'library') => {
         const eventId = showSourceModal;
         if (!eventId) return;
 
@@ -206,14 +198,6 @@ export function Events() {
 
         if (source === 'upload') {
             eventCoverInputRef.current?.click();
-        } else if (source === 'google') {
-            if (!googleAccessToken) {
-                if (confirm('Sign in with Google to browse your Photos library?')) {
-                    signInWithGoogle();
-                }
-                return;
-            }
-            setShowGooglePhotos(true);
         } else if (source === 'url') {
             setShowUrlInput(true);
         } else if (source === 'library') {
@@ -225,17 +209,9 @@ export function Events() {
         const eventId = activeEventIdRef.current;
         if (!eventId || !url) return;
         setShowUrlInput(false);
-        await processCoverUpdate(eventId, url, undefined, 'url');
+        await processCoverUpdate(eventId, url, 'url');
     };
 
-    const handleGooglePhotosSelect = async (items: GoogleMediaItem[]) => {
-        const eventId = activeEventIdRef.current;
-        if (!eventId || items.length === 0) return;
-        setShowGooglePhotos(false);
-        const item = items[0];
-        // Pass the whole item so we can use persistGoogleMedia
-        await processCoverUpdate(eventId, item, item.id, 'google');
-    };
 
     const handleMediaPickerSelect = async (item: any) => {
         setShowMediaPicker(false);
@@ -251,46 +227,28 @@ export function Events() {
             const response = await fetch(croppedImageUrl);
             const blob = await response.blob();
             const file = new File([blob], 'cropped_cover.jpg', { type: 'image/jpeg' });
-            await processCoverUpdate(eventId, file, undefined, 'file');
+            await processCoverUpdate(eventId, file, 'file');
         } catch (e) {
             console.error("Crop processing failed", e);
         }
     };
 
-    const processCoverUpdate = async (eventId: string, sourceUrlOrFile: string | File | any, googleId?: string, type: 'file' | 'url' | 'google' = 'file') => {
+    const processCoverUpdate = async (eventId: string, sourceUrlOrFile: string | File, type: 'file' | 'url' = 'file') => {
         if (!familyId) return;
         setIsUpdatingCover(eventId);
 
         try {
             let finalUrl: string | null = null;
-            let googlePhotoId: string | undefined = googleId;
             let mediaType: 'image' | 'video' = 'image';
 
             if (type === 'file') {
                 const file = sourceUrlOrFile as File;
                 mediaType = file.type.startsWith('video/') ? 'video' : 'image';
-                const { url: storageUrl, googlePhotoId: storagePhotoId } = await storageService.uploadFile(file, 'album-assets', `events/${eventId}/cover/`, undefined, googleAccessToken);
+                const { url: storageUrl } = await storageService.uploadFile(file, 'album-assets', `events/${eventId}/cover/`);
                 if (storageUrl) finalUrl = storageUrl;
-                if (storagePhotoId) googlePhotoId = storagePhotoId;
             } else if (type === 'url') {
                 finalUrl = sourceUrlOrFile as string;
                 mediaType = finalUrl.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i) ? 'video' : 'image';
-            } else if (type === 'google') {
-                const item = sourceUrlOrFile;
-                try {
-                    if (googleAccessToken) {
-                        const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, 'Events');
-                        finalUrl = persistentUrl;
-                        googlePhotoId = persistentId;
-                        mediaType = persistentType;
-                    } else {
-                        finalUrl = item.baseUrl || item.url || '';
-                        mediaType = (item.mediaMetadata?.video || item.type === 'VIDEO') ? 'video' : 'image';
-                    }
-                } catch (err) {
-                    console.error('Failed to process Google Photo:', err);
-                    finalUrl = item.baseUrl || item.url || '';
-                }
             }
 
             if (finalUrl) {
@@ -307,8 +265,7 @@ export function Events() {
 
                 const updatedContent = {
                     ...content,
-                    presentationUrl: finalUrl,
-                    googlePhotoId: googlePhotoId || content.googlePhotoId
+                    presentationUrl: finalUrl
                 };
 
                 const { error: updateError } = await (supabase.from('events') as any)
@@ -330,8 +287,7 @@ export function Events() {
                     folder: (eventData as any)?.title ? `Events/${(eventData as any).title}` : 'Events',
                     filename: type === 'file' ? (sourceUrlOrFile as File).name : 'imported_cover.jpg',
                     size: 0,
-                    uploaded_by: userData.user?.id,
-                    metadata: googlePhotoId ? { googlePhotoId } : undefined
+                    uploaded_by: userData.user?.id
                 } as any);
             }
         } catch (err: any) {
@@ -353,7 +309,11 @@ export function Events() {
     };
 
     useEffect(() => {
-        if (familyId) fetchEventsAndAlbums();
+        if (!familyId) {
+            setLoading(false);
+            return;
+        }
+        fetchEventsAndAlbums();
     }, [familyId]);
 
     const fetchEventsAndAlbums = async () => {
@@ -374,14 +334,14 @@ export function Events() {
 
             const { data: albumsData } = await supabase
                 .from('albums')
-                .select('id, event_id, title')
+                .select('id, event_id')
                 .eq('family_id', familyId)
                 .not('event_id', 'is', null);
 
             const albumMap: Record<string, string> = {};
             if (albumsData) {
                 (albumsData as any[]).forEach(album => {
-                    if (album.event_id) albumMap[album.event_id] = slugify(album.title);
+                    if (album.event_id) albumMap[album.event_id] = album.id;
                 });
             }
             setLinkedAlbums(albumMap);
@@ -403,6 +363,26 @@ export function Events() {
     const handleDeleteEvent = async (id: string) => {
         if (!confirm('Are you sure?')) return;
         try {
+            // 1. Fetch event to get cover image URL
+            const { data: event, error: fetchError } = await supabase
+                .from('events')
+                .select('content')
+                .eq('id', id)
+                .single();
+            
+            if (!fetchError && event?.content) {
+                let content = event.content;
+                if (typeof content === 'string') {
+                    try { content = JSON.parse(content); } catch (e) { content = {}; }
+                }
+                const coverUrl = content?.presentationUrl;
+                if (coverUrl) {
+                    const { storageService } = await import('../services/storage');
+                    await storageService.deleteFile(coverUrl);
+                }
+            }
+
+            // 2. Delete from DB
             const { error } = await supabase.from('events').delete().eq('id', id);
             if (error) throw error;
             setEvents(prev => prev.filter(e => e.id !== id));
@@ -426,7 +406,7 @@ export function Events() {
         if (!familyId || creatingAlbumFor) return;
         setCreatingAlbumFor(event.id);
         try {
-            const { error } = await supabase.from('albums').insert({
+            const { data, error } = await supabase.from('albums').insert({
                 family_id: familyId,
                 event_id: event.id,
                 title: event.title,
@@ -435,7 +415,7 @@ export function Events() {
                 is_published: false
             } as any).select().single();
             if (error) throw error;
-            navigate(`/album/${slugify(event.title)}/edit`);
+            navigate(`/album/${(data as any).id}/edit`);
         } catch (error) {
             console.error('Create album error:', error);
             setCreatingAlbumFor(null);
@@ -499,13 +479,30 @@ export function Events() {
                 </div>
             </section>
 
-            {events.length === 0 ? (
-                <div className="text-center py-20 bg-white/30 rounded-lg border border-catalog-accent/5">
+            {!familyId ? (
+                <div className="text-center py-20 bg-white/30 rounded-[2.5rem] border border-catalog-accent/5">
                     <div className="w-20 h-20 bg-catalog-accent/5 rounded-full flex items-center justify-center mx-auto mb-6">
                         <Calendar className="w-8 h-8 text-catalog-accent" />
                     </div>
-                    <h3 className="text-2xl font-serif mb-3 text-catalog-text">Your Timeline is Empty</h3>
-                    {canCreate && <Button variant="secondary" onClick={() => navigate('/event/new')}>Begin the Journey</Button>}
+                    <h3 className="text-2xl font-serif mb-3 text-catalog-text italic">No Active Group</h3>
+                    <p className="text-sm text-catalog-text/50 max-w-sm mx-auto mb-8 font-outfit uppercase tracking-widest">
+                        Join or create a family group to begin preserving your legacy.
+                    </p>
+                    <Button variant="primary" onClick={() => navigate('/settings')} className="rounded-full px-10">
+                        Go to Settings
+                    </Button>
+                </div>
+            ) : events.length === 0 ? (
+                <div className="text-center py-20 bg-white/30 rounded-[2.5rem] border border-catalog-accent/5">
+                    <div className="w-20 h-20 bg-catalog-accent/5 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Calendar className="w-8 h-8 text-catalog-accent" />
+                    </div>
+                    <h3 className="text-2xl font-serif mb-3 text-catalog-text italic">Your Timeline is Empty</h3>
+                    {canCreate && (
+                        <Button variant="primary" onClick={() => navigate('/event/new')} className="rounded-full px-10">
+                            Begin the Journey
+                        </Button>
+                    )}
                 </div>
             ) : (
                 <div className="relative space-y-16">
@@ -533,7 +530,7 @@ export function Events() {
                                             navigate={navigate}
                                             setShowSourceModal={setShowSourceModal}
                                             isUpdatingCover={isUpdatingCover}
-                                            linkedAlbumSlug={linkedAlbums[event.id]}
+                                            linkedAlbumId={linkedAlbums[event.id]}
                                             handleDeleteEvent={handleDeleteEvent}
                                             handleShareEvent={handleShareEvent}
                                             handlePrintEvent={handlePrintEvent}
@@ -569,7 +566,6 @@ export function Events() {
                             {[
                                 { id: 'upload', icon: Upload, title: 'Upload File', desc: 'From your computer', color: 'blue' },
                                 { id: 'library', icon: FolderOpen, title: 'Media Library', desc: 'Select from uploads', color: 'emerald' },
-                                { id: 'google', icon: Image, title: 'Google Photos', desc: 'Import from your library', color: 'amber' },
                                 { id: 'url', icon: LinkIcon, title: 'Image Link', desc: 'Paste a direct URL', color: 'purple' }
                             ].map(item => (
                                 <button key={item.id} onClick={() => handleSourceSelect(item.id as any)} className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group">
@@ -587,16 +583,6 @@ export function Events() {
                 </div>
             )}
 
-            {showGooglePhotos && (
-                <GooglePhotosSelector
-                    isOpen={showGooglePhotos}
-                    onClose={() => setShowGooglePhotos(false)}
-                    onSelect={handleGooglePhotosSelect}
-                    folders={['Events']}
-                    googleAccessToken={googleAccessToken || ''}
-                    onReauth={signInWithGoogle}
-                />
-            )}
 
             {showUrlInput && (
                 <UrlInputModal

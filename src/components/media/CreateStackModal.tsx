@@ -1,24 +1,19 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
-    X, Plus, Music, Upload, Grid, Hash, Users, ChevronRight, ChevronLeft,
+    X, Plus, Music, Hash, Users, ChevronRight, ChevronLeft,
     Check, Loader2, Trash2, ExternalLink, Type, Star, Sparkles, Bold,
-    Palette, AlignCenter, Video, Clock, Eye, Play, MapPin, Calendar,
-    LayoutGrid, ZoomIn, ZoomOut
+    Palette, AlignCenter, Video, Clock, Play, MapPin, Calendar,
+    LayoutGrid
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
-import { MediaPickerModal } from './MediaPickerModal';
-import { GooglePhotosSelector } from './GooglePhotosSelector';
-import { MusicPickerModal } from './MusicPickerModal';
-import { GooglePhotosService } from '../../services/googlePhotos';
-import { supabase } from '../../lib/supabase';
-import { useAuth } from '../../contexts/AuthContext';
 import { Slider } from '../ui/Slider';
-import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
+import { MediaPickerModal } from './MediaPickerModal';
+import { MusicPickerModal } from './MusicPickerModal';
+import { UniversalUploadButton } from '../ui/UniversalUploadButton';
 import { LocationPicker } from '../ui/LocationPicker';
-import { storageService } from '../../services/storage';
-import { FolderPickerModal } from './FolderPickerModal';
-import { UploadOverlay } from '../ui/UploadOverlay';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface TextLayer {
@@ -42,8 +37,6 @@ interface StackMediaItem {
     videoStartTime?: number;
     videoEndTime?: number;
     totalVideoDuration?: number;
-    googlePhotoId?: string;
-    isSyncedToGoogle?: boolean;
 }
 
 type SelectedLayer = { kind: 'text' | 'sticker' | 'caption'; id: string } | null;
@@ -58,139 +51,14 @@ function makeText(text = 'New text'): TextLayer {
 function makeSticker(emoji: string): StickerLayer {
     return { id: crypto.randomUUID(), emoji, x: 50, y: 50, size: 60 };
 }
-function makeItem(id: string, url: string, type: 'image' | 'video', filename: string, googlePhotoId?: string): StackMediaItem {
+function makeItem(id: string, url: string, type: 'image' | 'video', filename: string): StackMediaItem {
     return {
         id, url, type, filename,
         caption: '', captionX: 50, captionY: 85, captionFontSize: 20, captionColor: '#ffffff', captionRotation: 0,
         textLayers: [], stickerLayers: [],
         duration: type === 'image' ? 5 : undefined,
-        cropMode: 'contain',
-        googlePhotoId,
-        isSyncedToGoogle: !!googlePhotoId
+        cropMode: 'contain'
     };
-}
-
-function StackMediaItemGridItem({ 
-    item, 
-    idx, 
-    gridZoom,
-    onDragStart,
-    onDragOver,
-    onDragEnd,
-    onView,
-    onRemove,
-    onUpdateDuration,
-    onUpdateCrop
-}: { 
-    item: StackMediaItem; 
-    idx: number; 
-    gridZoom: number;
-    onDragStart: (idx: number) => void;
-    onDragOver: (e: React.DragEvent, idx: number) => void;
-    onDragEnd: () => void;
-    onView: (item: StackMediaItem) => void;
-    onRemove: (idx: number) => void;
-    onUpdateDuration: (idx: number, duration: number) => void;
-    onUpdateCrop: (idx: number) => void;
-}) {
-    // Utilize our smart hook for thumbnails
-    const { url: displayUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
-    const isGoogleUrl = item.url && (
-        item.url.includes('googleusercontent.com') ||
-        item.url.includes('photoslibrary.googleapis.com') ||
-        item.url.includes('drive.google.com') ||
-        item.url.includes('ggpht.com') ||
-        item.url.startsWith('google-photos://')
-    );
-
-    return (
-        <div
-            draggable
-            onDragStart={() => onDragStart(idx)}
-            onDragOver={(e) => onDragOver(e, idx)}
-            onDragEnd={onDragEnd}
-            className={cn(
-                "relative aspect-[3/4.5] rounded-3xl overflow-hidden group shadow-md border border-white bg-white flex flex-col cursor-grab active:cursor-grabbing hover:shadow-xl transition-all",
-                gridZoom < 40 ? "rounded-xl" : "rounded-3xl"
-            )}
-        >
-            <div className="flex-1 relative overflow-hidden bg-gray-50">
-                <div className="w-full h-full bg-neutral-900 flex items-center justify-center relative">
-                    <img
-                        src={displayUrl || item.url}
-                        alt=""
-                        className={cn(
-                            "w-full h-full transition-transform duration-700 group-hover:scale-110",
-                            item.cropMode === 'cover' ? 'object-cover' : 'object-contain'
-                        )}
-                        onError={(e) => {
-                            if (item.type === 'video' && !isGoogleUrl) {
-                                const img = e.currentTarget;
-                                img.style.display = 'none';
-                                const parent = img.parentElement;
-                                const video = parent?.querySelector('video');
-                                if (video) video.style.display = 'block';
-                            }
-                        }}
-                    />
-                    {item.type === 'video' && (
-                        <>
-                            {!isGoogleUrl && (
-                                <video
-                                    src={item.url.includes('.m3u8') ? item.url : item.url}
-                                    className="w-full h-full object-cover hidden"
-                                    muted
-                                    playsInline
-                                    preload="metadata"
-                                />
-                            )}
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
-                                    <Play className="w-5 h-5 text-white fill-white ml-1" />
-                                </div>
-                            </div>
-                        </>
-                    )}
-                </div>
-
-
-                <div className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md text-white text-[10px] font-black flex items-center justify-center border border-white/20 shadow-xl">{idx + 1}</div>
-
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
-                    <button onClick={(e) => { e.stopPropagation(); onView(item); }} className="p-2 bg-white text-gray-900 rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"><Eye className="w-4 h-4" /></button>
-                    <button onClick={(e) => { e.stopPropagation(); onRemove(idx); }} className="p-2 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"><Trash2 className="w-4 h-4" /></button>
-                </div>
-            </div>
-
-            {gridZoom >= 38 && (
-                <div className={cn("bg-white border-t border-gray-50 flex-shrink-0 flex flex-col justify-center transition-all", gridZoom < 60 ? "p-1.5 space-y-1" : "p-3 space-y-2")}>
-                    {item.type === 'image' ? (
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 text-gray-400">
-                                <Clock className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
-                                <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Duration</span>
-                            </div>
-                            <div className="flex items-center gap-0.5">
-                                <input type="number" min={1} max={30} value={item.duration || 5} onChange={e => onUpdateDuration(idx, parseInt(e.target.value) || 5)}
-                                    className={cn("bg-gray-50 border-none rounded-lg text-center font-black text-catalog-accent focus:ring-1 focus:ring-catalog-accent/20", gridZoom < 60 ? "w-8 py-0.5 text-[8px]" : "w-12 py-1 text-xs")} />
-                                <span className={cn("text-gray-400 font-bold", gridZoom < 60 ? "text-[6px]" : "text-[8px]")}>s</span>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 text-blue-500">
-                                <Video className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
-                                <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Frame</span>
-                            </div>
-                            <button onClick={() => onUpdateCrop(idx)} className={cn("rounded-lg font-black uppercase tracking-widest transition-all", item.cropMode === 'cover' ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-400", gridZoom < 60 ? "px-1.5 py-0.5 text-[7px]" : "px-2.5 py-1 text-[9px]")}>
-                                {item.cropMode === 'cover' ? 'Full' : 'Fit'}
-                            </button>
-                        </div>
-                    )}
-                </div>
-            )}
-        </div>
-    );
 }
 
 // ── Draggable layer hook ──────────────────────────────────────────────────
@@ -219,57 +87,16 @@ function useDrag(
     return { begin, move, end };
 }
 
-function StackThumbnailStripItem({ 
-    item, 
-    isSelected, 
-    idx, 
-    onClick 
-}: { 
-    item: StackMediaItem; 
-    isSelected: boolean; 
-    idx: number; 
-    onClick: () => void;
-}) {
-    const { url: thumbUrl } = useGooglePhotosUrl(item.googlePhotoId, item.url, null, true);
-
-    return (
-        <button
-            onClick={onClick}
-            className={cn(
-                "relative aspect-square rounded-xl overflow-hidden border-2 transition-all bg-neutral-900 shadow-sm",
-                isSelected
-                    ? "border-catalog-accent shadow-lg scale-105 z-10"
-                    : "border-transparent opacity-60 hover:opacity-100 hover:scale-102"
-            )}
-        >
-            <img
-                src={thumbUrl || item.url}
-                alt=""
-                className="w-full h-full object-cover"
-            />
-            {item.type === 'video' && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40">
-                    <Play className="w-4 h-4 text-white fill-white opacity-80" />
-                </div>
-            )}
-            <div className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] font-black text-center py-0.5 tracking-widest uppercase">
-                {idx + 1}
-            </div>
-        </button>
-    );
-}
-
 // ── Main Component ────────────────────────────────────────────────────────
 interface CreateStackModalProps {
-    isOpen: boolean; onClose: () => void; onCreated: () => void; folders?: string[];
-    initialStack?: any; // Stack object for edit mode
-    initialSelected?: any[]; // Items pre-selected in media library
+    isOpen: boolean; onClose: () => void; onCreated: () => void;
+    initialStack?: any;
+    initialSelected?: any[];
 }
 
-export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], initialStack, initialSelected }: CreateStackModalProps) {
-    const { familyId, user, googleAccessToken, signInWithGoogle } = useAuth();
+export function CreateStackModal({ isOpen, onClose, onCreated, initialStack, initialSelected }: CreateStackModalProps) {
+    const { familyId, user } = useAuth();
     const [step, setStep] = useState<1 | 2>(1);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const previewRef = useRef<HTMLDivElement>(null);
 
     // Step 1
@@ -285,40 +112,18 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     const [geotag, setGeotag] = useState<any>(null);
     const [mediaItems, setMediaItems] = useState<StackMediaItem[]>([]);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
-    const [showGooglePicker, setShowGooglePicker] = useState(false);
     const [showMusicPicker, setShowMusicPicker] = useState(false);
-    const [showSourcePicker, setShowSourcePicker] = useState(false);
-    const [showFreeMusic, setShowFreeMusic] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-    const [lightboxItem, setLightboxItem] = useState<StackMediaItem | null>(null);
 
     // Step 2
     const [editingIdx, setEditingIdx] = useState(0);
     const [selectedLayer, setSelectedLayer] = useState<SelectedLayer>(null);
     const [saving, setSaving] = useState(false);
-    const [isImporting, setIsImporting] = useState(false);
-
-    // Amazon Photos & URL Import
-    const [amazonUrlInput, setAmazonUrlInput] = useState('');
-    const [isAmazonModalOpen, setIsAmazonModalOpen] = useState(false);
-    const [amazonBatchProgress, setAmazonBatchProgress] = useState<{ done: number; total: number } | null>(null);
-    const [amazonImportError, setAmazonImportError] = useState('');
-    const [isImportingAmazon, setIsImportingAmazon] = useState(false);
-
-    // New unified folder picker for uploads
-    const [showFolderPicker, setShowFolderPicker] = useState(false);
-    const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
-
-
-    const [isUrlModalOpen, setIsUrlModalOpen] = useState(false);
-    const [urlInput, setUrlInput] = useState('');
-    const [urlImportError, setUrlImportError] = useState('');
-    const [isImportingUrl, setIsImportingUrl] = useState(false);
+    const [showFreeMusic, setShowFreeMusic] = useState(false);
 
     // ── Load Initial Stack for Edit Mode ─────────────────────────────────
     useEffect(() => {
         if (isOpen && initialSelected && initialSelected.length > 0 && mediaItems.length === 0) {
-            const mapped = initialSelected.map(m => makeItem(m.id, m.url, m.type, m.filename, m.googlePhotoId));
+            const mapped = initialSelected.map(m => makeItem(m.id, m.url, m.type, m.filename));
             setMediaItems(mapped);
         }
     }, [isOpen, initialSelected, mediaItems.length]);
@@ -334,7 +139,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             setEventDate(initialStack.event_date ? new Date(initialStack.event_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
             setGeotag(initialStack.geotag || null);
             setMediaItems(initialStack.media_items || []);
-            // Step 1 grid zoom is not persisted, we default to 100 for editing
             setGridZoom(100);
             setStep(1);
             setEditingIdx(0);
@@ -344,8 +148,8 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     }, [isOpen, initialStack]);
 
     const currentItem = mediaItems[editingIdx];
-    const { url: displayUrl } = useGooglePhotosUrl(currentItem?.googlePhotoId, currentItem?.url);
-    const { url: posterUrl } = useGooglePhotosUrl(currentItem?.googlePhotoId, currentItem?.url, null, true);
+    const displayUrl = currentItem?.url;
+    const posterUrl = currentItem?.url;
 
     // ── Drag ──────────────────────────────────────────────────────────────
     const handleDragUpdate = useCallback((id: string, kind: string, x: number, y: number) => {
@@ -383,11 +187,11 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
         setSelectedLayer({ kind: 'sticker', id: layer.id });
     };
     const removeTextLayer = (id: string) => {
-        updateItem({ textLayers: (currentItem.textLayers || []).filter(l => l.id !== id) });
+        updateItem({ textLayers: currentItem.textLayers.filter(l => l.id !== id) });
         if (selectedLayer?.id === id) setSelectedLayer(null);
     };
     const removeStickerLayer = (id: string) => {
-        updateItem({ stickerLayers: (currentItem.stickerLayers || []).filter(l => l.id !== id) });
+        updateItem({ stickerLayers: currentItem.stickerLayers.filter(l => l.id !== id) });
         if (selectedLayer?.id === id) setSelectedLayer(null);
     };
     const showCaption = () => setSelectedLayer({ kind: 'caption', id: 'caption' });
@@ -413,145 +217,11 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     // ── Media import ─────────────────────────────────────────────────────
     const [useHls, setUseHls] = useState(false); // Toggle for HLS adaptive streaming
     const [gridZoom, setGridZoom] = useState<number>(100); // Grid density zoom for Step 1
-    const gridRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        const grid = gridRef.current;
-        if (!grid) return;
-
-        const handleWheel = (e: WheelEvent) => {
-            if (e.ctrlKey || e.metaKey) {
-                e.preventDefault();
-                setGridZoom(prev => {
-                    const delta = e.deltaY >  0 ? -5 : 5;
-                    return Math.max(20, Math.min(100, prev + delta));
-                });
-            }
-        };
-
-        let initialDist = 0;
-        const handleTouchStart = (e: TouchEvent) => {
-            if (e.touches.length === 2) {
-                initialDist = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
-                );
-            }
-        };
-
-        const handleTouchMove = (e: TouchEvent) => {
-            if (e.touches.length === 2 && initialDist > 0) {
-                const dist = Math.hypot(
-                    e.touches[0].clientX - e.touches[1].clientX,
-                    e.touches[0].clientY - e.touches[1].clientY
-                );
-                // Adjust zoom factor based on pinch speed - keep it subtle
-                const factor = dist / initialDist;
-                setGridZoom(prev => {
-                    const next = prev * factor;
-                    return Math.max(20, Math.min(100, next));
-                });
-                initialDist = dist;
-                if (e.cancelable) e.preventDefault();
-            }
-        };
-
-        const handleTouchEnd = () => { initialDist = 0; };
-
-        grid.addEventListener('wheel', handleWheel, { passive: false });
-        grid.addEventListener('touchstart', handleTouchStart);
-        grid.addEventListener('touchmove', handleTouchMove, { passive: false });
-        grid.addEventListener('touchend', handleTouchEnd);
-
-        return () => {
-            grid.removeEventListener('wheel', handleWheel);
-            grid.removeEventListener('touchstart', handleTouchStart);
-            grid.removeEventListener('touchmove', handleTouchMove);
-            grid.removeEventListener('touchend', handleTouchEnd);
-        };
-    }, [step]); // Re-attach when step changes to ensure gridRef is captured
-
-    const handleDeviceUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0 || !familyId) return;
-        setQueuedFiles(Array.from(e.target.files));
-        setShowFolderPicker(true);
-        if (e.target) e.target.value = '';
-    };
-
-    const executeDeviceUpload = async (selectedFolder: string) => {
-        setShowFolderPicker(false);
-        setIsImporting(true);
-        for (const file of queuedFiles) {
-            const isVideo = file.type.startsWith('video/') || !!file.name.match(/\.(mp4|mov|webm|mkv|avi|m4v)$/i);
-
-            // Images now go to Google Photos, Videos to Cloudflare R2
-            if (!isVideo && !googleAccessToken) {
-                if (confirm('Google integration required for image upload. Sign in with Google now?')) {
-                    signInWithGoogle();
-                }
-                break;
-            }
-
-            // Show file queued at 0%
-            setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
-
-            try {
-                const targetFolder = selectedFolder === '/' ? 'Stacks' : selectedFolder;
-                const pathPrefix = `media/${familyId}/stacks/${Date.now()}`;
-
-                const { url, error, r2Key, googlePhotoId } = await storageService.uploadFile(
-                    file,
-                    'stacks', 
-                    pathPrefix,
-                    (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
-                    googleAccessToken, // passed for images
-                    isVideo && useHls // use HLS if enabled for videos
-                );
-
-                if (error) throw new Error(error);
-                if (!url) throw new Error('No URL returned from storage');
-
-                setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
-                setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; }), 800);
-
-                const srcId = isVideo ? 'r2' : 'gp';
-                const newItem = makeItem(
-                    `${srcId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    url,
-                    isVideo ? 'video' : 'image',
-                    file.name,
-                    googlePhotoId
-                );
-                setMediaItems(prev => [...prev, newItem]);
-
-                // Record in family_media for indexing
-                await supabase.from('family_media').insert({
-                    family_id: familyId,
-                    url,
-                    type: isVideo ? 'video' : 'image',
-                    category: 'stacks',
-                    folder: targetFolder,
-                    filename: file.name,
-                    size: file.size,
-                    uploaded_by: user?.id,
-                    metadata: isVideo 
-                        ? { r2Key, isHls: useHls, storage: 'r2' }
-                        : { syncedToGooglePhotos: true, isExternal: true, googlePhotoId }
-                } as any);
-            } catch (err) {
-                console.error('Upload failed:', err);
-                alert(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; });
-            }
-        }
-        setIsImporting(false);
-        setQueuedFiles([]);
-    };
 
     const handleLibrarySelect = (item: any) => {
         setShowMediaPicker(false);
         const isVideo = item.type === 'video' || item.url?.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i);
-        setMediaItems(prev => [...prev, makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename, item.metadata?.googlePhotoId)]);
+        setMediaItems(prev => [...prev, makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename)]);
     };
 
     const handleLibraryMultiSelect = (items: any[]) => {
@@ -560,187 +230,11 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             ...prev,
             ...items.map(item => {
                 const isVideo = item.type === 'video' || item.url?.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i);
-                return makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename, item.metadata?.googlePhotoId);
+                return makeItem(item.id, item.url, isVideo ? 'video' : 'image', item.filename);
             })
         ]);
     };
 
-    const handleGooglePhotosSelect = async (selected: any[], _folder: string) => {
-        setShowGooglePicker(false);
-        if (!googleAccessToken || !familyId) return;
-        setIsImporting(true);
-        try {
-            for (let i = 0; i < selected.length; i++) {
-                const item = selected[i];
-                try {
-                    const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
-                    const { url: persistentUrl, googlePhotoId: persistentId, type: persistentType } = await storageService.persistGoogleMedia(item, googleAccessToken, familyId, targetFolder, (p) => {
-                        setUploadProgress(prev => ({ ...prev, [item.id]: p }));
-                    }, useHls);
-
-                    setUploadProgress(prev => ({ ...prev, [item.id]: 100 }));
-                    setTimeout(() => setUploadProgress(prev => { const n = { ...prev }; delete n[item.id]; return n; }), 800);
-
-                    const newItem = makeItem(item.id, persistentUrl, persistentType, item.filename || `gp_${item.id}`, persistentId);
-                    setMediaItems(prev => [...prev, newItem]);
-
-                    // Record in family_media for indexing
-                    const { data: existing } = await (supabase
-                        .from('family_media') as any)
-                        .select('id')
-                        .eq('url', persistentUrl)
-                        .maybeSingle();
-
-                    if (existing) {
-                        await (supabase.from('family_media') as any)
-                            .update({
-                                type: persistentType,
-                                category: 'stacks',
-                                folder: targetFolder,
-                                filename: item.filename || `gp_${item.id}`,
-                                uploaded_by: user?.id,
-                                google_id: persistentId,
-                                metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
-                            })
-                            .eq('id', (existing as any).id);
-                    } else {
-                        await (supabase.from('family_media') as any).insert({
-                            family_id: familyId,
-                            url: persistentUrl,
-                            type: persistentType,
-                            category: 'stacks',
-                            folder: targetFolder,
-                            filename: item.filename || `gp_${item.id}`,
-                            uploaded_by: user?.id,
-                            google_id: persistentId,
-                            metadata: { googlePhotoId: persistentId, syncedToGoogle: true, isExternal: true }
-                        });
-                    }
-                } catch (err) {
-                    console.error('Google Photos item persist failed:', err);
-                }
-            }
-        } catch (err) {
-            console.error('Google Photos selected import failed:', err);
-        } finally {
-            setIsImporting(false);
-        }
-    };
-
-    const processRemoteUrl = (url: string): { processedUrl: string; type: 'image' | 'video'; filename: string } | null => {
-        const trimmed = url.trim();
-        if (!trimmed || !trimmed.startsWith('http')) return null;
-
-        // Dropbox optimization
-        let finalUrl = trimmed;
-        if (finalUrl.includes('dropbox.com')) {
-            finalUrl = finalUrl.replace('dl=0', 'raw=1');
-            if (!finalUrl.includes('raw=1')) {
-                finalUrl += (finalUrl.includes('?') ? '&' : '?') + 'raw=1';
-            }
-        }
-
-        const isVideo = /\.(mp4|mov|avi|mkv|webm|m4v)/i.test(finalUrl) ||
-            finalUrl.includes('video') || finalUrl.includes('Video');
-        const type: 'image' | 'video' = isVideo ? 'video' : 'image';
-        const filename = finalUrl.split('/').pop()?.split('?')[0] || (isVideo ? 'Remote Video' : 'Remote Photo');
-        return { processedUrl: finalUrl, type, filename };
-    };
-
-    const handleAmazonBatchImport = async () => {
-        if (!amazonUrlInput.trim() || !familyId) return;
-
-        const lines = amazonUrlInput.split('\n').map(l => l.trim()).filter(Boolean);
-        const validUrls = lines.map(processRemoteUrl).filter((r): r is NonNullable<typeof r> => r !== null);
-
-        if (validUrls.length === 0) {
-            setAmazonImportError('No valid URLs found.');
-            return;
-        }
-
-        setIsImportingAmazon(true);
-        setAmazonImportError('');
-        setAmazonBatchProgress({ done: 0, total: validUrls.length });
-
-        const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
-        const newItems: StackMediaItem[] = [];
-
-        for (let i = 0; i < validUrls.length; i++) {
-            const item = validUrls[i];
-            try {
-                // Record in family_media
-                // Check if already exists to avoid 400 error on PostgREST upsert
-                const { data: existing } = await (supabase
-                    .from('family_media') as any)
-                    .select('id')
-                    .eq('url', item.processedUrl)
-                    .maybeSingle();
-
-                if (existing) {
-                    await (supabase.from('family_media') as any)
-                        .update({
-                            type: item.type,
-                            category: 'stacks',
-                            folder: targetFolder,
-                            filename: item.filename,
-                            uploaded_by: user?.id,
-                        })
-                        .eq('id', (existing as any).id);
-                } else {
-                    await (supabase.from('family_media') as any).insert({
-                        family_id: familyId,
-                        url: item.processedUrl,
-                        type: item.type,
-                        category: 'stacks',
-                        folder: targetFolder,
-                        filename: item.filename,
-                        uploaded_by: user?.id,
-                    });
-                }
-
-                newItems.push(makeItem(`remote-${Date.now()}-${i}`, item.processedUrl, item.type, item.filename));
-            } catch (err) {
-                console.error('Import failed for', item.processedUrl, err);
-            }
-            setAmazonBatchProgress({ done: i + 1, total: validUrls.length });
-        }
-
-        setMediaItems(prev => [...prev, ...newItems]);
-        setAmazonUrlInput('');
-        setAmazonBatchProgress(null);
-        setIsImportingAmazon(false);
-        setIsAmazonModalOpen(false);
-    };
-
-    const handleUrlImport = async () => {
-        const item = processRemoteUrl(urlInput);
-        if (!item || !familyId) return;
-
-        setIsImportingUrl(true);
-        setUrlImportError('');
-
-        try {
-            const targetFolder = title.trim() ? `Stacks/${title.trim()}` : 'Stacks';
-            
-            await supabase.from('family_media').insert({
-                family_id: familyId,
-                url: item.processedUrl,
-                type: item.type,
-                category: 'stacks',
-                folder: targetFolder,
-                filename: item.filename,
-                uploaded_by: user?.id,
-            } as any);
-
-            setMediaItems(prev => [...prev, makeItem(`remote-${Date.now()}`, item.processedUrl, item.type, item.filename)]);
-            setUrlInput('');
-            setIsUrlModalOpen(false);
-        } catch (err: any) {
-            setUrlImportError(err.message);
-        } finally {
-            setIsImportingUrl(false);
-        }
-    };
 
     const removeMedia = (idx: number) => {
         setMediaItems(prev => prev.filter((_, i) => i !== idx));
@@ -762,11 +256,9 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
             };
 
             if (initialStack?.id) {
-                // Update existing
                 const { error } = await (supabase.from('stacks') as any).update(payload).eq('id', initialStack.id);
                 if (error) throw error;
             } else {
-                // Insert new
                 const { error } = await (supabase.from('stacks') as any).insert(payload);
                 if (error) throw error;
             }
@@ -779,7 +271,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
     };
 
     const resetForm = () => {
-        if (initialStack) return; // Keep form if just closing/opening while editing potentially
+        if (initialStack) return; 
         setStep(1); setTitle(''); setDescription(''); setParticipants([]); setHashtags([]);
         setSelectedMusic(null); setLocation(''); setEventDate(new Date().toISOString().split('T')[0]); setGeotag(null);
         setMediaItems([]); setEditingIdx(0); setSelectedLayer(null);
@@ -830,19 +322,16 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         <div className="flex-1 overflow-hidden grid md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-0 h-full">
                             {/* Left: form */}
                             <div className="p-8 space-y-5 border-r border-gray-100 overflow-y-auto">
-                                {/* Title */}
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Title *</label>
                                     <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Our Summer Adventure..."
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-lg font-bold focus:outline-none focus:ring-2 focus:ring-catalog-accent/20 transition-all" />
                                 </div>
-                                {/* Description */}
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5">Description</label>
                                     <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Tell the story..." rows={2}
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-catalog-accent/20 transition-all resize-none" />
                                 </div>
-                                {/* Participants */}
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 flex items-center gap-1"><Users className="w-3 h-3" /> Participants</label>
                                     <div className="flex gap-2">
@@ -854,7 +343,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         {participants.map(p => <span key={p} className="flex items-center gap-1 px-3 py-0.5 bg-purple-50 text-purple-700 rounded-full text-xs font-bold border border-purple-100">{p}<button onClick={() => setParticipants(ps => ps.filter(x => x !== p))}><X className="w-3 h-3" /></button></span>)}
                                     </div>}
                                 </div>
-                                {/* Hashtags */}
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 flex items-center gap-1"><Hash className="w-3 h-3" /> Hashtags</label>
                                     <div className="flex gap-2">
@@ -866,7 +354,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         {hashtags.map(t => <span key={t} className="flex items-center gap-1 px-3 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-bold border border-blue-100">#{t}<button onClick={() => setHashtags(ts => ts.filter(x => x !== t))}><X className="w-3 h-3" /></button></span>)}
                                     </div>}
                                 </div>
-                                {/* Date & Location */}
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 flex items-center gap-1"><Calendar className="w-3 h-3" /> Date</label>
@@ -885,7 +372,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         />
                                     </div>
                                 </div>
-                                {/* Music */}
                                 <div>
                                     <label className="block text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1.5 flex items-center gap-1"><Music className="w-3 h-3" /> Music</label>
                                     {selectedMusic ? (
@@ -914,28 +400,29 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             </div>
                             {/* Right: media */}
                             <div className="p-8 flex flex-col gap-6 overflow-y-auto bg-gray-50/30">
-                                {/* Center Upload Overlay when active */}
-                                <UploadOverlay 
-                                    isOpen={isImporting || Object.keys(uploadProgress).length > 0} 
-                                    progress={uploadProgress} 
-                                    title={isImporting ? "Importing to Stack..." : "Uploading to Cloud..."}
-                                />
-
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="space-y-1">
                                         <h3 className="text-xl font-serif italic text-gray-800">Media Content</h3>
                                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Arrange and configure your story</p>
                                     </div>
 
-                                    <button onClick={() => setShowSourcePicker(true)}
-                                        className="flex items-center gap-2 px-5 py-2.5 bg-catalog-accent text-white rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-catalog-accent/90 transition-all shadow-lg shadow-catalog-accent/20 active:scale-95">
-                                        <Plus className="w-4 h-4" /> Add Media
-                                    </button>
+                                    <UniversalUploadButton
+                                        familyId={familyId}
+                                        folder={title.trim() ? `Stacks/${title.trim()}` : 'Stacks'}
+                                        useHls={useHls}
+                                        showLibraryImport={true}
+                                        onSelectExisting={() => setShowMediaPicker(true)}
+                                        onComplete={(items) => {
+                                            const mapped = items.map(m => makeItem(`uploaded-${Date.now()}-${Math.random()}`, m.url, m.type, m.filename));
+                                            setMediaItems(prev => [...prev, ...mapped]);
+                                        }}
+                                        variant="primary"
+                                        label="Add Media"
+                                        className="!rounded-2xl !px-5 !py-2.5 !text-[10px] !font-black !uppercase !tracking-[0.2em] !shadow-lg active:scale-95"
+                                    />
                                 </div>
 
-                                {/* Controls Bar: HLS + Global Size */}
                                 <div className="flex flex-wrap items-center gap-4 px-5 py-3 bg-white/70 rounded-3xl border border-gray-100 shadow-sm">
-                                    {/* HLS Toggle */}
                                     <div className="flex items-center gap-2 pr-4 border-r border-gray-100">
                                         <span className="text-[9px] font-black uppercase tracking-widest text-gray-400">Adaptive Streaming (HLS)</span>
                                         <button
@@ -954,19 +441,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         {useHls && <span className="text-[9px] font-bold text-catalog-accent uppercase tracking-widest">On</span>}
                                     </div>
 
-                                    {/* Grid Zoom Slider */}
                                     <div className="flex items-center gap-4 flex-1 min-w-[200px]">
                                         <div className="flex items-center gap-1.5 text-gray-400 shrink-0">
                                             <LayoutGrid className="w-3.5 h-3.5" />
                                             <span className="text-[9px] font-black uppercase tracking-widest leading-none">Grid Zoom</span>
                                         </div>
                                         <div className="flex-1 flex items-center gap-3">
-                                            <button 
-                                                onClick={() => setGridZoom(prev => Math.max(20, prev - 5))}
-                                                className="p-1 px-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-catalog-accent transition-colors"
-                                            >
-                                                <ZoomOut className="w-4 h-4" />
-                                            </button>
                                             <Slider
                                                 min={20}
                                                 max={100}
@@ -975,19 +455,13 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                                 onValueChange={([val]) => setGridZoom(val)}
                                                 className="flex-1"
                                             />
-                                            <button 
-                                                onClick={() => setGridZoom(prev => Math.min(100, prev + 5))}
-                                                className="p-1 px-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-catalog-accent transition-colors"
-                                            >
-                                                <ZoomIn className="w-4 h-4" />
-                                            </button>
-                                            <span className="text-[10px] font-black text-catalog-accent w-8 text-center">{Math.round(gridZoom)}%</span>
+                                            <span className="text-[10px] font-black text-catalog-accent w-8">{gridZoom}%</span>
                                         </div>
                                     </div>
                                 </div>
 
                                 {mediaItems.length === 0 ? (
-                                    <button onClick={() => setShowSourcePicker(true)} className="flex-1 border-2 border-dashed border-gray-200 rounded-[3rem] flex flex-col items-center justify-center gap-4 hover:border-catalog-accent/40 hover:bg-catalog-accent/5 transition-all group min-h-[400px] bg-white/50">
+                                    <button onClick={() => setShowMediaPicker(true)} className="flex-1 border-2 border-dashed border-gray-200 rounded-[3rem] flex flex-col items-center justify-center gap-4 hover:border-catalog-accent/40 hover:bg-catalog-accent/5 transition-all group min-h-[400px] bg-white/50">
                                         <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center group-hover:scale-110 transition-all shadow-sm border border-gray-100"><Plus className="w-10 h-10 text-gray-300 group-hover:text-catalog-accent" /></div>
                                         <div className="text-center">
                                             <p className="text-lg font-bold text-gray-600">Start your story</p>
@@ -996,26 +470,108 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                     </button>
                                 ) : (
                                     <div 
-                                        ref={gridRef}
-                                        className="grid gap-4 w-full select-none"
+                                        className="grid gap-4 w-full"
                                         style={{ 
                                             gridTemplateColumns: `repeat(auto-fill, minmax(${Math.floor(60 + (gridZoom - 20) * 2.25)}px, 1fr))` 
                                         }}
                                     >
                                         {mediaItems.map((item, idx) => (
-                                            <StackMediaItemGridItem
+                                            <div
                                                 key={item.id + idx}
-                                                item={item}
-                                                idx={idx}
-                                                gridZoom={gridZoom}
-                                                onDragStart={onDragStart}
-                                                onDragOver={onDragOver}
+                                                draggable
+                                                onDragStart={() => onDragStart(idx)}
+                                                onDragOver={(e) => onDragOver(e, idx)}
                                                 onDragEnd={onDragEnd}
-                                                onView={setLightboxItem}
-                                                onRemove={removeMedia}
-                                                onUpdateDuration={(i, d) => setMediaItems(prev => prev.map((it, idx) => idx === i ? { ...it, duration: d } : it))}
-                                                onUpdateCrop={(i) => setMediaItems(prev => prev.map((it, idx) => idx === i ? { ...it, cropMode: it.cropMode === 'cover' ? 'contain' : 'cover' } : it))}
-                                            />
+                                                className={cn(
+                                                    "relative aspect-[3/4.5] rounded-3xl overflow-hidden group shadow-md border border-white bg-white flex flex-col cursor-grab active:cursor-grabbing hover:shadow-xl transition-all",
+                                                    gridZoom < 40 ? "rounded-xl" : "rounded-3xl"
+                                                )}
+                                            >
+                                                <div className="flex-1 relative overflow-hidden bg-gray-50">
+                                                    {item.type === 'video' ? (
+                                                        <>
+                                                            <video
+                                                                src={`${item.url}#t=0.1`}
+                                                                className="w-full h-full object-cover block"
+                                                                muted
+                                                                playsInline
+                                                                preload="metadata"
+                                                                crossOrigin="anonymous"
+                                                            />
+                                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
+                                                                    <Play className="w-5 h-5 text-white fill-white ml-1" />
+                                                                </div>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <img src={item.url} alt="" className={cn("w-full h-full transition-transform duration-700 group-hover:scale-110", item.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />
+                                                    )}
+
+                                                    <div className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md text-white text-[10px] font-black flex items-center justify-center border border-white/20 shadow-xl">{idx + 1}</div>
+
+                                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-all flex items-center justify-center gap-3">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); removeMedia(idx); }}
+                                                            className="p-2 bg-red-500 text-white rounded-xl hover:scale-110 transition-transform shadow-xl pointer-events-auto"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                {gridZoom >= 38 && (
+                                                    <div className={cn(
+                                                        "bg-white border-t border-gray-50 flex-shrink-0 flex flex-col justify-center transition-all",
+                                                        gridZoom < 60 ? "p-1.5 space-y-1" : "p-3 space-y-2"
+                                                    )}>
+                                                        {item.type === 'image' && (
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-1 text-gray-400">
+                                                                    <Clock className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
+                                                                    <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Duration</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-0.5">
+                                                                    <input
+                                                                        type="number"
+                                                                        min={1} max={30}
+                                                                        value={item.duration || 5}
+                                                                        onChange={e => {
+                                                                            const val = parseInt(e.target.value) || 5;
+                                                                            setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, duration: val } : it));
+                                                                        }}
+                                                                        className={cn(
+                                                                            "font-black text-center bg-gray-50 border border-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-catalog-accent/20",
+                                                                            gridZoom < 60 ? "w-7 text-[8px] py-0" : "w-10 text-[10px] py-0.5"
+                                                                        )}
+                                                                    />
+                                                                    <span className={cn("font-black text-gray-400", gridZoom < 60 ? "text-[7px]" : "text-[9px]")}>s</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                        {item.type === 'video' && (
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-1 text-blue-500">
+                                                                    <Video className={cn(gridZoom < 60 ? "w-2.5 h-2.5" : "w-3.5 h-3.5")} />
+                                                                    <span className={cn("font-black uppercase tracking-widest leading-none", gridZoom < 60 ? "text-[7px]" : "text-[10px]")}>Frame</span>
+                                                                </div>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setMediaItems(prev => prev.map((it, i) => i === idx ? { ...it, cropMode: it.cropMode === 'cover' ? 'contain' : 'cover' } : it));
+                                                                    }}
+                                                                    className={cn(
+                                                                        "rounded-lg font-black uppercase tracking-widest transition-all", 
+                                                                        item.cropMode === 'cover' ? "bg-blue-500 text-white shadow-sm" : "bg-gray-100 text-gray-400",
+                                                                        gridZoom < 60 ? "px-1.5 py-0.5 text-[7px]" : "px-2.5 py-1 text-[9px]"
+                                                                    )}
+                                                                >
+                                                                    {item.cropMode === 'cover' ? 'Full' : 'Fit'}
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         ))}
                                     </div>
                                 )}
@@ -1029,13 +585,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                             {/* Thumbnail strip */}
                             <div className="w-24 bg-gray-50 border-r border-gray-100 flex flex-col gap-2 p-2.5 overflow-y-auto shrink-0">
                                 {mediaItems.map((item, idx) => (
-                                    <StackThumbnailStripItem
-                                        key={idx}
-                                        item={item}
-                                        isSelected={editingIdx === idx}
-                                        idx={idx}
-                                        onClick={() => setEditingIdx(idx)}
-                                    />
+                                    <button key={idx} onClick={() => setEditingIdx(idx)}
+                                        className={cn("relative aspect-square rounded-xl overflow-hidden border-2 transition-all bg-gray-200", editingIdx === idx ? "border-catalog-accent shadow-lg scale-105" : "border-transparent opacity-60 hover:opacity-100")}>
+                                        {item.type === 'video' ? <video src={item.url} className="w-full h-full object-cover" autoPlay loop muted playsInline crossOrigin="anonymous" />
+                                            : <img src={item.url} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />}
+                                        <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[8px] font-black text-center py-0.5">{idx + 1}</div>
+                                    </button>
                                 ))}
                             </div>
 
@@ -1053,7 +608,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         poster={posterUrl}
                                         controls={selectedLayer?.kind !== 'trim' as any}
                                         className={cn("absolute inset-0 w-full h-full pointer-events-auto transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
-                                        autoPlay loop playsInline
+                                        autoPlay loop playsInline crossOrigin="anonymous"
                                         onLoadedMetadata={(e) => {
                                             const dur = e.currentTarget.duration;
                                             if (dur && dur !== currentItem.totalVideoDuration) {
@@ -1071,7 +626,7 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                             }
                                         }}
                                     />
-                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} />}
+                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />}
 
                                 {/* Text layers */}
                                 {(currentItem.textLayers || []).map(layer => (
@@ -1326,7 +881,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                                         </div>
                                     )}
 
-                                    {/* Default hint */}
                                     {!selectedLayer && (
                                         <div className="text-center space-y-3 py-4">
                                             <Sparkles className="w-8 h-8 text-gray-200 mx-auto" />
@@ -1359,197 +913,10 @@ export function CreateStackModal({ isOpen, onClose, onCreated, folders = [], ini
                         )}
                     </div>
                 </div>
-            </div >
-
-            <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" className="hidden" onChange={handleDeviceUpload} />
+            </div>
 
             {showMediaPicker && <MediaPickerModal isOpen={showMediaPicker} onClose={() => setShowMediaPicker(false)} onSelect={handleLibrarySelect} onSelectMultiple={handleLibraryMultiSelect} multiSelect allowedTypes={['image', 'video']} />}
-            {showGooglePicker && googleAccessToken && <GooglePhotosSelector googleAccessToken={googleAccessToken} isOpen={showGooglePicker} onClose={() => setShowGooglePicker(false)} onSelect={handleGooglePhotosSelect} folders={folders} onReauth={signInWithGoogle} />}
-            {showMusicPicker && <MusicPickerModal onClose={() => setShowMusicPicker(false)} onSelect={(url: string, name: string) => { setSelectedMusic({ url, name }); setShowMusicPicker(false); }} />}
-
-            {
-                showSourcePicker && (
-                    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-                        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isImporting && setShowSourcePicker(false)} />
-                        <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-xs p-2 overflow-hidden">
-                            <div className="p-5 text-center border-b border-gray-100">
-                                <h3 className="text-xl font-black text-gray-800">
-                                    {isImporting ? 'Importing...' : 'Add Media'}
-                                </h3>
-                            </div>
-                            <div className={cn("p-3 flex flex-col gap-1 transition-opacity", isImporting && "opacity-50 pointer-events-none")}>
-                                {[
-                                    { label: 'Library', sub: 'From your vault', icon: <Grid className="w-5 h-5" />, color: 'bg-emerald-50 text-emerald-600', action: () => { setShowSourcePicker(false); setShowMediaPicker(true); } },
-                                    {
-                                        label: 'Google Photos',
-                                        sub: 'Import from cloud',
-                                        icon: <span className="font-black text-xs text-blue-600">GP</span>,
-                                        color: 'bg-blue-50',
-                                        action: () => {
-                                            if (!googleAccessToken) {
-                                                if (confirm('Sign in with Google to browse your Photos library?')) {
-                                                    signInWithGoogle();
-                                                }
-                                                return;
-                                            }
-                                            setShowSourcePicker(false);
-                                            setShowGooglePicker(true);
-                                        }
-                                    },
-                                    { label: 'Device', sub: 'Upload from disk', icon: <Upload className="w-5 h-5" />, color: 'bg-indigo-50 text-indigo-600', action: () => { setShowSourcePicker(false); fileInputRef.current?.click(); } },
-                                    { label: 'Amazon / Bulk', sub: 'Import multiple URLs', icon: <span className="font-black text-xs text-orange-600">AZ</span>, color: 'bg-orange-50', action: () => { setShowSourcePicker(false); setIsAmazonModalOpen(true); } },
-                                    { label: 'Direct Link', sub: 'Add by URL', icon: <ExternalLink className="w-5 h-5" />, color: 'bg-gray-100 text-gray-600', action: () => { setShowSourcePicker(false); setIsUrlModalOpen(true); } },
-                                ].map(opt => (
-                                    <button key={opt.label} onClick={opt.action} className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-[1.25rem] flex items-center gap-3 transition-all group">
-                                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform", opt.color)}>{opt.icon}</div>
-                                        <div><div className="font-bold text-sm text-gray-700">{opt.label}</div><div className="text-[10px] text-gray-400">{opt.sub}</div></div>
-                                    </button>
-                                ))}
-                            </div>
-                            {isImporting && (
-                                <div className="absolute inset-0 flex items-center justify-center pt-16">
-                                    <Loader2 className="w-8 h-8 text-catalog-accent animate-spin" />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )
-            }
-
-            {/* Lightbox Modal */}
-            {
-                lightboxItem && (
-                    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-300" onClick={() => setLightboxItem(null)}>
-                        <button className="absolute top-6 right-6 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors text-white z-10" onClick={() => setLightboxItem(null)}>
-                            <X className="w-6 h-6" />
-                        </button>
-                        <div className="relative w-full max-w-5xl aspect-video md:aspect-[4/3] rounded-3xl overflow-hidden shadow-2xl bg-black" onClick={e => e.stopPropagation()}>
-                            {lightboxItem?.type === 'video' ? (
-                                <video
-                                    src={(lightboxItem?.url?.includes('googleusercontent.com') || lightboxItem?.url?.includes('photoslibrary.googleapis.com') || lightboxItem?.url?.startsWith('google-photos://')) ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
-                                    className="w-full h-full object-contain"
-                                    controls
-                                    autoPlay
-                                />
-                            ) : (
-                                <img
-                                    src={(lightboxItem?.url?.includes('googleusercontent.com') || lightboxItem?.url?.includes('photoslibrary.googleapis.com') || lightboxItem?.url?.startsWith('google-photos://')) ? GooglePhotosService.getProxyUrl(lightboxItem.url!, googleAccessToken, null, lightboxItem.googlePhotoId) : lightboxItem?.url}
-                                    alt=""
-                                    className="w-full h-full object-contain"
-                                />
-                            )}
-                            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-6 py-2 bg-black/40 backdrop-blur-md rounded-full border border-white/10 text-white text-sm font-medium">
-                                {lightboxItem?.filename}
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-            {isAmazonModalOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isImportingAmazon && setIsAmazonModalOpen(false)} />
-                    <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                        <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-orange-50 to-white">
-                            <h3 className="text-xl font-black text-orange-900 flex items-center gap-2">
-                                <span className="p-2 bg-orange-100 rounded-xl text-orange-600">AZ</span>
-                                Amazon / Bulk Import
-                            </h3>
-                            <button onClick={() => setIsAmazonModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                                <X className="w-5 h-5 text-gray-400" />
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4 overflow-y-auto">
-                            <div className="p-3 bg-amber-50 rounded-xl border border-amber-100">
-                                <p className="text-[10px] text-amber-800 leading-relaxed font-bold uppercase tracking-wider mb-1">💡 Instructions</p>
-                                <p className="text-[11px] text-amber-700 leading-snug">Paste image or video URLs from Amazon Photos or any web source (one per line). We'll add them to your stack and organize them automatically.</p>
-                            </div>
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">URLs (one per line)</label>
-                                <textarea 
-                                    value={amazonUrlInput}
-                                    onChange={e => setAmazonUrlInput(e.target.value)}
-                                    placeholder={`https://m.media-amazon.com/images/...jpg\nhttps://m.media-amazon.com/images/...mp4`}
-                                    rows={10}
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-[10px] font-mono focus:outline-none focus:ring-2 focus:ring-orange-500/20 transition-all leading-relaxed"
-                                />
-                            </div>
-                            {amazonImportError && <p className="text-xs font-bold text-red-500 px-1">⚠ {amazonImportError}</p>}
-                            {amazonBatchProgress && (
-                                <div className="space-y-2 px-1">
-                                    <div className="flex justify-between text-[10px] font-black uppercase text-orange-600">
-                                        <span>Importing batch... {Math.round((amazonBatchProgress.done / amazonBatchProgress.total) * 100)}%</span>
-                                    </div>
-                                    <div className="h-1.5 bg-orange-100 rounded-full overflow-hidden">
-                                        <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: `${(amazonBatchProgress.done / amazonBatchProgress.total) * 100}%` }} />
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
-                            <button onClick={() => setIsAmazonModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:text-gray-700">Cancel</button>
-                            <button 
-                                onClick={handleAmazonBatchImport}
-                                disabled={isImportingAmazon || !amazonUrlInput.trim()}
-                                className="flex-[2] py-4 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-orange-200 transition-all flex items-center justify-center gap-2"
-                            >
-                                {isImportingAmazon ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                                Start Batch Import
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {isUrlModalOpen && (
-                <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isImportingUrl && setIsUrlModalOpen(false)} />
-                    <div className="relative bg-white rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col">
-                        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-lg font-black text-gray-800 flex items-center gap-2">
-                                <ExternalLink className="w-5 h-5 text-catalog-accent" />
-                                Add by Link
-                            </h3>
-                            <button onClick={() => setIsUrlModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                                <X className="w-5 h-5 text-gray-400" />
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Paste Image or Video URL</label>
-                                <input 
-                                    type="text" 
-                                    value={urlInput}
-                                    onChange={e => setUrlInput(e.target.value)}
-                                    placeholder="https://example.com/photo.jpg"
-                                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-catalog-accent/20 transition-all"
-                                />
-                            </div>
-                            {urlImportError && <p className="text-xs font-bold text-red-500 px-1">⚠ {urlImportError}</p>}
-                        </div>
-                        <div className="p-6 border-t border-gray-100 bg-gray-50 flex gap-3">
-                            <button onClick={() => setIsUrlModalOpen(false)} className="flex-1 py-3 text-sm font-bold text-gray-500 hover:text-gray-700">Cancel</button>
-                            <button 
-                                onClick={handleUrlImport}
-                                disabled={isImportingUrl || !urlInput.trim()}
-                                className="flex-[2] py-4 bg-catalog-accent hover:bg-catalog-accent/90 disabled:opacity-50 text-white rounded-2xl text-sm font-black uppercase tracking-widest shadow-lg shadow-catalog-stone/20 transition-all flex items-center justify-center gap-2"
-                            >
-                                {isImportingUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                                Add to Stack
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <FolderPickerModal
-                isOpen={showFolderPicker}
-                onClose={() => { setShowFolderPicker(false); setQueuedFiles([]); }}
-                onSelect={(folder) => executeDeviceUpload(folder)}
-                existingFolders={folders}
-                currentFolder={title.trim() ? `Stacks/${title.trim()}` : 'Stacks'}
-                title="Select Upload Destination"
-            />
+            {showMusicPicker && <MusicPickerModal isOpen={showMusicPicker} onClose={() => setShowMusicPicker(false)} onSelect={(url: string, name: string) => { setSelectedMusic({ url, name }); setShowMusicPicker(false); }} />}
         </>
     );
 }
-

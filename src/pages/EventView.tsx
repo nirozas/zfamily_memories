@@ -9,32 +9,10 @@ import { GlobalLightboxProvider, useGlobalLightbox } from '../components/ui/Glob
 import type { Event } from '../types/supabase';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
-import { GooglePhotosService } from '../services/googlePhotos';
 
 const EventContent = ({ event }: { event: Event }) => {
     const { openLightbox } = useGlobalLightbox();
-    const { googleAccessToken } = useAuth();
-
-    // Resolve Google Photo URLs in description HTML
-    const resolvedDescription = (() => {
-        if (!event.description) return '';
-
-        // Find <img> tags and replace src with proxy URLs
-        return event.description.replace(/<img[^>]+src="([^">]+)"([^>]*)>/g, (match, src, rest) => {
-            // Extract data-google-id if it exists
-            const idMatch = rest.match(/data-google-id="([^"]+)"/);
-            const googleId = idMatch ? idMatch[1] : undefined;
-
-            const isGoogleUrl = src.includes('googleusercontent.com') || src.includes('photoslibrary.googleapis.com') || src.startsWith('google-photos://');
-
-            if (googleId || isGoogleUrl) {
-                // If we have an ID, we prioritize it for resilience. If not, just proxy the URL.
-                const proxyUrl = GooglePhotosService.getProxyUrl(src, googleAccessToken, null, googleId);
-                return `<img src="${proxyUrl}" ${rest} crossOrigin="anonymous">`;
-            }
-            return match;
-        });
-    })();
+    const resolvedDescription = event.description || '';
 
     return (
         <article className="space-y-20 font-inter">
@@ -217,4 +195,3 @@ export function EventView() {
         </GlobalLightboxProvider>
     );
 }
-

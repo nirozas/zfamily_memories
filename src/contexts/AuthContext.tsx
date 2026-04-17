@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { type User, type Session, type AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { UserRole, Profile } from '../types/supabase';
+import { CloudflareR2Service } from '../services/cloudflareR2';
 
 interface AuthContextType {
     user: User | null;
@@ -9,7 +10,6 @@ interface AuthContextType {
     profile: Profile | null;
     userRole: UserRole | null;
     familyId: string | null;
-    googleAccessToken: string | null;
     loading: boolean;
     signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
     signInWithGoogle: () => Promise<{ error: AuthError | null }>;
@@ -28,7 +28,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [profile, setProfile] = useState<Profile | null>(null);
     const [userRole, setUserRole] = useState<UserRole | null>(null);
     const [familyId, setFamilyId] = useState<string | null>(null);
-    const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
 
     // Check if Supabase is properly configured
@@ -54,6 +53,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setProfile(profileData);
                 setUserRole(profileData.role);
                 setFamilyId(profileData.family_id);
+
+                // Fetch family R2 settings if they exist
+                if (profileData.family_id) {
+                    const { data: familySettings } = await supabase
+                        .from('family_settings')
+                        .select('r2_public_url')
+                        .eq('family_id', profileData.family_id)
+                        .maybeSingle();
+                    
+                    if (familySettings?.r2_public_url) {
+                        console.log('[Auth] Initializing Family R2 Public URL:', familySettings.r2_public_url);
+                        CloudflareR2Service.setPublicUrl(familySettings.r2_public_url);
+                    }
+                }
+
                 return profileData;
             }
         } catch (error) {
@@ -71,10 +85,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         let isMounted = true;
 
-        // Safety Timeout: Don't stay on spectral "Loading" forever
+        // Safety Timeout
         const safetyTimer = setTimeout(() => {
             if (isMounted && loading) {
-                console.warn('[Auth] Safety timeout reached, forcing loading to false');
+                console.warn('[Auth] Safety timeout reached');
                 setLoading(false);
             }
         }, 5000);
@@ -82,35 +96,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Get initial session
         supabase.auth.getSession().then(async ({ data: { session } }) => {
             if (!isMounted) return;
-            console.log('[Auth] getSession completed. Session:', session ? 'Found' : 'Missing');
+            setSession(session);
+            setUser(session?.user ?? null);
 
-            let activeSession = session;
-
-            if (activeSession && !activeSession.provider_token) {
-                try {
-                    // Try to refresh once to see if we can catch the Google token
-                    const { data: refreshData } = await supabase.auth.refreshSession();
-                    if (refreshData.session) activeSession = refreshData.session;
-                } catch (e) {
-                    console.warn('[Auth] Could not refresh session:', e);
-                }
+            if (session?.user) {
+                fetchProfile(session.user.id);
             }
 
-            const token = activeSession?.provider_token || localStorage.getItem('google_access_token');
-            if (activeSession?.provider_token) {
-                localStorage.setItem('google_access_token', activeSession.provider_token);
-            }
-
-            setSession(activeSession);
-            setUser(activeSession?.user ?? null);
-            setGoogleAccessToken(token ?? null);
-
-            if (activeSession?.user) {
-                console.log('[Auth] Fetching profile for user:', activeSession.user.id);
-                fetchProfile(activeSession.user.id);
-            }
-
-            console.log('[Auth] Initial load finished');
             setLoading(false);
             clearTimeout(safetyTimer);
         }).catch((err) => {
@@ -123,16 +115,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
                 if (!isMounted) return;
-                console.log('[Auth] Auth state changed:', event);
-
                 setSession(session);
                 setUser(session?.user ?? null);
-
-                const token = session?.provider_token || localStorage.getItem('google_access_token');
-                if (session?.provider_token) {
-                    localStorage.setItem('google_access_token', session.provider_token);
-                }
-                setGoogleAccessToken(token ?? null);
 
                 if (session?.user) {
                     fetchProfile(session.user.id);
@@ -140,9 +124,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setProfile(null);
                     setUserRole(null);
                     setFamilyId(null);
-                    localStorage.removeItem('google_access_token');
                 }
-
                 setLoading(false);
             }
         );
@@ -253,17 +235,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const signInWithGoogle = async () => {
-        // Set a flag to redirect to the Media page after connecting to Google Photos
-        localStorage.setItem('authRedirect', '/media');
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
                 redirectTo: `${window.location.origin}/auth/callback`,
-                queryParams: {
-                    access_type: 'offline',
-                    prompt: 'consent',
-                    scope: 'openid email profile https://www.googleapis.com/auth/photospicker.mediaitems.readonly https://www.googleapis.com/auth/photoslibrary.readonly https://www.googleapis.com/auth/photoslibrary.appendonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
-                }
             }
         });
         return { error: error as AuthError | null };
@@ -304,7 +279,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             profile,
             userRole,
             familyId,
-            googleAccessToken,
             loading,
             signIn,
             signInWithGoogle,

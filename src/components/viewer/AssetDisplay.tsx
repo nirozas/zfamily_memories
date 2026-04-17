@@ -2,7 +2,6 @@ import React, { memo } from 'react';
 import { Maximize2, MapPin } from 'lucide-react';
 import { type Asset } from '../../contexts/AlbumContext';
 import { getTransformedUrl, getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
-import { useGooglePhotosUrl } from '../../hooks/useGooglePhotosUrl';
 import { MapAsset } from '../ui/MapAsset';
 
 interface AssetDisplayProps {
@@ -26,8 +25,7 @@ export const AssetDisplay = memo(function AssetDisplay({
     onVideoClick,
     isInSlot = false
 }: AssetDisplayProps) {
-    const { url: resolvedUrl } = useGooglePhotosUrl(asset.googlePhotoId, asset.url);
-    const displayUrl = resolvedUrl || asset.url;
+    const displayUrl = asset.url;
 
     // Calculate positioning
     // If isInSlot is true, we assume the parent is already positioned and we take up 100%

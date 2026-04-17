@@ -154,11 +154,18 @@ export async function encodeAndUploadHls(
 // ─── Simple single-file compression (no HLS) ─────────────────────────────────
 
 class VideoCompressionService {
-    /**
-     * Compress a video for upload. Used as a pre-processing step before
-     * full HLS encoding, or as a lightweight fallback.
-     */
+     /**
+      * Compress a video for upload. Used as a pre-processing step before
+      * full HLS encoding, or as a lightweight fallback.
+      */
     async compressVideo(file: File, onProgress: (progress: number) => void): Promise<File> {
+        // SharedArrayBuffer is required for FFmpeg.wasm 0.12+ in multithreaded mode
+        // If not available (due to missing COOP/COEP headers), we must skip compression
+        if (typeof SharedArrayBuffer === 'undefined') {
+            console.warn('[VideoCompression] SharedArrayBuffer not available. Skipping compression.');
+            return file;
+        }
+
         const ff = await getFFmpeg();
         const { name } = file;
 

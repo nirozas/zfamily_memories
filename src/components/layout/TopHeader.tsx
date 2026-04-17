@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useContext } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, ChevronDown, LogOut, MapPin, Image as ImageIcon, Clock, Camera, Sparkles } from 'lucide-react';
+import { Flame, BookOpen, Settings, User, Calendar as CalendarIcon, ChevronDown, LogOut, MapPin, Image as ImageIcon, Clock, Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import { AlbumContext } from '../../contexts/AlbumContext';
@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import BugReportModal from '../modals/BugReportModal';
 
 export function TopHeader() {
-    const { user, signOut, googleAccessToken, signInWithGoogle, profile } = useAuth();
+    const { user, signOut, profile } = useAuth();
     const albumContext = useContext(AlbumContext);
     const saveStatus = albumContext?.saveStatus || 'idle';
     const [isOpen, setIsOpen] = useState(false);
@@ -63,14 +63,17 @@ export function TopHeader() {
                             onClick={() => setIsOpen(!isOpen)}
                             className="flex items-center gap-2 group focus:outline-none"
                         >
-                            <h1 className="text-2xl font-outfit font-black tracking-premium text-catalog-text transition-all duration-300 group-hover:scale-105">
+                            <h1 className="text-xl sm:text-2xl font-outfit font-black tracking-premium text-catalog-text transition-all duration-300 group-hover:scale-105 shrink-0">
                                 <span className="text-rainbow not-italic tracking-tighter mr-0.5">Zoabi</span>
-                                <span className="text-catalog-text/60 font-light">Family</span>
+                                <span className="hidden xs:inline text-catalog-text/60 font-light">Family</span>
                             </h1>
-                            <ChevronDown className={cn(
-                                "w-4 h-4 text-catalog-accent/60 transition-transform duration-300",
-                                isOpen && "rotate-180"
-                            )} />
+                            <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 bg-catalog-accent/5 rounded-full border border-catalog-accent/10 hover:bg-catalog-accent/10 transition-colors">
+                                <span className="text-[10px] font-black text-catalog-accent uppercase tracking-widest hidden sm:inline">Explore</span>
+                                <ChevronDown className={cn(
+                                    "w-3 h-3 sm:w-4 sm:h-4 text-catalog-accent/60 transition-transform duration-300",
+                                    isOpen && "rotate-180"
+                                )} />
+                            </div>
                         </button>
 
                         {/* Pull-down Menu */}
@@ -122,63 +125,42 @@ export function TopHeader() {
                         </AnimatePresence>
                     </div>
 
-                    {/* Save Status Indicator */}
-                    <div className="hidden md:flex items-center gap-2 px-4 py-1.5 rounded-full glass-card border border-white/60">
-                        {saveStatus === 'saving' && (
-                            <div className="flex items-center gap-2 text-catalog-accent animate-pulse">
-                                <CloudUpload className="w-3.5 h-3.5" />
-                                <span className="text-[9px] font-bold uppercase tracking-widest font-outfit">Saving Archive</span>
-                            </div>
-                        )}
-                        {saveStatus === 'saved' && (
-                            <div className="flex items-center gap-2 text-green-600 animate-in fade-in duration-500">
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span className="text-[9px] font-bold uppercase tracking-widest font-outfit">Securely Synced</span>
-                            </div>
-                        )}
-                        {saveStatus === 'error' && (
-                            <div className="flex items-center gap-2 text-red-500">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                <span className="text-[9px] font-bold uppercase tracking-widest font-outfit">Sync Failure</span>
-                            </div>
-                        )}
-                        {saveStatus === 'idle' && (
-                            <div className="flex items-center gap-2 text-catalog-text/30">
-                                <CloudUpload className="w-3.5 h-3.5" />
-                                <span className="text-[9px] font-bold uppercase tracking-widest italic opacity-50 font-outfit">Mirror Standby</span>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Right Side - User Profile Quick Info */}
-                    <div className="flex items-center gap-4">
-                        {/* Google Photos Connection */}
-                        <div className="hidden lg:flex items-center">
-                            {googleAccessToken ? (
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full glass-card border border-green-200/50">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                    <Camera className="w-3.5 h-3.5 text-green-600" />
-                                    <span className="text-[9px] font-bold uppercase tracking-widest text-green-700 font-outfit">Photos Live</span>
+                    {/* Right Side Actions */}
+                    <div className="flex items-center gap-1.5 sm:gap-4">
+                        {/* Save Status Indicator */}
+                        <div className="hidden xs:flex items-center gap-2 px-3 py-1.5 rounded-full glass-card border border-white/60">
+                            {saveStatus === 'saving' && (
+                                <div className="flex items-center gap-2 text-catalog-accent animate-pulse">
+                                    <CloudUpload className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-widest font-outfit hidden sm:inline">Saving</span>
                                 </div>
-                            ) : (
-                                <button
-                                    onClick={() => signInWithGoogle()}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-full glass hover:bg-white transition-all border border-white/40 shadow-sm"
-                                >
-                                    <Camera className="w-3.5 h-3.5 text-blue-600" />
-                                    <span className="text-[9px] font-bold uppercase tracking-widest text-blue-700 font-outfit">Connect Google</span>
-                                </button>
+                            )}
+                            {saveStatus === 'saved' && (
+                                <div className="flex items-center gap-2 text-green-600 animate-in fade-in duration-500">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-widest font-outfit hidden sm:inline">Synced</span>
+                                </div>
+                            )}
+                            {saveStatus === 'error' && (
+                                <div className="flex items-center gap-2 text-red-500">
+                                    <AlertCircle className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-widest font-outfit hidden sm:inline">Error</span>
+                                </div>
+                            )}
+                            {saveStatus === 'idle' && (
+                                <div className="flex items-center gap-2 text-catalog-text/30">
+                                    <CloudUpload className="w-3 h-3" />
+                                    <span className="text-[8px] font-bold uppercase tracking-widest italic opacity-50 font-outfit hidden sm:inline">Ready</span>
+                                </div>
                             )}
                         </div>
 
-                        {/* Bug Report Button */}
                         <button
                             onClick={() => setIsBugModalOpen(true)}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-full glass hover:bg-rose-50 transition-all border border-white/40 shadow-sm group"
-                            title="Report a Bug"
+                            className="p-2 text-catalog-text/40 hover:text-catalog-accent transition-all hover:bg-catalog-accent/5 rounded-full"
+                            title="Report Bug"
                         >
-                            <Bug className="w-3.5 h-3.5 text-rose-500 group-hover:scale-110 transition-transform" />
-                            <span className="hidden xs:inline text-[9px] font-bold uppercase tracking-widest text-rose-700 font-outfit">Bug?</span>
+                            <Bug className="w-4 h-4 sm:w-5 sm:h-5" />
                         </button>
 
                         <div className="relative" ref={userDropdownRef}>

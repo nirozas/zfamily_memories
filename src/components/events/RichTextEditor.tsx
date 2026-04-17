@@ -18,7 +18,6 @@ import {
     BoxSelect, Maximize2, Square, Circle, Sparkles, Layers, ArrowUpDown,
     Image as ImageIcon
 } from 'lucide-react';
-import { GooglePhotosService } from '../../services/googlePhotos';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ImageCropper } from '../ui/ImageCropper';
 import { storageService } from '../../services/storage';
@@ -30,7 +29,7 @@ interface RichTextEditorProps {
 }
 
 export interface RichTextEditorRef {
-    insertImage: (url: string, googlePhotoId?: string) => void;
+    insertImage: (url: string) => void;
 }
 
 const COLORS = [
@@ -46,7 +45,7 @@ const COLORS = [
 ];
 
 export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(({ value, onChange, folderName }, ref) => {
-    const { googleAccessToken } = useAuth();
+    const { user } = useAuth();
     const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [showHighlightPicker, setShowHighlightPicker] = useState(false);
@@ -87,22 +86,9 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
                     return {
                         src: {
                             default: null,
-                            renderHTML: attributes => {
-                                if (attributes.googlePhotoId) {
-                                    // Use the proxy directly in the editor to avoid expiry
-                                    const proxyUrl = GooglePhotosService.getProxyUrl('', googleAccessToken, null, attributes.googlePhotoId);
-                                    return { src: proxyUrl };
-                                }
-                                return { src: attributes.src };
-                            }
                         },
                         alt: { default: null },
                         title: { default: null },
-                        googlePhotoId: {
-                            default: null,
-                            parseHTML: element => element.getAttribute('data-google-id'),
-                            renderHTML: attributes => ({ 'data-google-id': attributes.googlePhotoId })
-                        },
                         style: {
                             default: 'width: 100%; height: auto; display: block; resize: both;',
                             parseHTML: element => element.getAttribute('style'),
@@ -181,9 +167,9 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
     });
 
     useImperativeHandle(ref, () => ({
-        insertImage: (url: string, googlePhotoId?: string) => {
+        insertImage: (url: string) => {
             if (editor) {
-                editor.chain().focus().setImage({ src: url, googlePhotoId } as any).run();
+                editor.chain().focus().setImage({ src: url } as any).run();
             }
         }
     }));
@@ -262,10 +248,10 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
         if (!file) return;
 
         try {
-            const { url, error, googlePhotoId } = await storageService.uploadFile(file, 'event-assets');
+            const { url, error } = await storageService.uploadFile(file, 'event-assets');
             if (error) throw error;
             if (url && editor) {
-                editor.chain().focus().setImage({ src: url, googlePhotoId } as any).run();
+                editor.chain().focus().setImage({ src: url } as any).run();
 
                 // Log to family_media
                 if (familyId) {
@@ -770,10 +756,10 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
                                 const blob = await response.blob();
                                 const file = new File([blob], 'cropped-image.jpg', { type: 'image/jpeg' });
 
-                                const { url, error, googlePhotoId } = await storageService.uploadFile(file, 'event-assets');
+                                const { url, error } = await storageService.uploadFile(file, 'event-assets');
                                 if (error) throw error;
                                 if (url && editor && selectedImage) {
-                                    editor.chain().focus().updateAttributes('image', { src: url, googlePhotoId }).run();
+                                    editor.chain().focus().updateAttributes('image', { src: url }).run();
                                 }
                             } catch (error) {
                                 console.error('Error uploading cropped image:', error);

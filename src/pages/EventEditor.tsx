@@ -4,21 +4,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Save, Sparkles, ImagePlus, Tag, Users, Layout, Sliders, Plus, Undo, Redo } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { GooglePhotosService } from '../services/googlePhotos';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { Camera, Image as ImageIcon, Link as LinkIcon, Upload, FolderOpen } from 'lucide-react';
 import { Input } from '../components/ui/Input';
-import { GooglePhotosSelector } from '../components/media/GooglePhotosSelector';
-import type { GoogleMediaItem } from '../services/googlePhotos';
-import { UrlInputModal } from '../components/media/UrlInputModal';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
 import { RichTextEditor } from '../components/events/RichTextEditor';
 import type { RichTextEditorRef } from '../components/events/RichTextEditor';
-import { storageService } from '../services/storage';
 import type { Event } from '../types/supabase';
 import { HashtagInput } from '../components/ui/HashtagInput'; // ui component
-import { ImageCropper } from '../components/ui/ImageCropper';
 import { LocationPicker } from '../components/ui/LocationPicker';
 
 
@@ -26,20 +19,15 @@ import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, us
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, rectSortingStrategy } from '@dnd-kit/sortable';
 import { SortableAsset } from '../components/ui/SortableAsset';
 
-import { videoCompressionService } from '../services/videoCompression';
-import { UploadOverlay } from '../components/ui/UploadOverlay';
+import { UniversalUploadButton } from '../components/ui/UniversalUploadButton';
 
 export function EventEditor() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const { familyId, googleAccessToken, signInWithGoogle } = useAuth();
+    const { familyId } = useAuth();
     const editorRef = useRef<RichTextEditorRef>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({});
-    const [compressionProgress, setCompressionProgress] = useState<number | null>(null);
 
     const [eventData, setEventData] = useState<Partial<Event>>({
         title: '',
@@ -53,13 +41,8 @@ export function EventEditor() {
         content: { assets: [], galleryMode: 'cards' }
     });
 
-    const [croppingImage, setCroppingImage] = useState<{ src: string, file: File, target: 'story' | 'gallery' } | null>(null);
     const [uploadTarget, setUploadTarget] = useState<'story' | 'gallery'>('story');
 
-    // Source Selection State
-    const [showSourceModal, setShowSourceModal] = useState<'story' | 'gallery' | null>(null);
-    const [showUrlInput, setShowUrlInput] = useState(false);
-    const [showGooglePhotos, setShowGooglePhotos] = useState(false);
     const [showMediaPicker, setShowMediaPicker] = useState(false);
 
     const sensors = useSensors(
@@ -149,101 +132,18 @@ export function EventEditor() {
     }
 
     // --- Media Handling Helpers ---
-    const handleSourceSelect = (source: 'upload' | 'google' | 'url' | 'library') => {
-        setShowSourceModal(null);
-        if (source === 'upload') {
-            fileInputRef.current?.click();
-        } else if (source === 'google') {
-            setShowGooglePhotos(true);
-        } else if (source === 'url') {
-            setShowUrlInput(true);
-        } else if (source === 'library') {
-            setShowMediaPicker(true);
-        }
-    };
-
-    const handleUrlSubmit = async (url: string) => {
-        setShowUrlInput(false);
-        await processRemoteAsset(url, 'url');
-    };
-
-    const handleGooglePhotosSelect = async (items: GoogleMediaItem[]) => {
-        setShowGooglePhotos(false);
-        if (items.length === 0) return;
-
-        // Process sequentially
-        for (const item of items) {
-            await processRemoteAsset(item, 'google');
-        }
-    };
-
     const handleMediaPickerSelect = async (item: any) => {
         setShowMediaPicker(false);
         if (!item) return;
 
-        // We pass 'library' as source so we don't try to re-upload it.
-        await processRemoteAsset(item.url, 'library');
-    };
-
-    const processRemoteAsset = async (asset: string | GoogleMediaItem, source: 'url' | 'google' | 'library' = 'url') => {
-        const url = typeof asset === 'string' ? asset : (asset.mediaFile?.baseUrl || asset.baseUrl || '');
-        const googleId = typeof asset === 'string' ? undefined : asset.id;
-
-        if (!url) return;
-        setUploading(true);
-        try {
-            let finalUrl = url;
-            let finalGoogleId = googleId;
-
-            // Try to persist to storage (mirrors Events.tsx logic)
-            try {
-                if (googleAccessToken && source === 'google' && typeof asset !== 'string') {
-                    const photosService = new GooglePhotosService(googleAccessToken);
-                    const blob = await photosService.downloadMediaItem(asset);
-                    const file = new File([blob], `google_import_${Date.now()}.jpg`, { type: 'image/jpeg' });
-                    const { url: storageUrl, googlePhotoId: storageGoogleId } = await storageService.uploadFile(file, 'event-assets', `events/${eventData.title}/`, undefined, googleAccessToken);
-                    if (storageUrl) {
-                        finalUrl = storageUrl;
-                        finalGoogleId = storageGoogleId || finalGoogleId;
-                    }
-                }
-            } catch (e) {
-                console.error("Failed to persist remote asset, using direct link", e);
-            }
-
-            // Log to family_media
-            if (familyId && finalUrl && source !== 'library') {
-                const { data: userData } = await supabase.auth.getUser();
-                await supabase.from('family_media').insert({
-                    family_id: familyId,
-                    url: finalUrl,
-                    type: 'image',
-                    category: 'event',
-                    folder: eventData.title ? `Events/${eventData.title}` : 'Events',
-                    filename: googleId ? `google_import_${Date.now()}.jpg` : `imported_${Date.now()}.jpg`,
-                    size: 0,
-                    uploaded_by: userData.user?.id,
-                    metadata: finalGoogleId ? { googlePhotoId: finalGoogleId } : undefined
-                } as any);
-            }
-
-            // Add to UI
-            if (uploadTarget === 'story') {
-                editorRef.current?.insertImage(finalUrl, finalGoogleId);
-            } else {
-                const newAsset = { url: finalUrl, type: 'image', googlePhotoId: finalGoogleId }; // Assume image for simplicity
-                // Use functional update to ensure fresh state
-                setEventData(prev => {
-                    const currentAssets = prev.content?.assets || [];
-                    return { ...prev, content: { ...prev.content, assets: [...currentAssets, newAsset] } };
-                });
-            }
-
-        } catch (err) {
-            console.error(err);
-            alert("Failed to add media");
-        } finally {
-            setUploading(false);
+        const newAsset = { url: item.url, type: item.type || 'image' };
+        if (uploadTarget === 'story') {
+            editorRef.current?.insertImage(item.url);
+        } else {
+            setEventData(prev => {
+                const currentAssets = prev.content?.assets || [];
+                return { ...prev, content: { ...prev.content, assets: [...currentAssets, newAsset] } };
+            });
         }
     };
 
@@ -399,7 +299,7 @@ export function EventEditor() {
                         variant="primary"
                         onClick={handleSave}
                         isLoading={isSaving}
-                        disabled={uploading || isSaving}
+                        disabled={isSaving}
                         className="bg-catalog-accent text-white rounded-2xl px-8 h-12 font-black uppercase tracking-widest text-[10px] shadow-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
                     >
                         <Save className="w-4 h-4" />
@@ -535,162 +435,33 @@ export function EventEditor() {
                                             </button>
                                         </div>
 
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => {
-                                                setUploadTarget('story');
-                                                setShowSourceModal('story');
+                                        <UniversalUploadButton
+                                            variant="icon"
+                                            label="Add Media"
+                                            familyId={familyId}
+                                            folder={eventData.title ? `Events/${eventData.title.trim()}` : 'Events'}
+                                            showLibraryImport={true}
+                                            onSelectExisting={() => setShowMediaPicker(true)}
+                                            onComplete={(items) => {
+                                                const newAssets = items.map(m => ({
+                                                    id: `uploaded-${Date.now()}-${Math.random()}`,
+                                                    url: m.url,
+                                                    type: m.type as any,
+                                                    filename: m.filename,
+                                                }));
+                                                updateEventData(prev => ({
+                                                    ...prev,
+                                                    content: {
+                                                        ...prev.content,
+                                                        assets: [...(prev.content?.assets || []), ...newAssets]
+                                                    }
+                                                }));
                                             }}
-                                            className="w-12 h-12 bg-catalog-accent/10 hover:bg-catalog-accent text-catalog-accent hover:text-white rounded-2xl transition-all shadow-lg shadow-catalog-accent/5 flex items-center justify-center p-0 active:scale-90"
-                                            title="Add Media to Story"
-                                        >
-                                            <Camera className="w-5 h-5" />
-                                        </Button>
+                                            className="!w-12 !h-12 !rounded-2xl !bg-catalog-accent/10 hover:!bg-catalog-accent !text-catalog-accent hover:!text-white transition-all shadow-lg shadow-catalog-accent/5 active:scale-90"
+                                        />
                                     </div>
 
-                                    {/* Centered Upload Overlay */}
-                                    <UploadOverlay 
-                                        isOpen={uploading || Object.keys(uploadProgress).length > 0} 
-                                        progress={uploadProgress} 
-                                        title={compressionProgress !== null ? "Refining Video Assets..." : "Preserving Memories..."}
-                                    />
-                                    <input
-                                        type="file"
-                                        ref={fileInputRef}
-                                        className="hidden"
-                                        accept="image/*,video/*"
-                                        multiple
-                                        onChange={async (e) => {
-                                            const files = Array.from(e.target.files || []);
-                                            if (files.length === 0) return;
-
-                                            // Determine if we need to compress videos
-                                            const videoFiles = files.filter(f => f.type.startsWith('video/'));
-                                            const imageFiles = files.filter(f => f.type.startsWith('image/'));
-
-                                            // If inserting single image into story, go to cropper
-                                            if (uploadTarget === 'story' && imageFiles.length === 1 && videoFiles.length === 0) {
-                                                const file = imageFiles[0];
-                                                const reader = new FileReader();
-                                                reader.onload = (event) => {
-                                                    if (event.target?.result) {
-                                                        setCroppingImage({
-                                                            src: event.target.result as string,
-                                                            file,
-                                                            target: uploadTarget
-                                                        });
-                                                    }
-                                                };
-                                                reader.readAsDataURL(file);
-                                                return;
-                                            }
-
-                                            // Otherwise do bulk upload with compression
-                                            setUploading(true);
-                                            try {
-                                                const newAssets = [...(eventData.content?.assets || [])];
-
-                                                // Process Videos
-                                                for (const file of videoFiles) {
-                                                    try {
-                                                        setCompressionProgress(0);
-                                                        const compressedFile = await videoCompressionService.compressVideo(file, (progress) => {
-                                                            setCompressionProgress(progress);
-                                                        });
-                                                        setCompressionProgress(null);
-
-                                                        const { url, error: uploadError, googlePhotoId } = await storageService.uploadFile(
-                                                            compressedFile,
-                                                            'event-assets',
-                                                            `events/${eventData.title}/`,
-                                                            (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
-                                                            googleAccessToken
-                                                        );
-                                                        if (uploadError) throw uploadError;
-                                                        if (url) {
-                                                            newAssets.push({ url, type: 'video', caption: file.name, googlePhotoId });
-
-                                                            // Log to family_media
-                                                            if (familyId) {
-                                                                const { data: userData } = await supabase.auth.getUser();
-                                                                await supabase.from('family_media').insert({
-                                                                    family_id: familyId,
-                                                                    url: url,
-                                                                    type: 'video',
-                                                                    category: 'event',
-                                                                    folder: eventData.title ? `Events/${eventData.title}` : 'Events',
-                                                                    filename: file.name,
-                                                                    size: file.size,
-                                                                    uploaded_by: userData.user?.id,
-                                                                    metadata: googlePhotoId ? { googlePhotoId } : undefined
-                                                                } as any);
-                                                            }
-                                                        }
-                                                    } catch (err) {
-                                                        console.error('Video processing failed', err);
-                                                        setCompressionProgress(null);
-                                                        setUploadProgress(prev => { const n = { ...prev }; delete n[file.name]; return n; });
-                                                    }
-                                                }
-
-                                                // Process Images
-                                                for (const file of imageFiles) {
-                                                    const { url: storageUrl, error: uploadError, googlePhotoId } = await storageService.uploadFile(
-                                                        file,
-                                                        'event-assets',
-                                                        `events/${eventData.title}/`,
-                                                        (p) => setUploadProgress(prev => ({ ...prev, [file.name]: Math.floor((p.loaded / p.total) * 100) })),
-                                                        googleAccessToken
-                                                    );
-
-                                                    if (uploadError) {
-                                                        console.error('Bulk upload error:', uploadError);
-                                                        continue;
-                                                    }
-
-                                                    if (storageUrl) {
-                                                        // Log to family_media
-                                                        if (familyId) {
-                                                            const { data: userData } = await supabase.auth.getUser();
-                                                            await supabase.from('family_media').insert({
-                                                                family_id: familyId,
-                                                                url: storageUrl,
-                                                                type: 'image',
-                                                                category: 'event',
-                                                                folder: eventData.title ? `Events/${eventData.title}` : 'Events',
-                                                                filename: file.name,
-                                                                size: file.size,
-                                                                uploaded_by: userData.user?.id,
-                                                                metadata: googlePhotoId ? { googlePhotoId } : undefined
-                                                            } as any);
-                                                        }
-
-                                                        if (uploadTarget === 'story') {
-                                                            editorRef.current?.insertImage(storageUrl, googlePhotoId);
-                                                        } else {
-                                                            newAssets.push({ url: storageUrl, type: 'image', googlePhotoId } as any);
-                                                        }
-                                                    }
-                                                }
-
-                                                // Update gallery assets if we added any (videos always go here effectively for now)
-                                                if (newAssets.length !== (eventData.content?.assets?.length || 0)) {
-                                                    updateEventData(prev => ({ ...prev, content: { ...prev.content, assets: newAssets } }));
-                                                }
-
-                                            } catch (error) {
-                                                console.error('Upload process failed:', error);
-                                                alert('Failed to upload some files');
-                                            } finally {
-                                                setUploading(false);
-                                                setCompressionProgress(null);
-                                                setTimeout(() => setUploadProgress({}), 1000);
-                                                if (fileInputRef.current) fileInputRef.current.value = '';
-                                            }
-                                        }}
-                                        disabled={uploading}
-                                    />
+                                    {/* Unified Library Access handles its own UI */}
                                 </div>
 
                                 <div className="flex-1 relative z-10 glass rounded-[2rem] border border-black/5 p-2 bg-white/40 backdrop-blur-sm">
@@ -738,7 +509,7 @@ export function EventEditor() {
                                         <p className="text-[11px] font-black text-catalog-text/20 uppercase tracking-[0.3em] mb-8">Visualization is empty</p>
                                         <button
                                             type="button"
-                                            onClick={() => { setUploadTarget('gallery'); setShowSourceModal('gallery'); }}
+                                            onClick={() => { setUploadTarget('gallery'); setShowMediaPicker(true); }}
                                             className="px-10 py-4 bg-catalog-accent text-white rounded-full text-[10px] font-black uppercase tracking-[0.3em] shadow-2xl shadow-catalog-accent/20 hover:scale-105 active:scale-95 transition-all"
                                         >
                                             Ignite Gallery
@@ -768,7 +539,7 @@ export function EventEditor() {
                                                 ))}
                                                 <button
                                                     type="button"
-                                                    onClick={() => { setUploadTarget('gallery'); setShowSourceModal('gallery'); }}
+                                                    onClick={() => { setUploadTarget('gallery'); setShowMediaPicker(true); }}
                                                     className="aspect-square flex flex-col items-center justify-center bg-white/60 border-2 border-dashed border-black/5 rounded-[2rem] group hover:bg-white hover:border-catalog-accent/30 transition-all duration-500 shadow-sm"
                                                 >
                                                     <div className="w-12 h-12 bg-catalog-accent/5 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -785,159 +556,9 @@ export function EventEditor() {
                     </div>
                 </div>
 
-                {/* Cropper Overlay */}
-                {croppingImage && (
-                    <ImageCropper
-                        src={croppingImage.src}
-                        onCancel={() => setCroppingImage(null)}
-                        onCropComplete={async (croppedUrl) => {
-                            setCroppingImage(null);
-                            setUploading(true);
-                            try {
-                                const response = await fetch(croppedUrl);
-                                const blob = await response.blob();
-                                const file = new File([blob], croppingImage.file.name, { type: 'image/jpeg' });
-
-                                let finalUrl: string | null = null;
-                                let googlePhotoId: string | undefined;
-
-                                // Workflow #1: Upload to Google Photos
-                                if (googleAccessToken) {
-                                    try {
-                                        const photosService = new GooglePhotosService(googleAccessToken);
-                                        const mediaItem = await photosService.uploadMedia(file, file.name);
-                                        googlePhotoId = mediaItem.id;
-                                    } catch (err) {
-                                        console.error('Google Photos upload failed for cropped image:', err);
-                                    }
-                                }
-
-                                // Workflow #2: Internal Storage
-                                const { url: storageUrl, error } = await storageService.uploadFile(file, 'event-assets', `events/${eventData.title}/`);
-                                if (error) throw error;
-
-                                if (storageUrl) {
-                                    finalUrl = storageUrl;
-
-                                    // Log to family_media
-                                    if (familyId) {
-                                        const { data: userData } = await supabase.auth.getUser();
-                                        await supabase.from('family_media').insert({
-                                            family_id: familyId,
-                                            url: finalUrl,
-                                            type: 'image',
-                                            category: 'event',
-                                            folder: eventData.title ? `Events/${eventData.title}` : 'Events',
-                                            filename: file.name,
-                                            size: file.size,
-                                            uploaded_by: userData.user?.id,
-                                            metadata: googlePhotoId ? { googlePhotoId } : undefined
-                                        } as any);
-                                    }
-
-                                    if (croppingImage.target === 'story') {
-                                        editorRef.current?.insertImage(finalUrl);
-                                    } else {
-                                        const newAssets = [...(eventData.content?.assets || [])];
-                                        newAssets.push({ url: finalUrl, type: 'image', googlePhotoId } as any);
-                                        updateEventData({ ...eventData, content: { ...eventData.content, assets: newAssets } });
-                                    }
-                                }
-                            } catch (error) {
-                                console.error('Error uploading cropped image:', error);
-                                alert('Failed to upload image');
-                            } finally {
-                                setUploading(false);
-                            }
-                        }}
-                    />
-                )}
             </main>
 
-            {/* Source Selection Modal */}
-            {showSourceModal && (
-                <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setShowSourceModal(null)}>
-                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-                            <h3 className="text-lg font-serif italic text-catalog-text">
-                                {showSourceModal === 'story' ? 'Add to Story' : 'Add to Gallery'}
-                            </h3>
-                            <button onClick={() => setShowSourceModal(null)} className="p-1 hover:bg-gray-100 rounded-full text-gray-400">
-                                <Plus className="w-5 h-5 rotate-45" />
-                            </button>
-                        </div>
-                        <div className="p-2">
-                            <button
-                                onClick={() => handleSourceSelect('library')}
-                                className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group"
-                            >
-                                <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <FolderOpen className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 text-sm">Media Library</div>
-                                    <div className="text-xs text-gray-500">Select from uploads</div>
-                                </div>
-                            </button>
-                            <button
-                                onClick={() => handleSourceSelect('upload')}
-                                className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group"
-                            >
-                                <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <Upload className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 text-sm">Upload File</div>
-                                    <div className="text-xs text-gray-500">From your computer</div>
-                                </div>
-                            </button>
-                            <button
-                                onClick={() => handleSourceSelect('google')}
-                                className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group"
-                            >
-                                <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <ImageIcon className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 text-sm">Google Photos</div>
-                                    <div className="text-xs text-gray-500">Import from your library</div>
-                                </div>
-                            </button>
-                            <button
-                                onClick={() => handleSourceSelect('url')}
-                                className="w-full text-left px-4 py-3 hover:bg-gray-50 rounded-lg flex items-center gap-3 transition-colors group"
-                            >
-                                <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center group-hover:scale-110 transition-transform">
-                                    <LinkIcon className="w-5 h-5" />
-                                </div>
-                                <div>
-                                    <div className="font-bold text-gray-900 text-sm">Image Link</div>
-                                    <div className="text-xs text-gray-500">Paste a direct URL</div>
-                                </div>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {showGooglePhotos && (
-                <GooglePhotosSelector
-                    isOpen={showGooglePhotos}
-                    onClose={() => setShowGooglePhotos(false)}
-                    onSelect={handleGooglePhotosSelect}
-                    folders={['Events', eventData.title || ''].filter(Boolean)}
-                    googleAccessToken={googleAccessToken || ''}
-                    onReauth={signInWithGoogle}
-                />
-            )}
-
-            {showUrlInput && (
-                <UrlInputModal
-                    isOpen={showUrlInput}
-                    onClose={() => setShowUrlInput(false)}
-                    onSubmit={handleUrlSubmit}
-                />
-            )}
+            {/* Media selection modals are now handled by UniversalUploadButton */}
 
             {showMediaPicker && (
                 <MediaPickerModal

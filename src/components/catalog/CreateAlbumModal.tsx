@@ -5,7 +5,6 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Button } from '../ui/Button';
 import { LocationPicker } from '../ui/LocationPicker';
-import { slugify } from '../../lib/utils';
 import type { Event } from '../../types/supabase';
 
 interface CreateAlbumModalProps {
@@ -95,8 +94,7 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
 
             if (data) {
                 onClose();
-                const album = data as any;
-                navigate(`/album/${slugify(album.title)}/edit`);
+                navigate(`/album/${(data as any).id}/edit`);
             }
         } catch (error: any) {
             console.error('Error creating album:', error);

@@ -8,14 +8,15 @@ import emailService from '../services/emailService';
 import { cn } from '../lib/utils';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import AdminBugReports from '../components/settings/AdminBugReports';
-import { Bug } from 'lucide-react';
+import { Bug, Cloud } from 'lucide-react';
+import { FamilyStorageSettings } from '../components/settings/FamilyStorageSettings';
 
 export function Settings() {
     const { user, userRole, createFamily, useInviteCode } = useAuth();
     const isAdmin = userRole === 'admin' || userRole === 'super_admin';
     const isSuperAdmin = userRole === 'super_admin';
     useDocumentTitle('Settings');
-    const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'family' | 'admin' | 'notifications' | 'bugs'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'family' | 'admin' | 'notifications' | 'bugs' | 'storage' | 'maintenance'>('profile');
 
     // Fix #3: profile editing
     const [displayName, setDisplayName] = useState(user?.user_metadata?.name || '');
@@ -202,7 +203,8 @@ export function Settings() {
                 .eq('id', memberId);
 
             if (error) throw error;
-            fetchFamilyMembers(familyId!);
+            // Refetch data keeping the current view mode
+            fetchFamilyMembers(viewMode === 'global' ? null : familyId, viewMode);
         } catch (e: any) {
             alert(e.message);
         }
@@ -381,18 +383,31 @@ export function Settings() {
             const code = `${Math.random().toString(36).substring(2, 6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
             const expiresAt = new Date();
             expiresAt.setDate(expiresAt.getDate() + 7);
-            const { error } = await (supabase.from('family_invites' as any) as any).insert({
+            const { data: newInvite, error } = await (supabase.from('family_invites' as any) as any).insert({
                 family_id: familyId,
                 code,
                 expires_at: expiresAt.toISOString(),
                 created_by: user?.id,
-            });
+            }).select().single();
             if (error) throw error;
-            setFamilyInvites(prev => [{ code, expires_at: expiresAt.toISOString() }, ...prev].slice(0, 5));
+            if (newInvite) {
+                setFamilyInvites(prev => [newInvite, ...prev].slice(0, 5));
+            }
         } catch (e: any) {
             alert(e.message || 'Failed to generate invite.');
         } finally {
             setIsGeneratingInvite(false);
+        }
+    }
+
+    async function handleDeleteInvite(inviteId: string) {
+        if (!confirm('Are you sure you want to cancel this invite code?')) return;
+        try {
+            const { error } = await (supabase.from('family_invites' as any) as any).delete().eq('id', inviteId);
+            if (error) throw error;
+            setFamilyInvites(prev => prev.filter(inv => inv.id !== inviteId));
+        } catch (e: any) {
+            alert(e.message);
         }
     }
 
@@ -439,6 +454,8 @@ export function Settings() {
         { id: 'family', label: 'Family & Invites', icon: Users },
         { id: 'notifications', label: 'Notifications', icon: Bell },
         ...(isAdmin ? [
+            { id: 'storage', label: 'R2 Storage', icon: Cloud },
+            { id: 'maintenance', label: 'Maintenance', icon: Trash2 },
             { id: 'admin', label: 'Admin Panel', icon: Shield },
             { id: 'bugs', label: 'Bug Reports', icon: Bug }
         ] : [])
@@ -453,19 +470,19 @@ export function Settings() {
 
             <div className="flex flex-col md:flex-row gap-8">
                 {/* Sidebar Tabs */}
-                <div className="md:w-64 space-y-1 shrink-0">
+                <div className="md:w-64 flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible no-scrollbar shrink-0 pb-2 md:pb-0 border-b md:border-b-0 border-gray-100 md:space-y-1">
                     {tabs.map(tab => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id as any)}
                             className={cn(
-                                'w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all rounded-xl',
+                                'flex items-center gap-3 px-4 py-3 text-sm font-semibold transition-all rounded-xl whitespace-nowrap md:w-full',
                                 activeTab === tab.id
                                     ? 'bg-catalog-accent text-white shadow-md shadow-catalog-accent/20'
                                     : 'text-catalog-text/60 hover:bg-black/5 hover:text-catalog-text'
                             )}
                         >
-                            <tab.icon className="w-5 h-5" />
+                            <tab.icon className="w-5 h-5 shrink-0" />
                             {tab.label}
                         </button>
                     ))}
@@ -473,6 +490,13 @@ export function Settings() {
 
                 {/* Content Area */}
                 <div className="flex-1">
+
+                    {/* ─── R2 Storage ─── */}
+                    {activeTab === 'storage' && familyId && (
+                        <Card className="p-8 animate-fade-in divide-y-0">
+                            <FamilyStorageSettings familyId={familyId} />
+                        </Card>
+                    )}
 
                     {/* ─── My Profile ─── */}
                     {activeTab === 'profile' && (
@@ -892,6 +916,15 @@ export function Settings() {
                                                         >
                                                             <Copy className="w-3.5 h-3.5 text-catalog-accent/60" />
                                                         </button>
+                                                        {isAdmin && invite.id && (
+                                                            <button
+                                                                onClick={() => handleDeleteInvite(invite.id)}
+                                                                className="p-1.5 hover:bg-red-50 rounded-lg transition-all text-red-300 hover:text-red-500"
+                                                                title="Cancel/Delete Invite"
+                                                            >
+                                                                <Trash2 className="w-3.5 h-3.5" />
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
@@ -1033,6 +1066,68 @@ export function Settings() {
                         <Card className="p-8 space-y-8 animate-fade-in overflow-hidden">
                             <h2 className="text-2xl font-outfit font-black text-catalog-text">System Bug Reports</h2>
                             <AdminBugReports />
+                        </Card>
+                    )}
+
+                    {activeTab === 'maintenance' && isAdmin && (
+                        <Card className="p-8 space-y-8 animate-fade-in">
+                            <h2 className="text-2xl font-outfit font-black text-catalog-text">System Maintenance</h2>
+                            
+                            <div className="space-y-6">
+                                <div className="p-6 bg-red-50 border border-red-100 rounded-3xl space-y-4">
+                                    <div className="flex items-center gap-3 text-red-600">
+                                        <Trash2 className="w-5 h-5" />
+                                        <h3 className="font-bold uppercase tracking-wider text-sm">Database Cleanup</h3>
+                                    </div>
+                                    <p className="text-xs text-red-600/70 font-medium">
+                                        Remove all legacy Cloudinary assets from the library. This will resolve unauthorized 401 errors.
+                                    </p>
+                                    <Button 
+                                        variant="primary" 
+                                        className="bg-red-600 hover:bg-red-700"
+                                        onClick={async () => {
+                                            if (!confirm("Are you sure you want to delete ALL Cloudinary assets?")) return;
+                                            try {
+                                                const { count, error } = await supabase.from('library_assets' as any).delete({ count: 'exact' }).ilike('url', '%res.cloudinary.com%');
+                                                if (error) throw error;
+                                                alert(`Successfully deleted ${count || 0} Cloudinary records from library_assets.`);
+                                            } catch (e: any) {
+                                                alert("Error: " + e.message);
+                                            }
+                                        }}
+                                    >
+                                        Clean Cloudinary Assets
+                                    </Button>
+                                </div>
+
+                                <div className="p-6 bg-catalog-accent/5 border border-catalog-accent/10 rounded-3xl space-y-4">
+                                    <div className="flex items-center gap-3 text-catalog-accent">
+                                        <Shield className="w-5 h-5" />
+                                        <h3 className="font-bold uppercase tracking-wider text-sm">System Health</h3>
+                                    </div>
+                                    <p className="text-xs text-catalog-text/60 font-medium">
+                                        If you see errors about "Table not found in schema cache", use the button below to force a schema reload.
+                                    </p>
+                                    <Button 
+                                        variant="secondary"
+                                        onClick={async () => {
+                                            try {
+                                                const { error } = await supabase.rpc('reload_schema_cache' as any);
+                                                if (error) {
+                                                    // Many Supabase setups don't have this RPC by default, so we might need a fallback explanation
+                                                    alert("Automatic reload not available. Best way to reload the cache is to rename a column and rename it back in the Supabase Dashboard, or wait 10 minutes.");
+                                                } else {
+                                                    alert("Schema cache reload triggered.");
+                                                }
+                                            } catch (e) {
+                                                alert("Could not trigger cache reload. Please wait a few minutes for Supabase to auto-refresh.");
+                                            }
+                                        }}
+                                    >
+                                        Trigger Schema Reload
+                                    </Button>
+                                </div>
+                            </div>
                         </Card>
                     )}
                 </div>

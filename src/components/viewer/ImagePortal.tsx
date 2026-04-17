@@ -5,13 +5,67 @@ import { X, Maximize2, Minimize2, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface ImagePortalProps {
     imageUrl: string | null;
+    objectKey?: string;
     onClose: () => void;
 }
 
-export function ImagePortal({ imageUrl, onClose }: ImagePortalProps) {
+export function ImagePortal({ imageUrl, objectKey, onClose }: ImagePortalProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [zoom, setZoom] = useState(1);
+    const [displayUrl, setDisplayUrl] = useState<string | null>(null);
+
+    // 0. Resolve Authorized URL
+    useEffect(() => {
+        let isMounted = true;
+        async function loadUrl() {
+            // Using objectKey is the preferred, most secure way
+            if (objectKey) {
+                try {
+                    const { CloudflareR2Service } = await import('../../services/cloudflareR2');
+                    const secure = await CloudflareR2Service.getAuthorizedUrl(objectKey);
+                    if (isMounted) setDisplayUrl(secure);
+                    return;
+                } catch (err) {
+                    console.error("[ImagePortal] Failed to authorize key:", err);
+                }
+            }
+
+            if (!imageUrl) {
+                if (isMounted) setDisplayUrl(null);
+                return;
+            }
+            if (imageUrl.includes('X-Amz-Signature')) {
+                if (isMounted) setDisplayUrl(imageUrl);
+                return;
+            }
+            try {
+                const { CloudflareR2Service } = await import('../../services/cloudflareR2');
+                if (CloudflareR2Service.isR2Url(imageUrl)) {
+                    let key = imageUrl;
+                    try {
+                        key = new URL(imageUrl).pathname.substring(1);
+                        // Strip bucket name if present in path (common in S3-style URLs)
+                        if (key.includes('/') && (key.startsWith('zoabimemories/') || key.startsWith('familyzoabi/'))) {
+                           key = key.split('/').slice(1).join('/');
+                        }
+                    } catch (e) {
+                        key = imageUrl.split('/').pop() || '';
+                    }
+                    if (key) {
+                        const secure = await CloudflareR2Service.getAuthorizedUrl(key);
+                        if (isMounted) setDisplayUrl(secure || imageUrl);
+                    }
+                } else {
+                    if (isMounted) setDisplayUrl(imageUrl);
+                }
+            } catch (err) {
+                if (isMounted) setDisplayUrl(imageUrl);
+            }
+        }
+        loadUrl();
+        return () => { isMounted = false; };
+    }, [imageUrl, objectKey]);
 
     // 1. Monitor Fullscreen state
     useEffect(() => {
@@ -121,16 +175,18 @@ export function ImagePortal({ imageUrl, onClose }: ImagePortalProps) {
                     className="w-full h-full flex items-center justify-center relative touch-none"
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <motion.img
-                        src={imageUrl}
-                        alt="Full screen"
-                        className="max-w-full max-h-full object-contain shadow-2xl"
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: zoom, opacity: 1 }}
-                        transition={{ duration: 0.2 }}
-                        style={{ transformOrigin: 'center center' }}
-                        draggable={false}
-                    />
+                    {displayUrl ? (
+                        <motion.img
+                            src={displayUrl}
+                            alt="Full screen"
+                            className="max-w-full max-h-full object-contain shadow-2xl"
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: zoom, opacity: 1 }}
+                            transition={{ duration: 0.2 }}
+                            style={{ transformOrigin: 'center center' }}
+                            draggable={false}
+                        />
+                    ) : null}
                 </div>
             </motion.div>
         </AnimatePresence>,

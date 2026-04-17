@@ -9,110 +9,42 @@ import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { storageService } from '../services/storage';
-import { useGooglePhotosUrl } from '../hooks/useGooglePhotosUrl';
 import { WorldMapPreview } from '../components/home/WorldMapPreview';
 import { ImageCropper } from '../components/ui/ImageCropper';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
-import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play, Video, BookOpen } from 'lucide-react';
+import { Calendar, Plus, User, PlusCircle, Camera, MapPin, Image as ImageIcon, Edit, Loader2, FolderOpen, Upload, Sparkles, PlaySquare, Music, Users, Hash, Play } from 'lucide-react';
 import type { Event, Profile } from '../types/supabase';
 import { motion } from 'framer-motion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
-import { cn, slugify } from '../lib/utils';
 
 import { AlbumPage } from '../components/viewer/AlbumPage';
 
 const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=100&w=3840&auto=format&fit=crop';
 
 function HomeMediaItem({ item }: { item: any }) {
-    // Correctly handle both potential ID names
-    const googleId = item.google_id || item.googlePhotoId;
-    const { url: displayUrl } = useGooglePhotosUrl(googleId, item.url, null, true);
-    const [isLoaded, setIsLoaded] = useState(false);
-    const [isError, setIsError] = useState(false);
+    const displayUrl = item.url;
+
+    if (item.type === 'video') {
+        return (
+            <div className="w-full h-full bg-gray-800 flex items-center justify-center">
+                <PlaySquare className="w-6 h-6 text-white/30" />
+            </div>
+        );
+    }
 
     return (
-        <div className="w-full h-full relative">
-            <img
-                src={displayUrl || item.url}
-                alt=""
-                className={cn(
-                    "w-full h-full object-cover transition-opacity duration-500",
-                    isLoaded ? "opacity-100" : "opacity-0"
-                )}
-                onLoad={() => setIsLoaded(true)}
-                onError={() => setIsError(true)}
-                referrerPolicy="no-referrer"
-                crossOrigin="anonymous"
-            />
-            {(!isLoaded || isError) && (
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
-                    {item.type === 'video' ? <Video className="w-4 h-4 text-purple-200" /> : <ImageIcon className="w-4 h-4 text-purple-200" />}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function AlbumPreviewFrame({ album, frontPage, dims }: { album: any, frontPage: any, dims: { width: number, height: number } }) {
-    const [scale, setScale] = useState(0.2);
-    const containerRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        if (!containerRef.current) return;
-        const update = () => {
-            const rect = containerRef.current!.getBoundingClientRect();
-            if (rect.width > 0) {
-                setScale(rect.width / dims.width);
-            }
-        };
-        update();
-        const observer = new ResizeObserver(update);
-        observer.observe(containerRef.current);
-        return () => observer.disconnect();
-    }, [dims.width]);
-
-    return (
-        <div
-            ref={containerRef}
-            className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white flex items-center justify-center p-0"
-        >
-            {album.coverUrl || album.cover_url ? (
-                <img
-                    src={album.coverUrl || album.cover_url}
-                    alt={album.title}
-                    className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-105"
-                />
-            ) : frontPage ? (
-                <div
-                    className="absolute top-1/2 left-1/2 transition-transform duration-1000"
-                    style={{
-                        width: `${dims.width}px`,
-                        height: `${dims.height}px`,
-                        transform: `translate(-50%, -50%) scale(${scale})`,
-                        transformOrigin: 'center center',
-                        pointerEvents: 'none'
-                    }}
-                >
-                    <AlbumPage
-                        page={frontPage as any}
-                        dimensions={dims}
-                        side="single"
-                        isCover={true}
-                        onVideoClick={() => { }}
-                        showPageNumber={false}
-                    />
-                </div>
-            ) : (
-                <div className="w-full h-full flex items-center justify-center bg-zinc-50">
-                    <BookOpen className="w-12 h-12 text-black/5" />
-                </div>
-            )}
-        </div>
+        <img
+            src={displayUrl}
+            alt=""
+            className="w-full h-full object-cover grayscale-[0.2] transition-all duration-700 group-hover:grayscale-0 group-hover:scale-110"
+            referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
+        />
     );
 }
 
 export function Home() {
-    const { familyId, userRole, googleAccessToken, loading: authLoading } = useAuth();
+    const { familyId, userRole, loading: authLoading } = useAuth();
     const navigate = useNavigate();
     const [recentEvents, setRecentEvents] = useState<Event[]>([]);
     const [recentAlbums, setRecentAlbums] = useState<any[]>([]);
@@ -123,8 +55,7 @@ export function Home() {
     const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false);
     // newMemberName removed — replaced by invite code flow (Fix #4)
     const [heroImageUrl, setHeroImageUrl] = useState(DEFAULT_HERO_IMAGE);
-    const [heroImageId, setHeroImageId] = useState<string | undefined>();
-    const { url: resolvedHeroUrl } = useGooglePhotosUrl(heroImageId, heroImageUrl);
+    const resolvedHeroUrl = heroImageUrl;
     const [isUploadingHero, setIsUploadingHero] = useState(false);
     const [showCropper, setShowCropper] = useState<{ src: string, file?: File, item?: any } | null>(null);
 
@@ -174,7 +105,6 @@ export function Home() {
                     .maybeSingle();
                 if (data?.hero_image_url) {
                     setHeroImageUrl(data.hero_image_url);
-                    if (data.hero_image_id) setHeroImageId(data.hero_image_id);
                 } else {
                     // Fallback: migrate from localStorage if exists
                     const cached = localStorage.getItem(`family_hero_${familyId}`);
@@ -206,27 +136,23 @@ export function Home() {
     };
 
     // Unified Handler for Hero Update — Fix #1 (DB) & Fix #6 (no double-upload)
-    const processHeroUpdate = async (url: string | File, type: 'file' | 'url' = 'url', googleId?: string) => {
+    const processHeroUpdate = async (url: string | File, type: 'file' | 'url' = 'url') => {
         if (!familyId) return;
         setIsUploadingHero(true);
 
         try {
             let finalUrl: string | null = null;
-            let googlePhotoId: string | undefined = googleId;
 
             if (type === 'file') {
                 const file = url as File;
-                const { url: storageUrl, googlePhotoId: storageId } = await storageService.uploadFile(
+                const { url: storageUrl } = await storageService.uploadFile(
                     file,
                     'album-assets',
-                    `events/cover/${familyId}/${Date.now()}/`,
-                    undefined,
-                    googleAccessToken
+                    `events/cover/${familyId}/${Date.now()}/`
                 );
 
                 if (storageUrl) {
                     finalUrl = storageUrl;
-                    googlePhotoId = storageId;
                 }
             } else {
                 finalUrl = url as string;
@@ -234,11 +160,9 @@ export function Home() {
 
             if (finalUrl) {
                 setHeroImageUrl(finalUrl);
-                if (googlePhotoId) setHeroImageId(googlePhotoId);
 
                 // Also cache locally for instant display on next load
                 localStorage.setItem(`family_hero_${familyId}`, finalUrl);
-                if (googlePhotoId) localStorage.setItem(`family_hero_id_${familyId}`, googlePhotoId);
 
                 // Persist to DB so it works across devices (Fix #1) - Replaced upsert with manual check
                 const { data: existingSettings } = await (supabase
@@ -251,7 +175,6 @@ export function Home() {
                     await (supabase.from('family_settings' as any) as any)
                         .update({
                             hero_image_url: finalUrl,
-                            hero_image_id: googlePhotoId || null,
                             updated_at: new Date().toISOString()
                         })
                         .eq('family_id', familyId);
@@ -259,7 +182,6 @@ export function Home() {
                     await (supabase.from('family_settings' as any) as any).insert({
                         family_id: familyId,
                         hero_image_url: finalUrl,
-                        hero_image_id: googlePhotoId || null,
                         updated_at: new Date().toISOString()
                     });
                 }
@@ -274,8 +196,7 @@ export function Home() {
                     folder: 'Archive Settings',
                     filename: type === 'file' ? (url as File).name : 'hero_image.jpg',
                     size: type === 'file' ? (url as File).size : 0,
-                    uploaded_by: userData.user?.id,
-                    metadata: googlePhotoId ? { googlePhotoId } : undefined
+                    uploaded_by: userData.user?.id
                 });
             } else {
                 alert('Failed to update hero image.');
@@ -330,25 +251,21 @@ export function Home() {
     };
 
     // Refactored Event Cover Update to shared function
-    const processEventCoverUpdate = async (eventId: string, source: string | File, googleId?: string, type: 'file' | 'url' = 'file') => {
+    const processEventCoverUpdate = async (eventId: string, source: string | File, type: 'file' | 'url' = 'file') => {
         let finalUrl: string | null = null;
-        let googlePhotoId: string | undefined = googleId;
 
         if (type === 'file') {
             const file = source as File;
             setIsUpdatingCover(eventId);
             try {
-                const { url: storageUrl, googlePhotoId: storageId } = await storageService.uploadFile(
+                const { url: storageUrl } = await storageService.uploadFile(
                     file,
                     'album-assets',
-                    `events/${eventId}/cover/`,
-                    undefined,
-                    googleAccessToken
+                    `events/${eventId}/cover/`
                 );
 
                 if (storageUrl) {
                     finalUrl = storageUrl;
-                    googlePhotoId = storageId || googleId;
 
                     // Log to media library
                     const { data: userData } = await supabase.auth.getUser();
@@ -360,8 +277,7 @@ export function Home() {
                         folder: 'Event Covers',
                         filename: file.name,
                         size: file.size,
-                        uploaded_by: userData.user?.id,
-                        metadata: googlePhotoId ? { googlePhotoId } : undefined
+                        uploaded_by: userData.user?.id
                     } as any);
                 }
             } catch (e) {
@@ -388,8 +304,7 @@ export function Home() {
 
             const updatedContent = {
                 ...content,
-                presentationUrl: finalUrl,
-                googlePhotoId: googlePhotoId || content.googlePhotoId
+                presentationUrl: finalUrl
             };
 
             const { error: updateError } = await (supabase as any)
@@ -477,7 +392,7 @@ export function Home() {
                 if (albums) {
                     const formatted = (albums || []).map((album: any) => {
                         let parsedPages = [];
-
+                        
                         // Pick album_pages if unified schema, otherwise fallback to legacy pages
                         if (album.album_pages && album.album_pages.length > 0) {
                             parsedPages = album.album_pages.map((ap: any) => {
@@ -490,7 +405,7 @@ export function Home() {
                                     assets = layoutJson.assets || [];
                                     slots = layoutJson.slots;
                                 }
-
+                                
                                 // Return loosely as a Page object
                                 return {
                                     id: ap.id,
@@ -615,7 +530,7 @@ export function Home() {
     return (
         <div className="space-y-12 pb-12">
             {/* 1. Hero Section */}
-            <section className="relative h-[32vh] w-full overflow-hidden group">
+            <section className="relative h-[65vh] w-full overflow-hidden group">
                 <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-catalog-stone/5 z-10" />
                 <img
                     src={resolvedHeroUrl || heroImageUrl}
@@ -942,24 +857,44 @@ export function Home() {
                                         } as React.CSSProperties}
                                     >
                                         {recentAlbums.map((album, index) => {
-                                            const pages = album.pages || [];
-                                            const frontPage = pages.find((p: any) => p.pageNumber === 1 || p.page_number === 1) || pages[0];
-                                            const dims = album.config?.dimensions || { width: 800, height: 1028.5 };
+                                            const coverPage = (album.pages && album.pages.length > 0) ? album.pages[0] : null;
 
                                             return (
                                                 <div
                                                     key={`${album.id}-${index}`}
                                                     className="carousel-item"
                                                     style={{ '--i': index + 1 } as React.CSSProperties}
-                                                    onClick={() => navigate(`/album/${slugify(album.title)}`)}
+                                                    onClick={() => navigate(`/album/${album.id}`)}
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">
-                                                        <AlbumPreviewFrame
-                                                            album={album}
-                                                            frontPage={frontPage}
-                                                            dims={dims}
-                                                        />
+                                                        {coverPage ? (
+                                                            <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white pointer-events-none">
+                                                                <div 
+                                                                    style={{ 
+                                                                        transform: 'scale(0.2275)', 
+                                                                        transformOrigin: 'top left', 
+                                                                        width: '800px', 
+                                                                        height: '1028.5px' 
+                                                                    }}
+                                                                >
+                                                                    <AlbumPage 
+                                                                        page={coverPage as any} 
+                                                                        dimensions={{ width: 800, height: 1028.5 }} 
+                                                                        side="single" 
+                                                                        isCover={true} 
+                                                                        density="hard"
+                                                                        onVideoClick={() => {}}
+                                                                        showPageNumber={false}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <img
+                                                                src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
+                                                                alt={album.title}
+                                                            />
+                                                        )}
                                                         <h3 className="carousel-title">{album.title}</h3>
                                                         <p className="carousel-date">
                                                             {new Date(album.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
@@ -1002,11 +937,6 @@ export function Home() {
                                     <div className="feature-icon">🎨</div>
                                     <h3>Create</h3>
                                     <p>Design beautiful new albums with our professional tools.</p>
-                                </div>
-                                <div className="feature" onClick={() => navigate('/stacks')}>
-                                    <div className="feature-icon">🎞️</div>
-                                    <h3>Stacks</h3>
-                                    <p>Relive your highlights through AI-powered episodic memory stacks.</p>
                                 </div>
                             </div>
                         </div>

@@ -1,2 +1,2 @@
-[functions.get-google-media]
+[functions.get-r2-presigned-url]
 verify_jwt = false
