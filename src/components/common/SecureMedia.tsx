@@ -56,26 +56,50 @@ export function SecureMedia({ url, objectKey, className, fallback, isVideo = fal
                     if (!key && url) {
                         try {
                             const urlObj = new URL(url);
-                            key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+                            // If the URL is using the public domain, the path is the key
+                            if (url.includes('r2.dev') || (CloudflareR2Service.publicUrl && url.includes(CloudflareR2Service.publicUrl))) {
+                                key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+                            } else {
+                                // Fallback: try to strip the base URL
+                                key = url.replace(CloudflareR2Service.publicUrl, '').replace(/^\//, '');
+                            }
+                            
+                            // Decode the key since URL paths are encoded, 
+                            // but the Edge Function will re-encode it.
+                            if (key) {
+                                try {
+                                    key = decodeURIComponent(key);
+                                } catch (e) {
+                                    // Ignore decode errors, use as is
+                                }
+                            }
                         } catch (e) {
-                            // Fallback for relative paths or bad URLs
-                            key = url.replace(CloudflareR2Service.publicUrl, '').replace(/^\//, '');
+                            console.error('[SecureMedia] Failed to parse URL:', url, e);
                         }
                     }
 
                     if (key) {
+                        // console.log(`[SecureMedia] Authorizing R2 key: "${key}"`);
                         const authorizedUrl = await CloudflareR2Service.getAuthorizedUrl(key);
-                        if (isMounted) setSrc(authorizedUrl);
-                    } else if (url) {
-                        if (isMounted) setSrc(url);
+                        
+                        // Check if we got a different URL (success) or just the fallback
+                        if (authorizedUrl && (authorizedUrl.includes('X-Amz-Signature') || !CloudflareR2Service.isR2Url(authorizedUrl))) {
+                            if (isMounted) setSrc(authorizedUrl);
+                        } else {
+                            console.warn('[SecureMedia] getAuthorizedUrl returned fallback for key:', key);
+                            if (isMounted) {
+                                // We don't setSrc here if we want to avoid 401s, 
+                                // but we might want to show an error instead
+                                setError(true);
+                            }
+                        }
+                    } else {
+                        console.warn('[SecureMedia] Identified as R2 but could not extract key:', url);
+                        if (isMounted) setError(true);
                     }
                 } else if (url) {
-                    // Normalize proxies or Cloudinary if any
-                    if (url.includes('cloudinary')) {
-                         setSrc(url);
-                    } else {
-                         setSrc(url);
-                    }
+                    // Not an R2 URL, use as is
+                    if (isMounted) setSrc(url);
                 }
             } catch (err) {
                 console.error('[SecureMedia] Error loading secure URL:', err);

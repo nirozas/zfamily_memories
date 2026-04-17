@@ -1,4 +1,5 @@
-import { Loader2, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, X, Minus } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import type { UploadManagerState } from '../../hooks/useUploadManager';
 
 // ── Legacy simple interface (backward compat) ───────────────────────────────
@@ -13,6 +14,9 @@ interface RichProps {
     state: UploadManagerState;
     title?: string;
     onDismiss?: () => void;
+    onCancelFile?: (name: string) => void;
+    onCancelAll?: () => void;
+    onMinimize?: () => void;
 }
 
 type UploadOverlayProps = LegacyProps | RichProps;
@@ -24,6 +28,7 @@ function isRichProps(p: UploadOverlayProps): p is RichProps {
 export function UploadOverlay(props: UploadOverlayProps) {
     // ── Normalise both interfaces into one shape ───────────────────────────
     let isOpen: boolean;
+    let isMinimized: boolean = false;
     let files: { name: string; progress: number; status: string }[];
     let totalCount: number;
     let doneCount: number;
@@ -33,7 +38,7 @@ export function UploadOverlay(props: UploadOverlayProps) {
 
     if (isRichProps(props)) {
         const { state, title: propsTitle = 'Uploading…', onDismiss: propsOnDismiss } = props;
-        ({ isOpen, files, totalCount, doneCount, overallProgress } = state);
+        ({ isOpen, isMinimized, files, totalCount, doneCount, overallProgress } = state);
         title = propsTitle;
         onDismiss = propsOnDismiss;
     } else {
@@ -49,7 +54,7 @@ export function UploadOverlay(props: UploadOverlayProps) {
         onDismiss = undefined;
     }
 
-    if (!isOpen || (files.length === 0 && !isRichProps(props))) return null;
+    if (!isOpen || isMinimized || (files.length === 0 && !isRichProps(props))) return null;
 
     const allDone = doneCount === totalCount && totalCount > 0;
     const hasErrors = files.some(f => f.status === 'error');
@@ -107,47 +112,79 @@ export function UploadOverlay(props: UploadOverlayProps) {
                         )}
                     </div>
 
-                    {/* Dismiss button — only when done or has errors */}
-                    {(allDone || hasErrors) && onDismiss && (
-                        <button
-                            onClick={onDismiss}
-                            className="p-1.5 hover:bg-gray-100 rounded-full transition-colors shrink-0 mt-0.5"
-                        >
-                            <X className="w-4 h-4 text-gray-400" />
-                        </button>
-                    )}
+                    {/* Dismiss / Minimize buttons */}
+                    <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                        {isRichProps(props) && !allDone && !hasErrors && (
+                            <button
+                                onClick={props.onMinimize}
+                                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                                title="Minimize to background"
+                            >
+                                <Minus className="w-4 h-4 text-gray-400" />
+                            </button>
+                        )}
+                        {(allDone || hasErrors) && onDismiss && (
+                            <button
+                                onClick={onDismiss}
+                                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                            >
+                                <X className="w-4 h-4 text-gray-400" />
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* ── Per-file list ──────────────────────────────────────────────── */}
-                <div className="px-6 pb-6 space-y-2 max-h-56 overflow-y-auto">
+                <div className="px-6 pb-6 space-y-3 max-h-56 overflow-y-auto custom-scrollbar">
                     {files.map(f => (
-                        <div key={f.name} className="flex items-center gap-3">
+                        <div key={f.name} className="flex items-center gap-3 group">
                             {/* Status icon */}
                             <div className="shrink-0">
                                 {f.status === 'done'
-                                    ? <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                    ? <CheckCircle2 className="w-5 h-5 text-green-500" />
                                     : f.status === 'error'
-                                    ? <AlertCircle className="w-4 h-4 text-red-400" />
+                                    ? <AlertCircle className="w-5 h-5 text-red-400" />
+                                    : f.status === 'aborted'
+                                    ? <X className="w-5 h-5 text-gray-400" />
                                     : f.status === 'uploading'
-                                    ? <Loader2 className="w-4 h-4 text-catalog-accent animate-spin" />
-                                    : <div className="w-4 h-4 rounded-full border-2 border-gray-200" />
+                                    ? <Loader2 className="w-5 h-5 text-catalog-accent animate-spin" />
+                                    : <div className="w-5 h-5 rounded-full border-2 border-gray-100" />
                                 }
                             </div>
+                            
                             {/* Name + bar */}
                             <div className="flex-1 min-w-0">
-                                <div className="flex justify-between items-baseline mb-0.5">
-                                    <span className="text-[11px] font-semibold text-gray-600 truncate max-w-[200px]">{f.name}</span>
-                                    <span className="text-[10px] text-gray-400 shrink-0 ml-1">
-                                        {f.status === 'error' ? 'Error' : `${f.progress}%`}
+                                <div className="flex justify-between items-baseline mb-1">
+                                    <span className={cn(
+                                        "text-[12px] font-bold text-gray-600 truncate max-w-[200px] block transition-colors",
+                                        f.status === 'aborted' && "text-gray-300 line-through"
+                                    )}>
+                                        {f.name}
                                     </span>
+                                    <div className="flex items-center gap-2 shrink-0 ml-1">
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-gray-400">
+                                            {f.status === 'error' ? 'Error' : f.status === 'aborted' ? 'Cancelled' : `${f.progress}%`}
+                                        </span>
+                                        {isRichProps(props) && (f.status === 'uploading' || f.status === 'pending') && (
+                                            <button 
+                                                onClick={() => props.onCancelFile?.(f.name)}
+                                                className="p-1 hover:bg-red-50 hover:text-red-500 text-gray-300 rounded-md transition-all active:scale-95"
+                                                title="Cancel this upload"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                     <div
                                         className="h-full rounded-full transition-all duration-300"
                                         style={{
                                             width: `${f.progress}%`,
                                             background: f.status === 'error'
                                                 ? '#ef4444'
+                                                : f.status === 'aborted'
+                                                ? '#d1d5db'
                                                 : f.status === 'done'
                                                 ? '#22c55e'
                                                 : 'linear-gradient(90deg, #f9a8d4, #ec4899)',
@@ -161,9 +198,19 @@ export function UploadOverlay(props: UploadOverlayProps) {
 
                 {/* ── Footer ────────────────────────────────────────────────────── */}
                 {!allDone && (
-                    <div className="px-6 pb-5 flex items-center gap-2 text-[11px] text-gray-400 font-serif italic">
-                        <Loader2 className="w-3 h-3 animate-spin text-catalog-accent" />
-                        Please don't close this window
+                    <div className="px-6 pb-5 flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[11px] text-gray-400 font-serif italic">
+                            <Loader2 className="w-3 h-3 animate-spin text-catalog-accent" />
+                            Please keep this window open
+                        </div>
+                        {isRichProps(props) && (
+                            <button
+                                onClick={() => props.onCancelAll?.()}
+                                className="text-[10px] font-black uppercase tracking-wider text-red-500 hover:text-red-600 transition-colors px-3 py-1 bg-red-50 rounded-lg"
+                            >
+                                Stop All
+                            </button>
+                        )}
                     </div>
                 )}
             </div>

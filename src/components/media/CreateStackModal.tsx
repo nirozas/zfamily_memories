@@ -5,6 +5,7 @@ import {
     Palette, AlignCenter, Video, Clock, Play, MapPin, Calendar,
     LayoutGrid
 } from 'lucide-react';
+import { SecureMedia } from '../common/SecureMedia';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/Button';
 import { Slider } from '../ui/Slider';
@@ -43,7 +44,10 @@ type SelectedLayer = { kind: 'text' | 'sticker' | 'caption'; id: string } | null
 
 const STICKERS = ['❤️', '⭐', '🌟', '🎉', '🥰', '🌸', '🎶', '🌈', '🏡', '👨‍👩‍👧‍👦', '📸', '🎬', '🔥', '🌺', '💫', '🦋'];
 const FONTS = ['Inter', 'Georgia', 'Courier New', 'cursive'];
-const FREE_MUSIC_SITE = { name: 'Mobiles24 – Free Music', url: 'https://www.mobiles24.co/' };
+const FREE_MUSIC_SITES = [
+    { name: 'Albumaty – MP3 Music', url: 'https://www.albumaty.com/' },
+    { name: 'Mobiles24 – Free Music', url: 'https://www.mobiles24.co/' }
+];
 
 function makeText(text = 'New text'): TextLayer {
     return { id: crypto.randomUUID(), text, x: 50, y: 50, fontSize: 28, fontFamily: 'Inter', color: '#ffffff', bold: true, rotation: 0 };
@@ -386,14 +390,18 @@ export function CreateStackModal({ isOpen, onClose, onCreated, initialStack, ini
                                                 <Music className="w-4 h-4 text-gray-400 group-hover:text-catalog-accent" />
                                                 <span className="text-sm font-medium text-gray-500 group-hover:text-catalog-accent">Search Jamendo or upload file...</span>
                                             </button>
-                                            <button onClick={() => setShowFreeMusic(!showFreeMusic)} className="text-xs text-catalog-accent/70 hover:text-catalog-accent font-bold flex items-center gap-1 transition-colors">
-                                                <ExternalLink className="w-3 h-3" /> {FREE_MUSIC_SITE.name}
-                                            </button>
-                                            {showFreeMusic && (
-                                                <a href={FREE_MUSIC_SITE.url} target="_blank" rel="noreferrer" className="block px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl text-sm font-bold text-amber-700 hover:text-catalog-accent transition-colors">
-                                                    → {FREE_MUSIC_SITE.url}
-                                                </a>
-                                            )}
+                                            {FREE_MUSIC_SITES.map((site, i) => (
+                                                <div key={i} className="space-y-1">
+                                                    <button onClick={() => setShowFreeMusic(!showFreeMusic)} className="text-xs text-catalog-accent/70 hover:text-catalog-accent font-bold flex items-center gap-1 transition-colors">
+                                                        <ExternalLink className="w-3 h-3" /> {site.name}
+                                                    </button>
+                                                    {showFreeMusic && (
+                                                        <a href={site.url} target="_blank" rel="noreferrer" className="block px-3 py-2 bg-amber-50 border border-amber-100 rounded-xl text-sm font-bold text-amber-700 hover:text-catalog-accent transition-colors">
+                                                            → {site.url}
+                                                        </a>
+                                                    )}
+                                                </div>
+                                            ))}
                                         </div>
                                     )}
                                 </div>
@@ -488,25 +496,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, initialStack, ini
                                                 )}
                                             >
                                                 <div className="flex-1 relative overflow-hidden bg-gray-50">
-                                                    {item.type === 'video' ? (
-                                                        <>
-                                                            <video
-                                                                src={`${item.url}#t=0.1`}
-                                                                className="w-full h-full object-cover block"
-                                                                muted
-                                                                playsInline
-                                                                preload="metadata"
-                                                                crossOrigin="anonymous"
-                                                            />
-                                                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                                                <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center border border-white/20 shadow-lg">
-                                                                    <Play className="w-5 h-5 text-white fill-white ml-1" />
-                                                                </div>
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        <img src={item.url} alt="" className={cn("w-full h-full transition-transform duration-700 group-hover:scale-110", item.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />
-                                                    )}
+                                                    <SecureMedia
+                                                        url={item.url}
+                                                        isVideo={item.type === 'video'}
+                                                        className={cn("w-full h-full", item.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
+                                                        alt={item.filename}
+                                                    />
 
                                                     <div className="absolute top-3 right-3 w-7 h-7 rounded-full bg-black/50 backdrop-blur-md text-white text-[10px] font-black flex items-center justify-center border border-white/20 shadow-xl">{idx + 1}</div>
 
@@ -587,8 +582,12 @@ export function CreateStackModal({ isOpen, onClose, onCreated, initialStack, ini
                                 {mediaItems.map((item, idx) => (
                                     <button key={idx} onClick={() => setEditingIdx(idx)}
                                         className={cn("relative aspect-square rounded-xl overflow-hidden border-2 transition-all bg-gray-200", editingIdx === idx ? "border-catalog-accent shadow-lg scale-105" : "border-transparent opacity-60 hover:opacity-100")}>
-                                        {item.type === 'video' ? <video src={item.url} className="w-full h-full object-cover" autoPlay loop muted playsInline crossOrigin="anonymous" />
-                                            : <img src={item.url} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />}
+                                        <SecureMedia
+                                            url={item.url}
+                                            isVideo={item.type === 'video'}
+                                            className="w-full h-full object-cover"
+                                            alt={item.filename}
+                                        />
                                         <div className="absolute bottom-0 inset-x-0 bg-black/50 text-white text-[8px] font-black text-center py-0.5">{idx + 1}</div>
                                     </button>
                                 ))}
@@ -602,31 +601,22 @@ export function CreateStackModal({ isOpen, onClose, onCreated, initialStack, ini
                                 onPointerUp={drag.end}
                                 onClick={() => setSelectedLayer(null)}
                             >
-                                {currentItem.type === 'video'
-                                    ? <video
-                                        src={displayUrl} 
-                                        poster={posterUrl}
-                                        controls={selectedLayer?.kind !== 'trim' as any}
-                                        className={cn("absolute inset-0 w-full h-full pointer-events-auto transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
-                                        autoPlay loop playsInline crossOrigin="anonymous"
-                                        onLoadedMetadata={(e) => {
-                                            const dur = e.currentTarget.duration;
-                                            if (dur && dur !== currentItem.totalVideoDuration) {
-                                                updateItem({ totalVideoDuration: dur });
-                                            }
-                                        }}
-                                        onTimeUpdate={(e) => {
-                                            const video = e.currentTarget;
-                                            const start = currentItem.videoStartTime || 0;
-                                            const end = currentItem.videoEndTime || currentItem.totalVideoDuration || video.duration;
-                                            if (end && video.currentTime >= end) {
-                                                video.currentTime = start;
-                                            } else if (video.currentTime < start) {
-                                                video.currentTime = start;
-                                            }
-                                        }}
-                                    />
-                                    : <img src={displayUrl} alt="" className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')} crossOrigin="anonymous" />}
+                                <SecureMedia
+                                    url={displayUrl}
+                                    isVideo={currentItem.type === 'video'}
+                                    className={cn("absolute inset-0 w-full h-full transition-all duration-300", currentItem.cropMode === 'cover' ? 'object-cover' : 'object-contain')}
+                                    autoPlay={currentItem.type === 'video'}
+                                    loop={currentItem.type === 'video'}
+                                    muted={currentItem.type === 'video'}
+                                    playsInline={currentItem.type === 'video'}
+                                    controls={currentItem.type === 'video' && selectedLayer?.kind !== 'trim' as any}
+                                    onLoadedMetadata={currentItem.type === 'video' ? (e) => {
+                                        const dur = (e.target as HTMLVideoElement).duration;
+                                        if (dur && dur !== currentItem.totalVideoDuration) {
+                                            updateItem({ totalVideoDuration: dur });
+                                        }
+                                    } : undefined}
+                                />
 
                                 {/* Text layers */}
                                 {(currentItem.textLayers || []).map(layer => (

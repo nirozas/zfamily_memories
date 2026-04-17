@@ -2,11 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     X, Star, MoreVertical, Play, Pause, Share, Edit2, Trash,
     MapPin, Volume2, VolumeX, Maximize, Minimize, Download,
-    MonitorPlay, Check, Settings2
+    MonitorPlay, Check, Settings2, Loader2
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
 import Hls from 'hls.js';
+import { useAuthorizedUrl } from '../../hooks/useAuthorizedUrl';
+import { CloudflareR2Service } from '../../services/cloudflareR2';
 
 export interface MediaItem {
     id: string;
@@ -73,7 +75,7 @@ export function MediaStackViewer({
     const [isFavorite, setIsFavorite] = useState(false);
     
     // Video-specific controls
-    const [isVideoMuted, setIsVideoMuted] = useState(true);
+    const [isVideoMuted, setIsVideoMuted] = useState(false);
     const [playbackRate, setPlaybackRate] = useState(1);
     const [showVideoMenu, setShowVideoMenu] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -87,9 +89,16 @@ export function MediaStackViewer({
     // Preloaded video elements (keyed by url)
     const preloadedVideos = useRef<Map<string, { video: HTMLVideoElement, hls?: Hls }>>(new Map());
 
-    const { user } = useAuth();
     const activeItem = items[activeIndex];
-    const displayUrl = activeItem.url;
+    
+    // Get authorized URL for the active item
+    const { authorizedUrl: activeAuthorizedUrl, loading: authLoading } = useAuthorizedUrl(activeItem?.url);
+    
+    // Only use the authorized URL if it's actually ready, 
+    // otherwise if it's R2 we wait to avoid 401s
+    const isR2 = CloudflareR2Service.isR2Url(activeItem?.url);
+    const displayUrl = activeAuthorizedUrl || (!isR2 ? activeItem?.url : null);
+    const isReady = !isR2 || activeAuthorizedUrl;
 
     const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
     const nextProxiedUrl = nextItem?.url;
@@ -114,26 +123,36 @@ export function MediaStackViewer({
         });
 
         // Preload priority items
-        priorityIndices.forEach((idx) => {
+        priorityIndices.forEach(async (idx) => {
             const item = items[idx];
             if (item.type === 'video' && item.url && !map.has(item.url)) {
-                const proxiedUrl = item.url;
+                // We need an authorized URL for preloading too if it's R2
+                let preloadUrl = item.url;
+                if (CloudflareR2Service.isR2Url(item.url)) {
+                    try {
+                        const urlObj = new URL(item.url);
+                        const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+                        preloadUrl = await CloudflareR2Service.getAuthorizedUrl(decodeURIComponent(key));
+                    } catch (e) {
+                        console.error('[MediaStackViewer] Failed to authorize for preload:', item.url, e);
+                    }
+                }
 
                 const vid = document.createElement('video');
-                vid.src = proxiedUrl;
+                vid.src = preloadUrl;
                 vid.preload = 'auto';
-                vid.muted = true;
+                vid.muted = false;
                 vid.playsInline = true;
-                vid.crossOrigin = 'anonymous';
+                // Removed crossOrigin to avoid CORS issues with presigned URLs
 
                 let hls: Hls | undefined;
-                if (proxiedUrl.includes('.m3u8')) {
+                if (preloadUrl.includes('.m3u8')) {
                     if (Hls.isSupported()) {
                         hls = new Hls({ enableWorker: true });
-                        hls.loadSource(proxiedUrl);
+                        hls.loadSource(preloadUrl);
                         hls.attachMedia(vid);
                     } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-                        vid.src = proxiedUrl;
+                        vid.src = preloadUrl;
                     }
                 } else {
                     vid.load();
@@ -517,18 +536,23 @@ export function MediaStackViewer({
 
             {/* Media Overlay Mechanics */}
             <div
-                className="absolute inset-0 z-10 select-none"
+                className="absolute inset-0 z-10 select-none flex items-center justify-center"
                 onPointerDown={handlePointerDown}
                 onPointerUp={handlePointerUp}
                 onPointerLeave={handlePointerUp}
                 onClick={handleTouchZone}
+                key={activeItem.id}
             >
-                {activeItem.type === 'video' ? (
+                {!isReady || authLoading ? (
+                    <div className="flex flex-col items-center gap-4">
+                        <Loader2 className="w-12 h-12 animate-spin text-white/20" />
+                        <p className="text-white/40 font-outfit font-black text-xs uppercase tracking-widest">Securing Media...</p>
+                    </div>
+                ) : activeItem.type === 'video' ? (
                     <>
                         <video
                             ref={videoRef}
                             playsInline
-                            crossOrigin="anonymous"
                             className={cn(
                                 "w-full h-full pointer-events-none select-none transition-all duration-500", 
                                 activeItem.cropMode === 'cover' ? 'object-cover' : 'object-contain'
@@ -550,7 +574,6 @@ export function MediaStackViewer({
                     <img
                         src={displayUrl}
                         alt={activeItem.caption || 'Media'}
-                        crossOrigin="anonymous"
                         referrerPolicy="no-referrer"
                         className={cn(
                             "w-full h-full pointer-events-none select-none transition-all duration-500", 
@@ -586,16 +609,6 @@ export function MediaStackViewer({
                     </div>
                 ))}
             </div>
-
-            {nextItem && nextItem.type === 'image' && (
-                <link 
-                    rel="preload" 
-                    as="image" 
-                    href={nextProxiedUrl} 
-                    crossOrigin="anonymous" 
-                    referrerPolicy="no-referrer" 
-                />
-            )}
 
             {/* Bottom Action Bar */}
             <div className="absolute bottom-0 left-0 right-0 p-4 pb-8 z-20 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-4">

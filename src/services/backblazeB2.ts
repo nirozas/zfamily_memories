@@ -13,7 +13,7 @@ export class BackblazeB2Service {
      * Uploads a file to Backblaze B2 using a Supabase Edge Function as a proxy.
      * This bypasses CORS and keeps the Application Key secure.
      */
-    static async uploadFile(file: File | Blob, key: string, contentType: string): Promise<string> {
+    static async uploadFile(file: File | Blob, key: string, contentType: string, signal?: AbortSignal): Promise<string> {
         // 1. Get current session token for the Edge Function
         const { data: { session } } = await supabase.auth.getSession();
         
@@ -49,7 +49,8 @@ export class BackblazeB2Service {
                 'Content-Type': 'application/json',
                 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
             },
-            body: JSON.stringify({ key, contentType, fileBase64 })
+            body: JSON.stringify({ key, contentType, fileBase64 }),
+            signal
         });
 
         if (!res.ok) {

@@ -10,26 +10,16 @@ import {
 import MediaStackViewer, { type MediaItem } from '../components/media/MediaStackViewer';
 import { CreateStackModal } from '../components/media/CreateStackModal';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CloudflareR2Service } from '../services/cloudflareR2';
+import { SecureMedia } from '../components/common/SecureMedia';
 
 function StackMiniThumbnail({ item }: { item: { url: string; type?: string; metadata?: any } }) {
-    const displayUrl = item.url;
     const isVideo = item.type === 'video' || (item.url && item.url.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i));
 
-    if (isVideo) {
-        return (
-            <video
-                src={`${item.url}#t=0.1`}
-                className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
-                muted
-                playsInline
-            />
-        );
-    }
-
     return (
-        <img
-            src={displayUrl}
-            alt=""
+        <SecureMedia
+            url={item.url}
+            isVideo={isVideo}
             className="w-full h-full object-cover grayscale-[0.2] group-hover:grayscale-0 transition-all duration-700 group-hover:scale-105"
         />
     );
@@ -209,6 +199,31 @@ export function MediaStacks() {
         if (filteredStacks.length === 0) return;
         setViewingStack(filteredStacks[0]);
     };
+    
+    const handleMouseEnterStack = (stack: Stack) => {
+        // Pre-authorize the first 3 items to speed up opening
+        if (!stack.media_items) return;
+        stack.media_items.slice(0, 3).forEach(item => {
+            if (CloudflareR2Service.isR2Url(item.url)) {
+                try {
+                    const urlObj = new URL(item.url);
+                    const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+                    CloudflareR2Service.preAuthorize(decodeURIComponent(key));
+                } catch (e) {
+                    // Ignore invalid URLs
+                }
+            }
+        });
+        
+        // Also pre-authorize music if it's R2
+        if (stack.music_url && CloudflareR2Service.isR2Url(stack.music_url)) {
+             try {
+                const urlObj = new URL(stack.music_url);
+                const key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+                CloudflareR2Service.preAuthorize(decodeURIComponent(key));
+            } catch (e) {}
+        }
+    };
 
     const filteredStacks = stacks.filter(stack => {
         if (!searchQuery) return true;
@@ -339,6 +354,7 @@ export function MediaStacks() {
                                         <div
                                             className="relative aspect-[4/3] bg-gray-900 cursor-pointer overflow-hidden"
                                             onClick={() => handleViewStack(stack)}
+                                            onMouseEnter={() => handleMouseEnterStack(stack)}
                                         >
                                             {/* Media mini-strip */}
                                             {stack.media_items && stack.media_items.length > 0 ? (
@@ -475,7 +491,8 @@ export function MediaStacks() {
                                 ) : (
                                     /* ===== LIST CARD ===== */
                                     <div className="bg-white p-4 rounded-3xl border border-black/5 flex items-center gap-6 hover:shadow-lg transition-all group cursor-pointer"
-                                        onClick={() => handleViewStack(stack)}>
+                                        onClick={() => handleViewStack(stack)}
+                                        onMouseEnter={() => handleMouseEnterStack(stack)}>
                                         {/* Thumbnail */}
                                         <div className="w-20 h-20 rounded-2xl overflow-hidden shrink-0 border border-gray-100 shadow-sm bg-gray-100 flex items-center justify-center">
                                             {stack.cover_url || (stack.media_items && stack.media_items.length > 0) ? (

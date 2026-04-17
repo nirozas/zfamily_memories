@@ -11,6 +11,7 @@ export interface R2UploadResult {
  */
 export class CloudflareR2Service {
     private static _publicUrl = import.meta.env.VITE_R2_PUBLIC_URL as string;
+    private static _authCache = new Map<string, string>();
 
     /**
      * Updates the public URL used to resolve media assets.
@@ -34,7 +35,16 @@ export class CloudflareR2Service {
      */
     static isR2Url(url?: string | null): boolean {
         if (!url) return false;
-        return url.includes(this.publicUrl) || url.includes('r2.dev');
+        const lowerUrl = url.toLowerCase();
+        
+        // Check if it matches our configured public URL
+        if (this._publicUrl && lowerUrl.includes(this._publicUrl.toLowerCase())) return true;
+        
+        // Generic check for R2 domains
+        if (lowerUrl.includes('r2.dev')) return true;
+        if (lowerUrl.includes('r2.cloudflarestorage.com')) return true;
+        
+        return false;
     }
 
     /**
@@ -50,7 +60,13 @@ export class CloudflareR2Service {
     /**
      * Requests a presigned PUT URL from Supabase and uploads the file directly to R2.
      */
-    static async uploadFile(file: File | Blob, key: string, contentType: string): Promise<string> {
+    static async uploadFile(
+        file: File | Blob, 
+        key: string, 
+        contentType: string, 
+        signal?: AbortSignal,
+        onProgress?: (pct: number) => void
+    ): Promise<string> {
         // 1. Get current session token
         const { data: { session } } = await supabase.auth.getSession();
 
@@ -66,18 +82,41 @@ export class CloudflareR2Service {
             throw new Error(`Failed to get presigned URL: ${presignError?.message || 'Unknown error'}`);
         }
 
-        // 2. Upload directly to R2
-        const response = await fetch(presignedUrl, {
-            method: 'PUT',
-            headers: { 'Content-Type': contentType },
-            body: file
+        // 2. Upload directly to R2 using XMLHttpRequest to track upload progress
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open('PUT', presignedUrl);
+            xhr.setRequestHeader('Content-Type', contentType);
+
+            if (signal) {
+                signal.addEventListener('abort', () => {
+                    xhr.abort();
+                    reject(new Error('Upload aborted'));
+                });
+            }
+
+            if (onProgress) {
+                xhr.upload.onprogress = (e) => {
+                    if (e.lengthComputable) {
+                        const pct = Math.round((e.loaded / e.total) * 100);
+                        onProgress(pct);
+                    }
+                };
+            }
+
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(this.getPublicUrl(key));
+                } else {
+                    reject(new Error(`R2 Upload failed: ${xhr.statusText} (${xhr.status})`));
+                }
+            };
+
+            xhr.onerror = () => reject(new Error('R2 Upload failed (Network Error)'));
+            xhr.onabort = () => reject(new Error('Upload aborted'));
+
+            xhr.send(file);
         });
-
-        if (!response.ok) {
-            throw new Error(`R2 Upload failed: ${response.statusText}`);
-        }
-
-        return this.getPublicUrl(key);
     }
 
     /**
@@ -95,9 +134,14 @@ export class CloudflareR2Service {
     static async getAuthorizedUrl(key: string, expiresIn: number = 3600): Promise<string> {
         if (!key) return '';
         
+        // 0. Check cache first
+        if (this._authCache.has(key)) {
+            return this._authCache.get(key)!;
+        }
+
+        // 1. Get presigned GET URL from Edge Function
         const { data: { session } } = await supabase.auth.getSession();
         
-        // 1. Get presigned GET URL from Edge Function
         const { data, error } = await supabase.functions.invoke('get-r2-presigned-url', {
             body: { operation: 'GET', key, expiresIn },
             headers: {
@@ -106,12 +150,21 @@ export class CloudflareR2Service {
         });
 
         if (error || !data?.presignedUrl) {
-            console.error('[R2] Failed to get authorized URL:', error);
-            // Fallback to public URL (if still active) or return empty
+            console.error('[R2] Failed to get authorized URL for key:', key, 'Error:', error, 'Data:', data);
             return this.getPublicUrl(key);
         }
 
+        // Store in cache
+        this._authCache.set(key, data.presignedUrl);
         return data.presignedUrl;
+    }
+
+    /**
+     * Pre-authorizes a key to speed up future access.
+     */
+    static preAuthorize(key: string): void {
+        if (!key || this._authCache.has(key)) return;
+        this.getAuthorizedUrl(key).catch(() => {});
     }
 
     /**

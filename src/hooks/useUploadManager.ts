@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 export interface FileUploadState {
     name: string;
     progress: number; // 0-100
-    status: 'pending' | 'uploading' | 'done' | 'error';
+    status: 'pending' | 'uploading' | 'done' | 'error' | 'aborted';
     error?: string;
 }
 
@@ -45,6 +45,10 @@ const INITIAL_STATE: UploadManagerState = {
 export function useUploadManager(options: UseUploadManagerOptions = {}) {
     const { familyId, folder = '/', onComplete, useHls = false, isSystemAsset = false } = options;
     const { user } = useAuth();
+    const abortControllersRef = import.meta.env.SSR ? { current: new Map() } : (function() {
+        const ref = { current: new Map<string, AbortController>() };
+        return ref;
+    })();
 
     const [state, setState] = useState<UploadManagerState>(INITIAL_STATE);
     const [uploadedItems, setUploadedItems] = useState<UploadedItem[]>([]);
@@ -52,7 +56,7 @@ export function useUploadManager(options: UseUploadManagerOptions = {}) {
     const updateFile = useCallback((name: string, update: Partial<FileUploadState>) => {
         setState(prev => {
             const files = prev.files.map(f => f.name === name ? { ...f, ...update } : f);
-            const doneCount = files.filter(f => f.status === 'done' || f.status === 'error').length;
+            const doneCount = files.filter(f => f.status === 'done' || f.status === 'error' || f.status === 'aborted').length;
             const totalCount = files.length;
             const overallProgress = totalCount > 0
                 ? Math.round(files.reduce((sum, f) => sum + f.progress, 0) / totalCount)
@@ -131,7 +135,14 @@ export function useUploadManager(options: UseUploadManagerOptions = {}) {
             });
         };
 
-        for (const file of files) {
+        // --- Parallel Upload Logic with Concurrency Limit ---
+        const CONCURRENCY_LIMIT = 5;
+        let currentIndex = 0;
+
+        const uploadFileTask = async (file: File) => {
+            const controller = new AbortController();
+            (abortControllersRef as any).current.set(file.name, controller);
+
             updateFile(file.name, { status: 'uploading', progress: 0 });
 
             const isVideo = file.type.startsWith('video/') || !!file.name.match(/\.(mp4|mov|webm|mkv|avi|m4v)$/i);
@@ -149,7 +160,8 @@ export function useUploadManager(options: UseUploadManagerOptions = {}) {
                     pathPrefix,
                     (p: any) => updateFile(file.name, { progress: Math.floor((p.loaded / p.total) * 100) }),
                     useHls,
-                    isSystemAsset
+                    isSystemAsset,
+                    controller.signal
                 );
 
                 if (error || !url) throw new Error(error || 'Upload returned no URL');
@@ -172,10 +184,29 @@ export function useUploadManager(options: UseUploadManagerOptions = {}) {
                 results.push(uploadedItem);
                 await saveToDatabase(uploadedItem, effectiveFolder);
             } catch (err: any) {
-                console.error(`[Upload] Failed for ${file.name}:`, err);
-                updateFile(file.name, { status: 'error', progress: 0, error: err.message });
+                if (err.name === 'AbortError') {
+                    console.log(`[Upload] Cancelled: ${file.name}`);
+                    updateFile(file.name, { status: 'aborted', progress: 0 });
+                } else {
+                    console.error(`[Upload] Failed for ${file.name}:`, err);
+                    updateFile(file.name, { status: 'error', progress: 0, error: err.message });
+                }
+            } finally {
+                (abortControllersRef as any).current.delete(file.name);
             }
-        }
+        };
+
+        // Worker function to consume files from the queue
+        const worker = async () => {
+            while (currentIndex < files.length) {
+                const file = files[currentIndex++];
+                await uploadFileTask(file);
+            }
+        };
+
+        // Start initial workers
+        const workers = Array.from({ length: Math.min(CONCURRENCY_LIMIT, files.length) }, () => worker());
+        await Promise.all(workers);
 
         setUploadedItems(results);
         onComplete?.(results);
@@ -189,15 +220,31 @@ export function useUploadManager(options: UseUploadManagerOptions = {}) {
         }, 2500);
     }, [folder, familyId, user?.id, useHls, isSystemAsset, updateFile, saveToDatabase, onComplete]);
 
+    const cancelUpload = useCallback((name: string) => {
+        const controller = (abortControllersRef as any).current.get(name);
+        if (controller) {
+            controller.abort();
+            (abortControllersRef as any).current.delete(name);
+        }
+    }, [abortControllersRef]);
+
+    const cancelAll = useCallback(() => {
+        (abortControllersRef as any).current.forEach((c: any) => c.abort());
+        (abortControllersRef as any).current.clear();
+    }, [abortControllersRef]);
+
     const dismissUpload = useCallback(() => {
+        cancelAll();
         setState(INITIAL_STATE);
         setUploadedItems([]);
-    }, []);
+    }, [cancelAll]);
 
     return {
         uploadState: state,
         uploadedItems,
         uploadFiles,
+        cancelUpload,
+        cancelAll,
         dismissUpload,
     };
 }

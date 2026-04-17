@@ -25,7 +25,8 @@ export const storageService = {
         pathPrefix: string = 'media',
         onProgress?: (progress: { loaded: number; total: number }) => void,
         useHls: boolean = false,
-        isSystemAsset: boolean = false
+        isSystemAsset: boolean = false,
+        signal?: AbortSignal
     ): Promise<{ url: string | null; error: string | null; r2Key?: string }> {
         try {
             const reportProgress = (pct: number) => {
@@ -42,7 +43,11 @@ export const storageService = {
                         maxSizeMB: 1,
                         maxWidthOrHeight: 2040,
                         useWebWorker: true,
-                        onProgress: (p) => reportProgress(10 + p * 40), // 10-50%
+                        onProgress: (p) => {
+                            // Detect if p is 0-1 or 0-100
+                            const normalized = p > 1 ? p / 100 : p;
+                            reportProgress(10 + normalized * 40); // 10-50%
+                        },
                     });
                 } catch (e) {
                     console.warn('[Storage] Image compression failed, using original:', e);
@@ -55,9 +60,15 @@ export const storageService = {
                 
                 let url: string;
                 if (isSystemAsset) {
-                    url = await BackblazeB2Service.uploadFile(fileToUpload, key, fileToUpload.type);
+                    url = await BackblazeB2Service.uploadFile(fileToUpload, key, fileToUpload.type, signal);
                 } else {
-                    url = await CloudflareR2Service.uploadFile(fileToUpload, key, fileToUpload.type);
+                    url = await CloudflareR2Service.uploadFile(
+                        fileToUpload, 
+                        key, 
+                        fileToUpload.type, 
+                        signal,
+                        (p) => reportProgress(60 + p * 0.4) // 60-100%
+                    );
                 }
                 
                 reportProgress(100);
@@ -75,7 +86,8 @@ export const storageService = {
                     reportProgress(5);
                     const { encodeAndUploadHls } = await import('./videoCompression');
                     const result = await encodeAndUploadHls(file, keyPrefix, (p) => {
-                        reportProgress(5 + p * 0.95); // 5-100%
+                        const normalized = p > 1 ? p / 100 : p;
+                        reportProgress(5 + normalized * 0.95); // 5-100%
                     });
                     return { url: result.masterUrl, error: null, r2Key: result.r2KeyPrefix };
                 } else {
@@ -84,7 +96,8 @@ export const storageService = {
                         reportProgress(5);
                         const { videoCompressionService } = await import('./videoCompression');
                         fileToUpload = await videoCompressionService.compressVideo(file, (p) => {
-                            reportProgress(5 + p * 0.45); // 5-50%
+                            const normalized = p > 1 ? p / 100 : p;
+                            reportProgress(5 + normalized * 0.45); // 5-50%
                         });
                     } catch (e) {
                         console.warn('[Storage] Video compression failed:', e);
@@ -95,9 +108,15 @@ export const storageService = {
                     
                     let url: string;
                     if (isSystemAsset) {
-                        url = await BackblazeB2Service.uploadFile(fileToUpload, key, 'video/mp4');
+                        url = await BackblazeB2Service.uploadFile(fileToUpload, key, 'video/mp4', signal);
                     } else {
-                        url = await CloudflareR2Service.uploadFile(fileToUpload, key, 'video/mp4');
+                        url = await CloudflareR2Service.uploadFile(
+                            fileToUpload, 
+                            key, 
+                            'video/mp4', 
+                            signal,
+                            (p) => reportProgress(60 + p * 0.4) // 60-100%
+                        );
                     }
 
                     reportProgress(100);

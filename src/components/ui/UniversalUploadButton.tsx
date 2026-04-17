@@ -19,6 +19,7 @@ import { useRef, useState, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Upload, Link as LinkIcon, X, CloudUpload, Grid, Folder, Plus, ChevronRight, Check } from 'lucide-react';
 import { useUploadManager, type UseUploadManagerOptions, type UploadedItem } from '../../hooks/useUploadManager';
+import { useUpload } from '../../contexts/UploadContext';
 import { UploadOverlay } from './UploadOverlay';
 import { cn } from '../../lib/utils';
 
@@ -55,27 +56,24 @@ export function UniversalUploadButton({
     const [newFolderName, setNewFolderName] = useState('');
     const [existingFolders, setExistingFolders] = useState<string[]>([]);
 
-    const manager = useUploadManager({
-        familyId,
-        folder: selectedFolder,
-        useHls,
-        onComplete,
-        isSystemAsset
-    });
-
     const fetchExistingFolders = async () => {
-        if (!familyId || isSystemAsset) return;
         try {
-            const { data, error } = await (supabase.from('family_media' as any) as any)
-                .select('folder')
-                .eq('family_id', familyId);
-            
-            if (error) throw error;
-            
-            const folders = Array.from(new Set(data?.map((i: any) => i.folder || '/') || []))
-                .sort((a: any, b: any) => a.localeCompare(b)) as string[];
-            
-            setExistingFolders(folders);
+            if (isSystemAsset) {
+                const { data, error } = await supabase.from('library_assets').select('category');
+                if (error) throw error;
+                const categories = Array.from(new Set(data?.map(i => i.category) || []))
+                    .sort((a, b) => a.localeCompare(b)) as string[];
+                setExistingFolders(categories);
+            } else {
+                if (!familyId) return;
+                const { data, error } = await (supabase.from('family_media' as any) as any)
+                    .select('folder')
+                    .eq('family_id', familyId);
+                if (error) throw error;
+                const folders = Array.from(new Set(data?.map((i: any) => i.folder || '/') || []))
+                    .sort((a: any, b: any) => a.localeCompare(b)) as string[];
+                setExistingFolders(folders);
+            }
         } catch (err) {
             console.error('[Upload] Failed to fetch folders:', err);
         }
@@ -119,7 +117,27 @@ export function UniversalUploadButton({
         return findNode(folderHierarchy, browsingPath) || folderHierarchy;
     }, [folderHierarchy, browsingPath]);
 
-    const { uploadState, uploadFiles, dismissUpload } = manager;
+    const { state: uploadState, uploadFiles, dismissUpload, cancelUpload, cancelAll, setMinimized } = useUpload();
+
+    async function handleFileSelect(filesToUpload: File[]) {
+        if (filesToUpload.length === 0) return;
+        
+        // 1. Determine target folder
+        const targetFolder = browsingPath === '/' 
+            ? (selectedFolder === '/' ? (isSystemAsset ? 'sticker' : 'vault') : selectedFolder) 
+            : browsingPath;
+        
+        // 2. Upload
+        await uploadFiles(filesToUpload, {
+            familyId,
+            folder: targetFolder,
+            useHls,
+            isSystemAsset,
+            onComplete: (items) => {
+                onComplete?.(items);
+            }
+        });
+    }
 
     function openFilePicker() {
         setShowSourceModal(false);
@@ -138,7 +156,7 @@ export function UniversalUploadButton({
             const resp = await fetch(url);
             const blob = await resp.blob();
             const file = new File([blob], filename, { type: blob.type || (isVideo ? 'video/mp4' : 'image/jpeg') });
-            await uploadFiles([file], selectedFolder);
+            await handleFileSelect([file]);
         } catch (e: any) {
             alert(`Failed to import URL: ${e.message}`);
         }
@@ -149,6 +167,7 @@ export function UniversalUploadButton({
         if (variant === 'icon') {
             return (
                 <button
+                    type="button"
                     id="universal-upload-trigger"
                     onClick={() => setShowSourceModal(true)}
                     className={cn("p-2.5 bg-catalog-accent text-white rounded-xl shadow hover:bg-catalog-accent/90 transition-all hover:scale-105 active:scale-95", className)}
@@ -161,6 +180,7 @@ export function UniversalUploadButton({
         if (variant === 'sidebar') {
             return (
                 <button
+                    type="button"
                     id="universal-upload-trigger"
                     onClick={() => setShowSourceModal(true)}
                     className={cn("w-full flex items-center justify-center gap-2 bg-catalog-accent text-white py-2.5 rounded-lg hover:bg-catalog-accent/90 transition-all shadow-sm font-medium text-sm", className)}
@@ -173,6 +193,7 @@ export function UniversalUploadButton({
         if (variant === 'secondary') {
             return (
                 <button
+                    type="button"
                     id="universal-upload-trigger"
                     onClick={() => setShowSourceModal(true)}
                     className={cn("flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-all", className)}
@@ -185,6 +206,7 @@ export function UniversalUploadButton({
         // Primary (default)
         return (
             <button
+                type="button"
                 id="universal-upload-trigger"
                 onClick={() => setShowSourceModal(true)}
                 className={cn(
@@ -211,7 +233,7 @@ export function UniversalUploadButton({
                 className="hidden"
                 onChange={e => {
                     if (e.target.files && e.target.files.length > 0) {
-                        uploadFiles(Array.from(e.target.files), selectedFolder);
+                        handleFileSelect(Array.from(e.target.files));
                     }
                     e.target.value = '';
                 }}
@@ -234,7 +256,7 @@ export function UniversalUploadButton({
                             </button>
                         </div>
 
-                        {!isSystemAsset && (
+                        {(true) && (
                             <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
                                 <div className="flex items-center justify-between mb-1.5">
                                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Destination</span>
@@ -304,14 +326,14 @@ export function UniversalUploadButton({
                                             {currentFolderNode.children.length > 0 ? (
                                                 currentFolderNode.children.sort((a: any, b: any) => a.name.localeCompare(b.name)).map((child: any) => (
                                                     <div key={child.path} className="group/item relative">
-                                                        <button
+                                                        <div
                                                             onClick={() => setSelectedFolder(child.path)}
                                                             className={cn(
-                                                                "w-full flex items-center justify-between px-2 py-2 rounded-lg text-[11px] transition-all",
+                                                                "w-full flex items-center justify-between px-2 py-2 rounded-lg text-[11px] transition-all cursor-pointer",
                                                                 selectedFolder === child.path 
                                                                     ? "bg-catalog-accent/10 text-catalog-accent font-bold border border-catalog-accent/20" 
                                                                     : "hover:bg-white text-gray-600 border border-transparent"
-                                                            )}
+                                                                )}
                                                         >
                                                             <div className="flex items-center gap-2">
                                                                 <Folder className={cn("w-3 h-3", selectedFolder === child.path ? "text-catalog-accent fill-catalog-accent/20" : "text-gray-400")} />
@@ -329,7 +351,7 @@ export function UniversalUploadButton({
                                                                     <ChevronRight className="w-3 h-3 text-catalog-accent" />
                                                                 </button>
                                                             </div>
-                                                        </button>
+                                                        </div>
                                                     </div>
                                                 ))
                                             ) : (
@@ -480,6 +502,9 @@ export function UniversalUploadButton({
                 state={uploadState}
                 title="Uploading to your library…"
                 onDismiss={dismissUpload}
+                onCancelFile={cancelUpload}
+                onCancelAll={cancelAll}
+                onMinimize={() => setMinimized(true)}
             />
         </>
     );

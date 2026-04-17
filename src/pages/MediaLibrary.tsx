@@ -14,6 +14,7 @@ import { VideoPortal } from '../components/viewer/VideoPortal';
 import { cn } from '../lib/utils';
 import { UploadOverlay } from '../components/ui/UploadOverlay';
 import { UniversalUploadButton } from '../components/ui/UniversalUploadButton';
+import { MinimizedUploadBadge } from '../components/ui/MinimizedUploadBadge';
 
 interface MediaItem {
     id: string;
@@ -786,6 +787,7 @@ export function MediaLibrary() {
                     </div>
 
                     <div className="flex items-center gap-3">
+                        <MinimizedUploadBadge />
                         {selectedItems.size > 0 && (activeTab === 'uploads' || isAdmin) && (
                             <>
                                 <button onClick={handleBulkEditTags} className="flex items-center gap-1.5 text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">

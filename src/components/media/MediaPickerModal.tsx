@@ -3,6 +3,7 @@ import { X, Search, Image as ImageIcon, Video, Folder, CheckCircle, Check, Chevr
 import { supabase } from '../../lib/supabase';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../contexts/AuthContext';
+import { SecureMedia } from '../common/SecureMedia';
 
 interface MediaItem {
     id: string;
@@ -246,22 +247,13 @@ export function MediaPickerModal({
                                                 )}
                                             >
                                                 <div className="w-full h-full bg-gray-100 flex items-center justify-center">
-                                                    {item.type === 'video' ? (
-                                                        <Video className="w-12 h-12 text-catalog-accent/20" />
-                                                    ) : (
-                                                        <img
-                                                            src={item.url}
-                                                            alt={item.filename}
-                                                            className="w-full h-full object-cover"
-                                                            onError={(e) => { (e.target as HTMLImageElement).style.opacity = '0.3'; }}
-                                                        />
-                                                    )}
+                                                    <SecureMedia
+                                                        url={item.url}
+                                                        isVideo={item.type === 'video'}
+                                                        className="w-full h-full object-cover"
+                                                        alt={item.filename}
+                                                    />
                                                 </div>
-                                                {item.type === 'video' && (
-                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                                                        <Video className="w-8 h-8 text-white opacity-80" />
-                                                    </div>
-                                                )}
                                                 {/* Selection indicator */}
                                                 {isSelected ? (
                                                     <div className="absolute inset-0 bg-catalog-accent/20 flex items-center justify-center">

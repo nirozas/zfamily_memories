@@ -5,8 +5,11 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const JAMENDO_CLIENT_ID = '9da689ea'; // A common public client ID for demo, should be user provided in prod
 
-// Default pinned music resource shown to all users
-const DEFAULT_MUSIC_SITE = { name: 'Mobiles24 – Free Music', url: 'https://www.mobiles24.co/' };
+// Default pinned music resources shown to all users
+const DEFAULT_MUSIC_SITES = [
+    { name: 'Albumaty – MP3 Music', url: 'https://www.albumaty.com/' },
+    { name: 'Mobiles24 – Free Music', url: 'https://www.mobiles24.co/' }
+];
 
 interface Track {
     id: string;
@@ -148,7 +151,7 @@ export function MusicPickerModal({ onClose, onSelect }: MusicPickerModalProps) {
         setExtraSites(prev => prev.filter((_, i) => i !== idx));
     };
 
-    const allMusicSites = [DEFAULT_MUSIC_SITE, ...extraSites];
+    const allMusicSites = [...DEFAULT_MUSIC_SITES, ...extraSites];
 
     return (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 overflow-hidden">
