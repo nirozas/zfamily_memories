@@ -69,7 +69,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
     const saveToDatabase = useCallback(async (item: UploadedItem, targetFolder: string, familyId?: string | null, isSystemAsset?: boolean) => {
         try {
             if (isSystemAsset) {
-                const { error } = await supabase.from('library_assets').insert({
+                const { error } = await (supabase.from('library_assets') as any).insert({
                     category: targetFolder === '/' ? 'sticker' : targetFolder.toLowerCase(),
                     name: item.filename,
                     url: item.url,
@@ -81,7 +81,7 @@ export function UploadProvider({ children }: { children: React.ReactNode }) {
                     console.warn('[Upload] skipping DB save: No familyId provided');
                     return;
                 }
-                const { error } = await supabase.from('family_media').insert({
+                const { error } = await (supabase.from('family_media') as any).insert({
                     family_id: familyId,
                     url: item.url,
                     type: item.type,

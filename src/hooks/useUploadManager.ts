@@ -32,6 +32,7 @@ export interface UploadedItem {
     filename: string;
     r2Key?: string;
     size?: number;
+    metadata?: any;
 }
 
 const INITIAL_STATE: UploadManagerState = {

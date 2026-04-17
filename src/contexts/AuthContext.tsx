@@ -62,9 +62,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                         .eq('family_id', profileData.family_id)
                         .maybeSingle();
                     
-                    if (familySettings?.r2_public_url) {
-                        console.log('[Auth] Initializing Family R2 Public URL:', familySettings.r2_public_url);
-                        CloudflareR2Service.setPublicUrl(familySettings.r2_public_url);
+                    if ((familySettings as any)?.r2_public_url) {
+                        console.log('[Auth] Initializing Family R2 Public URL:', (familySettings as any).r2_public_url);
+                        CloudflareR2Service.setPublicUrl((familySettings as any).r2_public_url);
                     }
                 }
 
@@ -112,8 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
 
         // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
+        supabase.auth.onAuthStateChange(
+            async (_event, session) => {
                 if (!isMounted) return;
                 setSession(session);
                 setUser(session?.user ?? null);

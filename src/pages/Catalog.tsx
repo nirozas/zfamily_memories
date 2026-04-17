@@ -6,7 +6,7 @@ import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Button } from '../components/ui/Button';
 import { cn } from '../lib/utils';
-import { motion } from 'framer-motion';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { printService } from '../services/printService';
 import { motion, AnimatePresence } from 'framer-motion';
