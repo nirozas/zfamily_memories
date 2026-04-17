@@ -5,8 +5,6 @@ import { supabase } from '../lib/supabase';
  * Used primarily for system assets and potentially as a backup storage provider.
  */
 export class BackblazeB2Service {
-    private static BUCKET_ID = import.meta.env.VITE_B2_BUCKET_ID;
-    private static DOWNLOAD_URL = 'https://f004.backblazeb2.com'; // Default for f004, ideally this should be derived or in env
     private static BUCKET_NAME = 'ZFamilywebsite'; // Hardcoded based on previous migration, ideally in env
 
     /**

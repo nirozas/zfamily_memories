@@ -14,7 +14,7 @@ import { CloudflareR2Service } from '../services/cloudflareR2';
 import { SecureMedia } from '../components/common/SecureMedia';
 
 function StackMiniThumbnail({ item }: { item: { url: string; type?: string; metadata?: any } }) {
-    const isVideo = item.type === 'video' || (item.url && item.url.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i));
+    const isVideo = !!(item.type === 'video' || (item.url && item.url.match(/\.(mp4|mov|webm|mkv|avi)(\?.*)?$/i)));
 
     return (
         <SecureMedia

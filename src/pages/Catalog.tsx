@@ -6,7 +6,7 @@ import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
 import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Button } from '../components/ui/Button';
 import { cn } from '../lib/utils';
-import { useAuth } from '../contexts/AuthContext';
+import { motion } from 'framer-motion';
 import { supabase } from '../lib/supabase';
 import { printService } from '../services/printService';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -102,9 +102,9 @@ export function Catalog() {
                 .eq('id', id)
                 .single();
 
-            if (!fetchError && album?.cover_image_url) {
+            if (!fetchError && (album as any)?.cover_image_url) {
                 const { storageService } = await import('../services/storage');
-                await storageService.deleteFile(album.cover_image_url);
+                await storageService.deleteFile((album as any).cover_image_url);
             }
 
             // 2. Delete from DB

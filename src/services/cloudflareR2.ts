@@ -123,7 +123,7 @@ export class CloudflareR2Service {
      * Helper for uploading raw bytes (Uint8Array).
      */
     static async uploadBytes(data: Uint8Array, key: string, contentType: string): Promise<string> {
-        const blob = new Blob([data], { type: contentType });
+        const blob = new Blob([data as any], { type: contentType });
         return this.uploadFile(blob, key, contentType);
     }
 

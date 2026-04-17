@@ -8,7 +8,7 @@ import { EventMediaGallery } from '../components/events/EventMediaGallery';
 import { GlobalLightboxProvider, useGlobalLightbox } from '../components/ui/GlobalLightbox';
 import type { Event } from '../types/supabase';
 import { motion } from 'framer-motion';
-import { useAuth } from '../contexts/AuthContext';
+import { motion } from 'framer-motion';
 
 const EventContent = ({ event }: { event: Event }) => {
     const { openLightbox } = useGlobalLightbox();

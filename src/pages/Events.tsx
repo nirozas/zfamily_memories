@@ -370,8 +370,8 @@ export function Events() {
                 .eq('id', id)
                 .single();
             
-            if (!fetchError && event?.content) {
-                let content = event.content;
+            if (!fetchError && (event as any)?.content) {
+                let content = (event as any).content;
                 if (typeof content === 'string') {
                     try { content = JSON.parse(content); } catch (e) { content = {}; }
                 }

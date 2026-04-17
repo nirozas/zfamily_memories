@@ -69,14 +69,14 @@ export function Home() {
                 if (file) {
                     await processHeroUpdate(file, 'file');
                 } else if (item) {
-                    await processHeroUpdate(item.url, 'url', item.id);
+                    await processHeroUpdate(item.url, 'url');
                 }
             } else if (activeTarget) {
                 // Event Cover Update
                 if (file) {
-                    await processEventCoverUpdate(activeTarget, file, undefined, 'file');
+                    await processEventCoverUpdate(activeTarget, file, 'file');
                 } else if (item) {
-                    await processEventCoverUpdate(activeTarget, item.url, item.id, 'url');
+                    await processEventCoverUpdate(activeTarget, item.url, 'url');
                 }
             }
         } catch (e) {
@@ -219,7 +219,7 @@ export function Home() {
                 await processHeroUpdate(file, 'file');
             } else if (activeTarget) {
                 // Event Cover Update
-                await processEventCoverUpdate(activeTarget, file, undefined, 'file');
+                await processEventCoverUpdate(activeTarget, file, 'file');
             }
         } catch (e) {
             console.error("Crop processing failed", e);

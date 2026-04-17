@@ -1,4 +1,3 @@
-import { supabase } from '../lib/supabase';
 import imageCompression from 'browser-image-compression';
 import { CloudflareR2Service } from './cloudflareR2';
 import { BackblazeB2Service } from './backblazeB2';
