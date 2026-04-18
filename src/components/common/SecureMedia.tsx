@@ -3,20 +3,30 @@ import { CloudflareR2Service } from '../../services/cloudflareR2';
 import { Loader2, ImageOff, Play } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-import { type UploadedItem } from '../../hooks/useUploadManager';
 
-interface SecureImageProps extends React.ImgHTMLAttributes<HTMLImageElement | HTMLVideoElement> {
+interface SecureImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'onLoadedMetadata'> {
     url?: string;
     objectKey?: string;
     fallback?: React.ReactNode;
     isVideo?: boolean;
+    // Video-specific props that might be passed
+    autoPlay?: boolean;
+    loop?: boolean;
+    muted?: boolean;
+    playsInline?: boolean;
+    controls?: boolean;
+    onLoadedMetadata?: (e: React.SyntheticEvent<HTMLVideoElement, Event>) => void;
 }
 
 /**
  * A component that handles loading images from restricted R2 storage.
  * It automatically fetches an authorized presigned URL if the provided URL is an R2 link.
  */
-export function SecureMedia({ url, objectKey, className, fallback, isVideo = false, ...rest }: SecureImageProps) {
+export function SecureMedia({ 
+    url, objectKey, className, fallback, isVideo = false, 
+    autoPlay, loop, muted, playsInline, controls, onLoadedMetadata,
+    ...rest 
+}: SecureImageProps) {
     // Filter out component-specific props from reaching the DOM
     const { 
         alt, crossOrigin, decoding, height, loading: imgLoading, 
@@ -135,8 +145,12 @@ export function SecureMedia({ url, objectKey, className, fallback, isVideo = fal
                     <video 
                         src={src ? `${src}#t=0.1` : ''} 
                         className={cn("w-full h-full object-cover transition-opacity duration-300", loading ? "opacity-0" : "opacity-100")} 
-                        muted 
-                        playsInline 
+                        muted={muted ?? true} 
+                        playsInline={playsInline} 
+                        autoPlay={autoPlay}
+                        loop={loop}
+                        controls={controls}
+                        onLoadedMetadata={onLoadedMetadata as any}
                         preload="metadata"
                         {...domProps}
                     />

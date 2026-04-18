@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
     X, Plus, Music, Hash, Users, ChevronRight, ChevronLeft,
     Check, Loader2, Trash2, ExternalLink, Type, Star, Sparkles, Bold,
-    Palette, AlignCenter, Video, Clock, Play, MapPin, Calendar,
+    Palette, AlignCenter, Video, Clock, MapPin, Calendar,
     LayoutGrid
 } from 'lucide-react';
 import { SecureMedia } from '../common/SecureMedia';
@@ -153,7 +153,6 @@ export function CreateStackModal({ isOpen, onClose, onCreated, initialStack, ini
 
     const currentItem = mediaItems[editingIdx];
     const displayUrl = currentItem?.url;
-    const posterUrl = currentItem?.url;
 
     // ── Drag ──────────────────────────────────────────────────────────────
     const handleDragUpdate = useCallback((id: string, kind: string, x: number, y: number) => {

@@ -45,7 +45,7 @@ const COLORS = [
 ];
 
 export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>(({ value, onChange, folderName }, ref) => {
-    const { user } = useAuth();
+    const { familyId } = useAuth();
     const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
     const [showColorPicker, setShowColorPicker] = useState(false);
     const [showHighlightPicker, setShowHighlightPicker] = useState(false);
@@ -241,7 +241,6 @@ export const RichTextEditor = forwardRef<RichTextEditorRef, RichTextEditorProps>
         updateImageStyle(styleUpdates);
     };
 
-    const { familyId } = useAuth(); // Get familyId from context
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

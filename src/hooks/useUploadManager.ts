@@ -38,6 +38,7 @@ export interface UploadedItem {
 
 const INITIAL_STATE: UploadManagerState = {
     isOpen: false,
+    isMinimized: false,
     files: [],
     totalCount: 0,
     doneCount: 0,
@@ -114,6 +115,7 @@ export function useUploadManager(options: UseUploadManagerOptions = {}) {
 
         setState({
             isOpen: true,
+            isMinimized: false,
             files: fileStates,
             totalCount: files.length,
             doneCount: 0,

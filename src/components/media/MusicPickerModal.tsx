@@ -25,11 +25,13 @@ interface MusicSite {
 }
 
 interface MusicPickerModalProps {
+    isOpen: boolean;
     onClose: () => void;
     onSelect: (trackUrl: string, trackName: string) => void;
 }
 
-export function MusicPickerModal({ onClose, onSelect }: MusicPickerModalProps) {
+export function MusicPickerModal({ isOpen, onClose, onSelect }: MusicPickerModalProps) {
+    if (!isOpen) return null;
     const { userRole } = useAuth();
     const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 

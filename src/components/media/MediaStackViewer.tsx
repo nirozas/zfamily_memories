@@ -5,7 +5,6 @@ import {
     MonitorPlay, Check, Settings2, Loader2
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useAuth } from '../../contexts/AuthContext';
 import Hls from 'hls.js';
 import { useAuthorizedUrl } from '../../hooks/useAuthorizedUrl';
 import { CloudflareR2Service } from '../../services/cloudflareR2';
@@ -54,6 +53,7 @@ export function MediaStackViewer({
     initialIndex = 0,
     backgroundMusicUrl,
     readOnly,
+    onShare,
     onEdit,
     onDelete,
 }: MediaStackViewerProps) {
@@ -98,7 +98,6 @@ export function MediaStackViewer({
     const displayUrl = activeAuthorizedUrl || (!isR2 ? activeItem?.url : null);
     const isReady = !isR2 || activeAuthorizedUrl;
 
-    const nextItem = activeIndex < items.length - 1 ? items[activeIndex + 1] : null;
 
     // 1. Sliding Window Preload: Focus bandwidth on current and next 2 items
     useEffect(() => {

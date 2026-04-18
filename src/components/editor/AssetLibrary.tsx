@@ -18,7 +18,6 @@ import {
     Maximize2,
     Grid as GridIcon,
     LayoutGrid,
-    Camera,
     Link as LinkIcon,
     X,
     AlertTriangle
@@ -35,36 +34,6 @@ const getThumbnailUrl = (url: string) => {
     return url;
 };
 
-function LibraryAssetItem({ item, usedAssetUrls, onSelect }: any) {
-    const displayUrl = item.url;
-
-    return (
-        <div
-            onClick={() => onSelect(item)}
-            className="group flex flex-col gap-1 cursor-pointer"
-        >
-            <div className={cn(
-                "relative aspect-square rounded-lg overflow-hidden bg-white shadow-sm group-hover:shadow-md transition-all border",
-                usedAssetUrls.has(item.url) ? "border-blue-500 ring-1 ring-blue-500/50" : "border-gray-100 group-hover:border-blue-300"
-            )}>
-                <img src={displayUrl} alt="" className="w-full h-full object-cover" crossOrigin="anonymous" />
-                {item.type === 'video' && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/10">
-                        <Video className="w-5 h-5 text-white/70" />
-                    </div>
-                )}
-                <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <Plus className="w-5 h-5 text-blue-600" />
-                </div>
-            </div>
-            {item.name && (
-                <p className="text-[9px] text-gray-400 truncate px-1 group-hover:text-blue-500 transition-colors">
-                    {item.name}
-                </p>
-            )}
-        </div>
-    );
-}
 
 // Helper to get assets by category
 async function fetchLibraryAssets(category: string, familyId?: string) {
@@ -159,15 +128,6 @@ export function AssetLibrary() {
     const [bulkSystemProgress, setBulkSystemProgress] = useState<{ done: number; total: number } | null>(null);
     const [showBulkSystemInput, setShowBulkSystemInput] = useState<Tab | null>(null);
 
-    const processAmazonUrl = (url: string): { processedUrl: string; type: 'image' | 'video'; filename: string } | null => {
-        const trimmed = url.trim();
-        if (!trimmed || !trimmed.startsWith('http')) return null;
-        const isVideo = /\.(mp4|mov|avi|mkv|webm|m4v)/i.test(trimmed) ||
-            trimmed.includes('video') || trimmed.includes('Video');
-        const type: 'image' | 'video' = isVideo ? 'video' : 'image';
-        const filename = trimmed.split('/').pop()?.split('?')[0] || (isVideo ? 'Amazon Video' : 'Amazon Photo');
-        return { processedUrl: trimmed, type, filename };
-    };
 
     /*
     const handleAmazonBatchImport = ... (commented out)
