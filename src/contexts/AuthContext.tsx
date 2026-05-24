@@ -78,66 +78,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         console.log('[Auth] Initializing Auth Provider...');
         if (!supabaseUrl || !supabaseAnonKey) {
-            console.error("[Auth] Missing Supabase configuration");
+            console.error('[Auth] Missing Supabase configuration');
             setLoading(false);
             return;
         }
 
-        let isMounted = true;
+        let initialized = false;
 
-        // Safety Timeout
-        const safetyTimer = setTimeout(() => {
-            if (isMounted && loading) {
-                console.warn('[Auth] Safety timeout reached');
-                setLoading(false);
-            }
-        }, 5000);
-
-        // Get initial session
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
-            if (!isMounted) return;
-            setSession(session);
-            setUser(session?.user ?? null);
-
-            if (session?.user) {
-                await fetchProfile(session.user.id);  // ← must await so familyId is set before loading clears
-            }
-
-            if (isMounted) {
-                setLoading(false);
-                clearTimeout(safetyTimer);
-            }
-        }).catch((err) => {
-            console.error('[Auth] getSession error:', err);
-            if (isMounted) {
-                setLoading(false);
-                clearTimeout(safetyTimer);
-            }
-        });
-
-        // Listen for auth changes
+        // onAuthStateChange is the single source of truth.
+        // It fires immediately with INITIAL_SESSION on mount — no need for getSession().
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
             async (event, session) => {
+                console.log('[Auth] onAuthStateChange:', event, session?.user?.email ?? 'no user');
+
                 setSession(session);
                 setUser(session?.user ?? null);
 
-                if (session?.user && event !== 'SIGNED_OUT') {
-                    await fetchProfile(session.user.id);  // await so familyId is ready
-                } else if (!session) {
+                if (session?.user) {
+                    // Always fetch the latest profile so familyId is up to date
+                    await fetchProfile(session.user.id);
+                } else {
                     setProfile(null);
                     setUserRole(null);
                     setFamilyId(null);
                 }
-                setLoading(false);
+
+                // Only clear the top-level loading spinner once we've handled
+                // the very first auth event (INITIAL_SESSION or SIGNED_IN).
+                if (!initialized) {
+                    initialized = true;
+                    setLoading(false);
+                    console.log('[Auth] Initialized. familyId will be set once profile loads.');
+                }
             }
         );
 
         return () => {
-            isMounted = false;
             subscription.unsubscribe();
-            clearTimeout(safetyTimer);
         };
     }, []);
+
 
     const validateInviteCode = async (code: string): Promise<{ valid: boolean; error?: string }> => {
         try {
