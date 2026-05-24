@@ -15,7 +15,7 @@ export function SignUp() {
     const [success, setSuccess] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
-    const { signUp, useInviteCode, validateInviteCode } = useAuth();
+    const { signUp, joinFamilyWithInviteCode, validateInviteCode } = useAuth();
     const navigate = useNavigate();
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -52,7 +52,7 @@ export function SignUp() {
 
         // If signup successful and we have an invite code, try to use it
         if (inviteCode) {
-            const { success: codeSuccess, error: codeError } = await useInviteCode(inviteCode);
+            const { success: codeSuccess, error: codeError } = await joinFamilyWithInviteCode(inviteCode);
             if (!codeSuccess) {
                 // Account created but failed to join family
                 console.error('Failed to use invite code:', codeError);

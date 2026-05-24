@@ -15,6 +15,8 @@ import { cn } from '../lib/utils';
 import { UploadOverlay } from '../components/ui/UploadOverlay';
 import { UniversalUploadButton } from '../components/ui/UniversalUploadButton';
 import { MinimizedUploadBadge } from '../components/ui/MinimizedUploadBadge';
+import { applyFilter, type FilterType } from '../services/aiEnhancement';
+import { storageService } from '../services/storage';
 
 interface MediaItem {
     id: string;
@@ -70,7 +72,7 @@ function formatDuration(sec: number) {
     return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview, onMove, onShowMetadata }: any) {
+function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingItem, editName, setEditName, handleRename, handleUpdateTags, handleDelete, isAdmin, activeTab, onPreview, onMove, onShowMetadata, onEnhance }: any) {
     const [authorizedUrl, setAuthorizedUrl] = useState(item.url);
 
     useEffect(() => {
@@ -82,7 +84,7 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                     let key = item.url;
                     try {
                         key = new URL(item.url).pathname.substring(1);
-                    } catch (e) {
+                    } catch {
                         key = item.url.split('/').pop();
                     }
                     if (key) {
@@ -199,6 +201,14 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
                                         <FolderInput className="w-3 h-3" />
                                     </button>
                                 )}
+                                {item.type === 'image' && (
+                                    <button className="action-btn p-1 hover:bg-purple-50 rounded text-gray-400 hover:text-purple-600" onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEnhance(item);
+                                    }} title="Apply AI Styling Filter">
+                                        <SparklesIcon className="w-3 h-3" />
+                                    </button>
+                                )}
                                 <button className="action-btn p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-600" onClick={(e) => {
                                     e.stopPropagation();
                                     const newTagsString = prompt("Edit tags (comma separated):", (item.tags || []).join(", "));
@@ -235,7 +245,7 @@ function MediaGridItem({ item, viewMode, selectedItems, onToggleSelect, editingI
 }
 
 export function MediaLibrary() {
-    const { familyId, userRole } = useAuth();
+    const { familyId, userRole, user } = useAuth();
     const navigate = useNavigate();
     const isAdmin = userRole === 'admin' || userRole === 'super_admin';
     const [activeTab, setActiveTab] = useState<LibraryTab>('uploads');
@@ -274,6 +284,15 @@ export function MediaLibrary() {
     const [useHls, setUseHls] = useState(false); // Toggle for HLS adaptive streaming
     const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null);
 
+    // AI Photo Studio State
+    const [enhancingItem, setEnhancingItem] = useState<MediaItem | null>(null);
+    const [enhanceType, setEnhanceType] = useState<FilterType>('auto-touch');
+    const [enhanceIntensity, setEnhanceIntensity] = useState<number>(0.8);
+    const [enhancedImageUrl, setEnhancedImageUrl] = useState<string | null>(null);
+    const [enhancingItemSecureUrl, setEnhancingItemSecureUrl] = useState<string | null>(null);
+    const [isProcessingEnhancement, setIsProcessingEnhancement] = useState(false);
+    const [isSavingEnhancement, setIsSavingEnhancement] = useState(false);
+    const [showOriginal, setShowOriginal] = useState(false);
 
     useEffect(() => {
         if (!familyId) {
@@ -379,7 +398,7 @@ export function MediaLibrary() {
         albumUsage?.forEach((alb: any) => {
             let config = alb.config || {};
             if (typeof config === 'string') {
-                try { config = JSON.parse(config); } catch (e) { config = {}; }
+                try { config = JSON.parse(config); } catch { config = {}; }
             }
             const coverUrl = config.coverImage || (config.cover && config.cover.url);
             if (coverUrl) {
@@ -425,7 +444,7 @@ export function MediaLibrary() {
             // Simple normalization (ignore query params for matching?)
             // Many URLs in DB might have params or not.
             // This is expensive O(N) lookup without better structure, let's keep it simple for now.
-            let count = usageMap[item.url] || 0;
+            const count = usageMap[item.url] || 0;
 
             // If 0, try matching without query params if item.url has them
             if (count === 0 && item.url.includes('?')) {
@@ -590,13 +609,143 @@ export function MediaLibrary() {
         const trimmed = newFolderName.trim();
         if (!trimmed) return;
         // Build path: if we're inside a folder already, nest inside it
-        const fullPath = currentPath && currentPath !== '/' && currentPath !== 'All'
-            ? `${currentPath}/${trimmed}`
-            : trimmed;
-        setCurrentPath(fullPath);
-        setUploadFolder(fullPath);
-        setNewFolderName('');
+        const newPath = currentPath === '/' || currentPath === 'All' ? `/${trimmed}` : `${currentPath}/${trimmed}`;
+        setCurrentPath(newPath);
+        setUploadFolder(newPath);
         setShowCreateFolderModal(false);
+        setNewFolderName('');
+    }
+
+    async function handleStartEnhance(item: MediaItem) {
+        setEnhancingItem(item);
+        setEnhanceType('auto-touch');
+        setEnhanceIntensity(0.8);
+        setEnhancedImageUrl(null);
+        setIsProcessingEnhancement(true);
+        
+        let targetUrl = item.url;
+        try {
+            if (item.url && item.url.includes(import.meta.env.VITE_R2_PUBLIC_URL || 'r2.dev')) {
+                let key = item.url;
+                try {
+                    key = new URL(item.url).pathname.substring(1);
+                } catch {
+                    key = item.url.split('/').pop() || '';
+                }
+                if (key) {
+                    const { CloudflareR2Service } = await import('../services/cloudflareR2');
+                    const url = await CloudflareR2Service.getAuthorizedUrl(key);
+                    if (url) targetUrl = url;
+                }
+            }
+        } catch (err) {
+            console.error("Failed to secure URL for enhancement:", err);
+        }
+        setEnhancingItemSecureUrl(targetUrl);
+    }
+
+    useEffect(() => {
+        if (!enhancingItemSecureUrl) return;
+        
+        let isMounted = true;
+        setIsProcessingEnhancement(true);
+        
+        const timer = setTimeout(async () => {
+            try {
+                const result = await applyFilter(enhancingItemSecureUrl, {
+                    type: enhanceType,
+                    intensity: enhanceIntensity
+                });
+                if (isMounted) {
+                    setEnhancedImageUrl(result.url);
+                }
+            } catch (err) {
+                console.error("Failed to apply filter:", err);
+            } finally {
+                if (isMounted) {
+                    setIsProcessingEnhancement(false);
+                }
+            }
+        }, 200); // 200ms debounce
+        
+        return () => {
+            isMounted = false;
+            clearTimeout(timer);
+        };
+    }, [enhancingItemSecureUrl, enhanceType, enhanceIntensity]);
+
+    async function handleSaveEnhancedImage() {
+        if (!enhancingItem || !enhancedImageUrl || !familyId) return;
+        
+        setIsSavingEnhancement(true);
+        try {
+            // Convert base64 data URL to Blob
+            const response = await fetch(enhancedImageUrl);
+            const blob = await response.blob();
+            
+            // Create a File object
+            const origName = enhancingItem.filename;
+            const extension = 'jpg';
+            const baseName = origName.substring(0, origName.lastIndexOf('.')) || origName;
+            const newFilename = `${baseName}_enhanced_${enhanceType}.${extension}`;
+            const file = new File([blob], newFilename, { type: 'image/jpeg' });
+            
+            // Prepare folder path
+            const folder = currentPath === 'All' ? '/' : currentPath;
+            const pathPrefix = `mediaItems/${familyId}/${folder === '/' || folder === 'vault' ? 'vault' : folder.replace(/^\/+|\/+$/g, '')}`;
+            
+            const { url, error, r2Key } = await storageService.uploadFile(
+                file,
+                'zoabimemories',
+                pathPrefix,
+                undefined,
+                false,
+                false
+            );
+            
+            if (error || !url) throw new Error(error || 'Upload returned no URL');
+            
+            // Fetch dimensions
+            const dims = await new Promise<{ w: number, h: number } | null>((resolve) => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                img.onerror = () => resolve(null);
+                img.src = enhancedImageUrl;
+            });
+            
+            // Save to database
+            const { error: dbError } = await (supabase.from('family_media') as any).insert({
+                family_id: familyId,
+                url,
+                type: 'image',
+                filename: newFilename,
+                folder: folder,
+                size: file.size,
+                category: 'general',
+                uploaded_by: user?.id,
+                metadata: {
+                    storage: 'r2',
+                    r2Key: r2Key,
+                    enhancedFrom: enhancingItem.id,
+                    filterApplied: enhanceType,
+                    intensityApplied: enhanceIntensity,
+                    resolution: dims ? `${dims.w}x${dims.h}` : undefined
+                }
+            });
+            
+            if (dbError) throw dbError;
+            
+            // Close modal and refresh catalog
+            setEnhancingItem(null);
+            setEnhancingItemSecureUrl(null);
+            setEnhancedImageUrl(null);
+            await fetchMedia();
+        } catch (err: any) {
+            console.error("Failed to save enhanced image:", err);
+            alert(`Failed to save enhanced image: ${err.message}`);
+        } finally {
+            setIsSavingEnhancement(false);
+        }
     }
 
     const allFolders = Array.from(new Set(mediaItems.map(m => m.folder || '/'))).sort();
@@ -986,6 +1135,7 @@ export function MediaLibrary() {
                                     onShowMetadata={(item: MediaItem, dims: { w: number; h: number } | null, duration: number | null) => {
                                         setMetadataModalData({ item, dims, duration });
                                     }}
+                                    onEnhance={handleStartEnhance}
                                 />
                             ))}
                         </div>
@@ -1213,6 +1363,161 @@ export function MediaLibrary() {
                                         <div className="text-gray-900 col-span-2 flex items-center gap-1.5 font-medium"><CloudUpload className="w-4 h-4 text-blue-500" /> Cloudflare R2 (Permanent)</div>
                                     </>
                                 )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── AI Photo Studio Modal ────────────────────────────────────────── */}
+            {enhancingItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 md:p-6 transition-all duration-300 animate-in fade-in" onClick={() => {
+                    if (!isSavingEnhancement) {
+                        setEnhancingItem(null);
+                        setEnhancingItemSecureUrl(null);
+                        setEnhancedImageUrl(null);
+                    }
+                }}>
+                    <div className="bg-slate-900 border border-slate-800 text-white rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col md:flex-row h-[90vh] md:h-[80vh] animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                        
+                        {/* Left Panel: Preview */}
+                        <div className="flex-1 bg-slate-950 flex flex-col items-center justify-center p-6 relative border-b md:border-b-0 md:border-r border-slate-800/50 min-h-[300px] md:min-h-0">
+                            {isProcessingEnhancement ? (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-950/60 backdrop-blur-sm gap-3">
+                                    <Loader2 className="w-10 h-10 text-purple-500 animate-spin" />
+                                    <p className="text-sm font-bold text-slate-300 tracking-wide uppercase">Applying artistic brush strokes...</p>
+                                </div>
+                            ) : null}
+                            
+                            <div className="w-full h-full max-h-[50vh] md:max-h-full flex items-center justify-center relative select-none">
+                                <img
+                                    src={showOriginal ? (enhancingItemSecureUrl || enhancingItem.url) : (enhancedImageUrl || enhancingItemSecureUrl || enhancingItem.url)}
+                                    alt="Preview"
+                                    className="max-w-full max-h-full object-contain rounded-xl shadow-lg border border-slate-800 transition-all duration-200"
+                                />
+                            </div>
+
+                            {/* View Original / Compare helper */}
+                            {enhancedImageUrl && !isProcessingEnhancement && (
+                                <button
+                                    onMouseDown={() => setShowOriginal(true)}
+                                    onMouseUp={() => setShowOriginal(false)}
+                                    onMouseLeave={() => setShowOriginal(false)}
+                                    onTouchStart={() => setShowOriginal(true)}
+                                    onTouchEnd={() => setShowOriginal(false)}
+                                    className="absolute bottom-4 px-4 py-2 bg-slate-800/80 hover:bg-slate-800 text-xs font-bold uppercase tracking-wider rounded-lg border border-slate-700/50 backdrop-blur-sm cursor-pointer select-none active:scale-95 transition-all text-slate-300"
+                                >
+                                    Hold to View Original
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Right Panel: Controls */}
+                        <div className="w-full md:w-80 flex flex-col justify-between p-6 bg-slate-900 overflow-y-auto h-full">
+                            <div>
+                                <div className="flex items-center gap-2 mb-2">
+                                    <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
+                                        <SparklesIcon className="w-4 h-4 text-white" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-lg font-black tracking-tight text-white">AI Photo Studio</h2>
+                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Local Styling Engine</p>
+                                    </div>
+                                </div>
+                                <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                                    Create stunning custom artistic styles from your family photo archives instantly, running privately in your browser.
+                                </p>
+
+                                <div className="space-y-6">
+                                    {/* Style Selection */}
+                                    <div>
+                                        <label className="text-[10px] font-black uppercase tracking-wider text-slate-400 block mb-3">Select Style</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {[
+                                                { type: 'auto-touch', label: 'Auto Touch', icon: SparklesIcon, desc: 'Sharp, vibrant details' },
+                                                { type: 'pencil', label: 'Pencil Sketch', icon: Edit2, desc: 'B&W hand-drawn contours' },
+                                                { type: 'watercolor', label: 'Watercolor', icon: Palette, desc: 'Soft bleeding colors' },
+                                                { type: 'cartoon', label: 'Cartoon', icon: Sticker, desc: 'Bold cell-shaded vectors' },
+                                                { type: 'portrait', label: 'Portrait Glow', icon: UsersIcon, desc: 'Soft-skin aesthetic glow' },
+                                            ].map((style) => {
+                                                const Icon = style.icon;
+                                                const isActive = enhanceType === style.type;
+                                                return (
+                                                    <button
+                                                        key={style.type}
+                                                        onClick={() => setEnhanceType(style.type as FilterType)}
+                                                        className={cn(
+                                                            "flex flex-col items-start p-3 rounded-2xl border text-left transition-all duration-200 group relative overflow-hidden",
+                                                            isActive
+                                                                ? "border-purple-500 bg-purple-500/10 text-white shadow-lg shadow-purple-500/5"
+                                                                : "border-slate-800 bg-slate-950/40 hover:bg-slate-800/50 hover:border-slate-700 text-slate-400"
+                                                        )}
+                                                    >
+                                                        <div className={cn(
+                                                            "w-7 h-7 rounded-lg flex items-center justify-center mb-2 transition-all",
+                                                            isActive ? "bg-purple-50 text-white" : "bg-slate-800 text-slate-400 group-hover:text-white"
+                                                        )}>
+                                                            <Icon className="w-3.5 h-3.5" />
+                                                        </div>
+                                                        <span className="text-xs font-bold block">{style.label}</span>
+                                                        <span className="text-[9px] text-slate-500 mt-0.5 leading-tight group-hover:text-slate-400">{style.desc}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Intensity Slider */}
+                                    <div className="bg-slate-950/40 border border-slate-800/80 p-4 rounded-2xl">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Intensity</label>
+                                            <span className="text-xs font-black text-purple-400">{Math.round(enhanceIntensity * 100)}%</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min="0.1"
+                                            max="1.0"
+                                            step="0.05"
+                                            value={enhanceIntensity}
+                                            onChange={(e) => setEnhanceIntensity(parseFloat(e.target.value))}
+                                            className="w-full accent-purple-500 h-1 bg-slate-800 rounded-lg cursor-pointer"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center gap-3 pt-6 border-t border-slate-800/50">
+                                <button
+                                    type="button"
+                                    disabled={isSavingEnhancement}
+                                    onClick={() => {
+                                        setEnhancingItem(null);
+                                        setEnhancingItemSecureUrl(null);
+                                        setEnhancedImageUrl(null);
+                                    }}
+                                    className="px-4 py-3 bg-slate-800 hover:bg-slate-700 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold uppercase tracking-wider text-slate-300 rounded-xl transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={isSavingEnhancement || isProcessingEnhancement || !enhancedImageUrl}
+                                    onClick={handleSaveEnhancedImage}
+                                    className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed text-xs font-bold uppercase tracking-wider text-white rounded-xl shadow-lg shadow-purple-500/25 transition-all flex items-center justify-center gap-2"
+                                >
+                                    {isSavingEnhancement ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Saving Copy...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Check className="w-4 h-4" />
+                                            Save As Copy
+                                        </>
+                                    )}
+                                </button>
                             </div>
                         </div>
                     </div>

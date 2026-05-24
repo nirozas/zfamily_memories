@@ -15,7 +15,7 @@ interface AuthContextType {
     signInWithGoogle: () => Promise<{ error: AuthError | null }>;
     signUp: (email: string, password: string, fullName?: string) => Promise<{ error: AuthError | null }>;
     signOut: () => Promise<void>;
-    useInviteCode: (code: string) => Promise<{ success: boolean; error?: string }>;
+    joinFamilyWithInviteCode: (code: string) => Promise<{ success: boolean; error?: string }>;
     validateInviteCode: (code: string) => Promise<{ valid: boolean; error?: string }>;
     createFamily: (name: string) => Promise<{ success: boolean; familyId?: string; error?: string }>;
 }
@@ -167,7 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     };
 
-    const useInviteCode = async (code: string): Promise<{ success: boolean; error?: string }> => {
+    const joinFamilyWithInviteCode = async (code: string): Promise<{ success: boolean; error?: string }> => {
         if (!user) {
             return { success: false, error: 'User not authenticated' };
         }
@@ -284,7 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             signInWithGoogle,
             signUp,
             signOut,
-            useInviteCode,
+            joinFamilyWithInviteCode,
             validateInviteCode,
             createFamily
         }}>

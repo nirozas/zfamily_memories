@@ -120,10 +120,9 @@ function EventCard({
                                 {event.location}
                             </div>
                         )}
-                        <div
-                            className="text-catalog-text/60 text-sm line-clamp-3 font-serif leading-relaxed mb-6"
-                            dangerouslySetInnerHTML={{ __html: event.description?.replace(/<[^>]+>/g, ' ').substring(0, 150) || '' }}
-                        />
+                        <p className="text-catalog-text/60 text-sm line-clamp-3 font-serif leading-relaxed mb-6">
+                            {event.description?.replace(/<[^>]+>/g, ' ').substring(0, 150) || ''}
+                        </p>
                     </div>
 
                     {/* Actions Area */}

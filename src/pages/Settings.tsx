@@ -12,7 +12,7 @@ import { Bug, Cloud } from 'lucide-react';
 import { FamilyStorageSettings } from '../components/settings/FamilyStorageSettings';
 
 export function Settings() {
-    const { user, userRole, createFamily, useInviteCode } = useAuth();
+    const { user, userRole, createFamily, joinFamilyWithInviteCode } = useAuth();
     const isAdmin = userRole === 'admin' || userRole === 'super_admin';
     const isSuperAdmin = userRole === 'super_admin';
     useDocumentTitle('Settings');
@@ -436,7 +436,7 @@ export function Settings() {
         if (!joinCode.trim()) return;
         setIsJoiningFamily(true);
         try {
-            const { success, error } = await useInviteCode(joinCode);
+            const { success, error } = await joinFamilyWithInviteCode(joinCode);
             if (success) {
                 alert('Welcome to the family!');
                 window.location.reload();

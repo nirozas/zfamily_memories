@@ -101,7 +101,7 @@ export const printService = {
     </style>
 </head>
 <body>
-    <header className="p-6 flex justify-between items-center bg-black/50 backdrop-blur-md sticky top-0 z-50">
+    <header class="p-6 flex justify-between items-center bg-black/50 backdrop-blur-md sticky top-0 z-50">
         <div>
             <h1 class="text-2xl italic serif">${albumData.title}</h1>
             <p class="text-[10px] uppercase tracking-widest text-white/40">Interactive Offline Bundle</p>

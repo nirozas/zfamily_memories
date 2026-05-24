@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import {
@@ -209,6 +209,35 @@ function AlbumEditorContent() {
         setZoom(Number(idealZoom.toFixed(2)));
         setPan({ x: 0, y: 0 }); // Reset pan when fitting
     }, [album, currentPageIndex]);
+
+    const [containerWidth, setContainerWidth] = useState<number>(1200);
+
+    const canvasW = useMemo(() => {
+        if (!album) return 800;
+        const { width } = album.config.dimensions;
+        const isSpread = album.config.useSpreadView && album.pages?.[currentPageIndex]?.layoutTemplate !== 'cover-front';
+        return isSpread ? width * 2 : width;
+    }, [album, currentPageIndex]);
+
+    const scaleRatio = useMemo(() => {
+        const availableW = containerWidth - 80; // 80px padding
+        if (availableW < canvasW) {
+            return availableW / canvasW;
+        }
+        return 1;
+    }, [containerWidth, canvasW]);
+
+    useEffect(() => {
+        if (!workspaceRef.current) return;
+        const resizeObserver = new ResizeObserver((entries) => {
+            for (let entry of entries) {
+                setContainerWidth(entry.contentRect.width);
+            }
+            fitToWorkspace();
+        });
+        resizeObserver.observe(workspaceRef.current);
+        return () => resizeObserver.disconnect();
+    }, [fitToWorkspace]);
 
 
 
@@ -1342,7 +1371,13 @@ function AlbumEditorContent() {
                     >
                         {/* Panning Container */}
                         <div style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, transition: 'transform 0.05s linear' }} className="flex items-center justify-center w-full h-full pointer-events-none">
-                            <div className="pointer-events-auto">
+                            <div 
+                                className="pointer-events-auto"
+                                style={{
+                                    transform: scaleRatio < 1 ? `scale(${scaleRatio})` : undefined,
+                                    transformOrigin: 'center top'
+                                }}
+                            >
                                 <AnimatePresence mode="wait">
                                     <motion.div
                                         key={currentPageIndex}
