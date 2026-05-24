@@ -117,19 +117,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event, session) => {
-                if (!isMounted) return;
+            async (event, session) => {
                 setSession(session);
                 setUser(session?.user ?? null);
 
-                if (session?.user) {
-                    await fetchProfile(session.user.id);  // ← must await so familyId is set before loading clears
-                } else {
+                if (session?.user && event !== 'SIGNED_OUT') {
+                    await fetchProfile(session.user.id);  // await so familyId is ready
+                } else if (!session) {
                     setProfile(null);
                     setUserRole(null);
                     setFamilyId(null);
                 }
-                if (isMounted) setLoading(false);
+                setLoading(false);
             }
         );
 
@@ -270,10 +269,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const signOut = async () => {
-        await supabase.auth.signOut();
         setProfile(null);
         setUserRole(null);
         setFamilyId(null);
+        setUser(null);
+        setSession(null);
+        await supabase.auth.signOut();
+        // Hard redirect to login so the page fully resets
+        window.location.href = '/login';
     };
 
     return (
