@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-    // Fetch user profile
+    // Fetch user profile and family settings in parallel
     const fetchProfile = async (userId: string) => {
         try {
             const { data, error } = await supabase
@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 .maybeSingle();
 
             if (error) {
-                console.error('Error fetching profile:', error);
+                console.error('[Auth] Error fetching profile:', error);
                 return;
             }
 
@@ -54,29 +54,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUserRole(profileData.role);
                 setFamilyId(profileData.family_id);
 
-                // Fetch family R2 settings if they exist
+                // Fetch R2 settings in background — non-blocking
                 if (profileData.family_id) {
-                    const { data: familySettings } = await supabase
+                    supabase
                         .from('family_settings')
                         .select('r2_public_url')
                         .eq('family_id', profileData.family_id)
-                        .maybeSingle();
-                    
-                    if ((familySettings as any)?.r2_public_url) {
-                        console.log('[Auth] Initializing Family R2 Public URL:', (familySettings as any).r2_public_url);
-                        CloudflareR2Service.setPublicUrl((familySettings as any).r2_public_url);
-                    }
+                        .maybeSingle()
+                        .then(({ data: familySettings }) => {
+                            if ((familySettings as any)?.r2_public_url) {
+                                CloudflareR2Service.setPublicUrl((familySettings as any).r2_public_url);
+                            }
+                        });
                 }
 
                 return profileData;
             }
         } catch (error) {
-            console.error('Error in fetchProfile:', error);
+            console.error('[Auth] Error in fetchProfile:', error);
         }
     };
 
+
+
     useEffect(() => {
-        console.log('[Auth] Initializing Auth Provider...');
+        console.log('[Auth] Initializing...');
         if (!supabaseUrl || !supabaseAnonKey) {
             console.error('[Auth] Missing Supabase configuration');
             setLoading(false);
@@ -85,30 +87,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         let initialized = false;
 
-        // onAuthStateChange is the single source of truth.
-        // It fires immediately with INITIAL_SESSION on mount — no need for getSession().
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (event, session) => {
-                console.log('[Auth] onAuthStateChange:', event, session?.user?.email ?? 'no user');
+            (event, session) => {
+                console.log('[Auth] Event:', event);
 
                 setSession(session);
                 setUser(session?.user ?? null);
 
+                // ✅ Clear loading IMMEDIATELY — don't wait for profile fetch
+                // This prevents the app from being stuck on the spinner
+                if (!initialized) {
+                    initialized = true;
+                    setLoading(false);
+                }
+
                 if (session?.user) {
-                    // Always fetch the latest profile so familyId is up to date
-                    await fetchProfile(session.user.id);
+                    // Fetch profile in the background — pages will re-render when familyId arrives
+                    fetchProfile(session.user.id).catch(err =>
+                        console.error('[Auth] fetchProfile failed:', err)
+                    );
                 } else {
                     setProfile(null);
                     setUserRole(null);
                     setFamilyId(null);
-                }
-
-                // Only clear the top-level loading spinner once we've handled
-                // the very first auth event (INITIAL_SESSION or SIGNED_IN).
-                if (!initialized) {
-                    initialized = true;
-                    setLoading(false);
-                    console.log('[Auth] Initialized. familyId will be set once profile loads.');
                 }
             }
         );
@@ -117,6 +118,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             subscription.unsubscribe();
         };
     }, []);
+
+
 
 
     const validateInviteCode = async (code: string): Promise<{ valid: boolean; error?: string }> => {
