@@ -100,15 +100,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(session?.user ?? null);
 
             if (session?.user) {
-                fetchProfile(session.user.id);
+                await fetchProfile(session.user.id);  // ← must await so familyId is set before loading clears
             }
 
-            setLoading(false);
-            clearTimeout(safetyTimer);
+            if (isMounted) {
+                setLoading(false);
+                clearTimeout(safetyTimer);
+            }
         }).catch((err) => {
             console.error('[Auth] getSession error:', err);
-            setLoading(false);
-            clearTimeout(safetyTimer);
+            if (isMounted) {
+                setLoading(false);
+                clearTimeout(safetyTimer);
+            }
         });
 
         // Listen for auth changes
@@ -119,13 +123,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 setUser(session?.user ?? null);
 
                 if (session?.user) {
-                    fetchProfile(session.user.id);
+                    await fetchProfile(session.user.id);  // ← must await so familyId is set before loading clears
                 } else {
                     setProfile(null);
                     setUserRole(null);
                     setFamilyId(null);
                 }
-                setLoading(false);
+                if (isMounted) setLoading(false);
             }
         );
 
