@@ -168,7 +168,7 @@ export function MediaStackViewer({
             setCaptionText(activeItem.caption || '');
             setIsFavorite(activeItem.isFavorite || false);
             setProgress(0);
-            setIsPaused(false);
+            setIsPaused(false);  // always unpause when switching slides
             nextCalledRef.current = false; 
             
             if (audioRef.current && !isMuted) {
@@ -176,6 +176,37 @@ export function MediaStackViewer({
             }
         }
     }, [activeIndex, activeItem, isMuted, bgmVolume]);
+
+    // Auto-play video as soon as its authorized URL is ready
+    useEffect(() => {
+        if (activeItem?.type !== 'video') return;
+        if (!displayUrl || !isReady || isPaused) return;
+        const video = videoRef.current;
+        if (!video) return;
+
+        // Set src if not already set
+        if (video.src !== displayUrl) {
+            video.src = displayUrl;
+            video.load();
+        }
+
+        const start = activeItem.videoStartTime || 0;
+        const tryPlay = () => {
+            if (start > 0 && video.currentTime < start) {
+                video.currentTime = start;
+            }
+            video.play().catch(e => {
+                if (e.name !== 'AbortError') console.error('[Stack] Auto-play failed:', e.name);
+            });
+        };
+
+        if (video.readyState >= 1) {
+            tryPlay();
+        } else {
+            video.addEventListener('loadedmetadata', tryPlay, { once: true });
+        }
+    }, [displayUrl, isReady, activeItem, isPaused]);
+
 
     // Handle auto-advance and progress bar
     useEffect(() => {
