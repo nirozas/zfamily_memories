@@ -21,7 +21,6 @@ import {
     Type as TypeIcon,
     Lock,
     Unlock,
-    X,
     ChevronDown
 } from 'lucide-react';
 import { cn } from '../../lib/utils';

@@ -30,7 +30,7 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
     const [isMaskVisible, setIsMaskVisible] = useState(false);
 
     const [isProcessing, setIsProcessing] = useState(false);
-    const [isPickingColor, setIsPickingColor] = useState(false);
+    const [isPickingColor] = useState(false);
     const [showCompare, setShowCompare] = useState(false);
     const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'color' | 'effects'>('basic');
 
@@ -161,11 +161,9 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
         } : null;
     };
 
-    const rgbToHex = (r: number, g: number, b: number) => {
-        return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-    };
 
-    const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+
+    const handleCanvasClick = () => {
         // Disabled because of canvas tainting cross-origin SecurityError.
         // The native window.EyeDropper API is used via the 'Pick Color' button instead.
     };

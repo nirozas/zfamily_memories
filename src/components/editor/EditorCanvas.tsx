@@ -426,7 +426,7 @@ export const EditorCanvas = memo(function EditorCanvas({
     const {
         album, selectedAssetId, setSelectedAssetId, updateAsset,
         removeAsset, duplicateAsset, updateAssetZIndex, addAsset,
-        setActiveSlot, commitHistory
+        setActiveSlot
     } = useAlbum();
 
     const [editingTextId, setEditingTextId] = useState<string | null>(null);
