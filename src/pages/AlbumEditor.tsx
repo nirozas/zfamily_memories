@@ -9,6 +9,13 @@ import {
     FlipHorizontal, FlipVertical, RotateCw, Maximize2, Type
 } from 'lucide-react';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
+import { useAuthorizedUrl } from '../hooks/useAuthorizedUrl';
+
+const AuthorizedImage = ({ url, className, alt }: { url: string, className?: string, alt?: string }) => {
+    const { authorizedUrl } = useAuthorizedUrl(url);
+    if (!authorizedUrl) return null;
+    return <img src={authorizedUrl} className={className} alt={alt || ''} />;
+};
 import { useAlbum } from '../contexts/AlbumContext';
 import type { LayoutBox, Asset, Album } from '../contexts/AlbumContext';
 import { EditorCanvas } from '../components/editor/EditorCanvas';
@@ -885,7 +892,7 @@ function AlbumEditorContent() {
                                 <div className="flex items-center gap-3">
                                     <div className="relative w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
                                         {album.coverUrl ? (
-                                            <img src={album.coverUrl} alt="Cover" className="w-full h-full object-cover" />
+                                            <AuthorizedImage url={album.coverUrl} className="w-full h-full object-cover" alt="Cover" />
                                         ) : (
                                             <div className="w-full h-full flex items-center justify-center text-gray-400">
                                                 <ImageIcon className="w-8 h-8 opacity-50" />

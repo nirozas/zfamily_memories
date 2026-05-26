@@ -287,7 +287,6 @@ const AssetRenderer = memo(function AssetRenderer({
                 <LayoutFrame
                     box={box as any}
                     isEditable={!isEditing} 
-                    hideContent={isEditing} // We need to hide original text while editing
                     isSelected={isSelected}
                     zoom={zoom}
                     onClick={onClick}

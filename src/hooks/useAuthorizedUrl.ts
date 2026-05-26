@@ -7,7 +7,6 @@ import { CloudflareR2Service } from '../services/cloudflareR2';
 export function useAuthorizedUrl(url?: string | null) {
     const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(() => {
         if (!url) return null;
-        if (url.includes('X-Amz-Signature')) return url;
         if (CloudflareR2Service.isR2Url(url)) {
             const key = CloudflareR2Service.extractKey(url);
             if (key) {
@@ -20,7 +19,6 @@ export function useAuthorizedUrl(url?: string | null) {
     
     const [loading, setLoading] = useState(() => {
         if (!url) return false;
-        if (url.includes('X-Amz-Signature')) return false;
         if (CloudflareR2Service.isR2Url(url)) {
             const key = CloudflareR2Service.extractKey(url);
             if (key && CloudflareR2Service.getCachedUrl(key)) return false;
@@ -42,14 +40,7 @@ export function useAuthorizedUrl(url?: string | null) {
             }
 
             try {
-                // 1. If it's already an authorized URL (has signature), use it directly
-                if (url.includes('X-Amz-Signature')) {
-                    setAuthorizedUrl(url);
-                    setLoading(false);
-                    return;
-                }
-
-                // 2. If it's an R2 URL, get a fresh authorized URL
+                // 1. If it's an R2 URL, get a fresh authorized URL
                 if (CloudflareR2Service.isR2Url(url)) {
                     const key = CloudflareR2Service.extractKey(url);
                     

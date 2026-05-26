@@ -88,7 +88,7 @@ export function AssetLibrary() {
     const [isLoadingAssets, setIsLoadingAssets] = useState(false);
     // const [isAdminUploading, setIsAdminUploading] = useState(false);
     const [isDragging, setIsDragging] = useState(false);
-    const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video'>('all');
+    const [mediaFilter, setMediaFilter] = useState<'all' | 'image' | 'video' | 'used' | 'unused'>('all');
     const [sortBy, setSortBy] = useState<'name' | 'uploaded'>('uploaded');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [searchQuery, setSearchQuery] = useState('');
@@ -560,6 +560,14 @@ export function AssetLibrary() {
                             onClick={() => setMediaFilter('video')}
                             className={cn("flex-1 py-1 text-[8px] font-bold uppercase rounded transition-all", mediaFilter === 'video' ? "bg-white shadow-sm text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
                         >Vid</button>
+                        <button
+                            onClick={() => setMediaFilter('used')}
+                            className={cn("flex-1 py-1 text-[8px] font-bold uppercase rounded transition-all", mediaFilter === 'used' ? "bg-white shadow-sm text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
+                        >Used</button>
+                        <button
+                            onClick={() => setMediaFilter('unused')}
+                            className={cn("flex-1 py-1 text-[8px] font-bold uppercase rounded transition-all", mediaFilter === 'unused' ? "bg-white shadow-sm text-catalog-accent" : "text-gray-400 hover:text-gray-600")}
+                        >Unused</button>
                     </div>
 
                     {/* Date & Sort */}
@@ -733,7 +741,13 @@ export function AssetLibrary() {
                                         <div className={cn("grid gap-2 animate-in fade-in slide-in-from-top-1 duration-300", gridCols === 2 ? "grid-cols-2" : (gridCols === 3 ? "grid-cols-3" : "grid-cols-4"))}>
                                             {libraryAssets
                                                 .filter(a => viewMode === 'grid' ? true : (a.folder || 'Unsorted') === currentFolder)
-                                                .filter(a => mediaFilter === 'all' || (mediaFilter === 'image' ? (!a.type || a.type === 'image') : a.type === 'video'))
+                                                .filter(a => {
+                                                    if (mediaFilter === 'used') return usedAssetUrls.has(a.url);
+                                                    if (mediaFilter === 'unused') return !usedAssetUrls.has(a.url);
+                                                    if (mediaFilter === 'image') return !a.type || a.type === 'image';
+                                                    if (mediaFilter === 'video') return a.type === 'video';
+                                                    return true;
+                                                })
                                                 .filter(a => {
                                                     if (dateFilter === 'all') return true;
                                                     const now = new Date();

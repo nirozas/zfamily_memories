@@ -263,7 +263,7 @@ export function MediaLibrary() {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortBy, setSortBy] = useState<'date' | 'name' | 'size'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    const [filterType, setFilterType] = useState<'all' | 'image' | 'video'>('all');
+    const [filterType, setFilterType] = useState<'all' | 'image' | 'video' | 'used' | 'unused'>('all');
     const [editingItem, setEditingItem] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
     const [metadataModalData, setMetadataModalData] = useState<{ item: MediaItem; dims: { w: number; h: number } | null; duration: number | null } | null>(null);
@@ -357,6 +357,30 @@ export function MediaLibrary() {
 
         assetUsage?.forEach((asset: any) => {
             if (asset.url) usageMap[asset.url] = (usageMap[asset.url] || 0) + 1;
+        });
+
+        // Unified album_pages
+        const { data: albumPagesData } = await supabase
+            .from('album_pages')
+            .select('layout_json, background_config');
+
+        albumPagesData?.forEach((page: any) => {
+            const layoutJson = page.layout_json;
+            let assets: any[] = [];
+            if (Array.isArray(layoutJson)) {
+                assets = layoutJson;
+            } else if (layoutJson && typeof layoutJson === 'object') {
+                assets = layoutJson.assets || [];
+            }
+            assets.forEach((asset: any) => {
+                if (asset.url) usageMap[asset.url] = (usageMap[asset.url] || 0) + 1;
+            });
+            
+            // Count page background images
+            const bg = page.background_config;
+            if (bg && bg.imageUrl) {
+                usageMap[bg.imageUrl] = (usageMap[bg.imageUrl] || 0) + 1;
+            }
         });
 
         // B. Events (Presentation URL + Content Assets)
@@ -780,7 +804,14 @@ export function MediaLibrary() {
         const matchesFolder = activeTab === 'system' || (currentPath === 'All' ? true : itemFolder === currentPath);
         const searchLower = searchQuery.toLowerCase();
         const matchesSearch = item.filename?.toLowerCase().includes(searchLower) || (item.tags || []).some(t => t.toLowerCase().includes(searchLower));
-        const matchesType = filterType === 'all' || item.type === filterType;
+        let matchesType = true;
+        if (filterType === 'image' || filterType === 'video') {
+            matchesType = item.type === filterType;
+        } else if (filterType === 'used') {
+            matchesType = (item.usageCount || 0) > 0;
+        } else if (filterType === 'unused') {
+            matchesType = (item.usageCount || 0) === 0;
+        }
         return matchesFolder && matchesSearch && matchesType;
     }).sort((a, b) => {
         const multiplier = sortOrder === 'asc' ? 1 : -1;
@@ -967,6 +998,8 @@ export function MediaLibrary() {
                                 <option value="all">All Types</option>
                                 <option value="image">Images</option>
                                 <option value="video">Videos</option>
+                                <option value="used">Used</option>
+                                <option value="unused">Unused</option>
                             </select>
                             <div className="w-px h-4 bg-gray-200 mx-1" />
                             <select

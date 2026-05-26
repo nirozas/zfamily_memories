@@ -76,7 +76,7 @@ async function createPresignedPutUrl(
         'X-Amz-Credential': credential,
         'X-Amz-Date': amzDate,
         'X-Amz-Expires': String(expiresInSeconds),
-        'X-Amz-SignedHeaders': 'content-type;host',
+        'X-Amz-SignedHeaders': 'host',
     });
 
     const sortedParams = Array.from(queryParams.entries())
@@ -90,8 +90,8 @@ async function createPresignedPutUrl(
         'PUT',
         `/${creds.bucket}/${encodedKey}`,
         sortedParams,
-        `content-type:${normalizedContentType}\nhost:${host}\n`,
-        'content-type;host',
+        `host:${host}\n`,
+        'host',
         'UNSIGNED-PAYLOAD',
     ].join('\n');
 
@@ -314,6 +314,26 @@ serve(async (req) => {
             presignedUrl = await createPresignedDeleteUrl(key, expiresIn, creds);
         } else if (operation === 'GET') {
             presignedUrl = await createPresignedGetUrl(key, expiresIn, creds);
+        } else if (operation === 'PROXY_GET') {
+            const getUrl = await createPresignedGetUrl(key, expiresIn, creds);
+            const r2Response = await fetch(getUrl);
+            
+            if (!r2Response.ok) {
+                return new Response(JSON.stringify({ error: `R2 fetch failed: ${r2Response.status}` }), {
+                    status: r2Response.status,
+                    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+                });
+            }
+
+            const responseHeaders = new Headers(r2Response.headers);
+            for (const [k, v] of Object.entries(corsHeaders)) {
+                responseHeaders.set(k, v);
+            }
+
+            return new Response(r2Response.body, {
+                status: r2Response.status,
+                headers: responseHeaders,
+            });
         } else {
             return new Response(JSON.stringify({ error: `Unsupported operation: ${operation}` }), {
                 status: 400,

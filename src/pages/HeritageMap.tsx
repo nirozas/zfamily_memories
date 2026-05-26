@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { useAuth } from '../contexts/AuthContext';
 import {
     MapPin,
     Calendar,
@@ -17,7 +18,7 @@ import {
     PlaySquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
+import { CloudflareR2Service } from '../services/cloudflareR2';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 
@@ -124,7 +125,7 @@ export function HeritageMap() {
             // Fetch Albums
             const { data: albumsData, error: albumsError } = await (supabase as any)
                 .from('albums')
-                .select('id, title, location, country, created_at, category, geotag, config, cover_image_url, pages(id, page_number, assets(*))')
+                .select('id, title, location, country, created_at, category, geotag, config, cover_image_url, pages(id, page_number, assets(*)), album_pages(id, page_number, background_config, layout_json)')
                 .eq('family_id', familyId);
 
             if (albumsError) {
@@ -230,12 +231,60 @@ export function HeritageMap() {
                     if (!isNaN(valLat) && !isNaN(valLng) && valLat !== 0 && valLng !== 0) {
                         let albumCover = a.cover_image_url || config.coverImage || (config.cover && config.cover.url) || undefined;
 
-                        // Fallback to first page asset
-                        if (!albumCover && a.pages && a.pages.length > 0) {
-                            const sortedPages = [...a.pages].sort((p1, p2) => p1.page_number - p2.page_number);
-                            const firstPageAssets = sortedPages[0].assets || [];
-                            const firstImg = firstPageAssets.find((ast: any) => (ast.asset_type || ast.type) === 'image');
-                            if (firstImg) albumCover = firstImg.url;
+                        // Fallback to finding an image inside the pages
+                        const pagesToSearch = (a.album_pages || a.pages || []);
+                        if (!albumCover && pagesToSearch.length > 0) {
+                            const sortedPages = [...pagesToSearch].sort((p1, p2) => p1.page_number - p2.page_number);
+                            
+                            const findImageInPage = (page: any) => {
+                                // Priority 0: Background Image
+                                if (page.backgroundImage || page.background_image) return page.backgroundImage || page.background_image;
+                                if (page.background_config?.imageUrl) return page.background_config.imageUrl;
+                                if (typeof page.background_config === 'string') {
+                                    try {
+                                        const config = JSON.parse(page.background_config);
+                                        if (config.imageUrl) return config.imageUrl;
+                                    } catch (e) {}
+                                }
+                    
+                                // Priority 1: Layout JSON Boxes
+                                if (page.layout_json) {
+                                    let assetsArray: any[] = [];
+                                    if (Array.isArray(page.layout_json)) {
+                                        assetsArray = page.layout_json;
+                                    } else if (page.layout_json && typeof page.layout_json === 'object' && Array.isArray(page.layout_json.assets)) {
+                                        assetsArray = page.layout_json.assets;
+                                    }
+                                    
+                                    const box = assetsArray.find((b: any) => 
+                                        (b.content?.url && (b.content.type === 'image' || b.content.type === 'video')) ||
+                                        (b.url && (b.type === 'image' || b.type === 'video'))
+                                    );
+                                    if (box) return box.content?.url || box.url;
+                                }
+
+                                // Priority 2: Flat Assets Table
+                                if (page.assets) {
+                                    const assets = Array.isArray(page.assets) ? page.assets : [];
+                                    const asset = assets.find((ast: any) => ast.url && (ast.asset_type === 'image' || ast.type === 'image'));
+                                    if (asset) return asset.url;
+                                }
+                                return null;
+                            };
+
+                            // Check front page first, then legacy page 0, then any page
+                            const frontPage = sortedPages.find(p => p.page_number === 1) || sortedPages.find(p => p.page_number === 0) || sortedPages[0];
+                            if (frontPage) albumCover = findImageInPage(frontPage);
+
+                            if (!albumCover) {
+                                for (const p of sortedPages) {
+                                    const img = findImageInPage(p);
+                                    if (img) {
+                                        albumCover = img;
+                                        break;
+                                    }
+                                }
+                            }
                         }
 
                         normalizedAlbums.push({
@@ -336,8 +385,25 @@ export function HeritageMap() {
                 .filter(e => !isNaN(e.lat) && !isNaN(e.lng) && e.lat !== 0 && e.lng !== 0)
                 .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-            console.log(`[HeritageMap] Final markers: ${allItems.length} total (${normalizedEvents.length} events + ${normalizedAlbums.length} album locations)`);
-            setItems(allItems);
+            // Pre-resolve authorized URLs for markers
+            const resolvedItems = await Promise.all(allItems.map(async (item) => {
+                if (item.coverImage && CloudflareR2Service.isR2Url(item.coverImage)) {
+                    const key = CloudflareR2Service.extractKey(item.coverImage);
+                    if (key) {
+                        try {
+                            const authUrl = await CloudflareR2Service.getAuthorizedUrl(key);
+                            return { ...item, coverImage: authUrl };
+                        } catch (e) {
+                            console.error('[HeritageMap] Failed to resolve auth url for marker', e);
+                            return item;
+                        }
+                    }
+                }
+                return item;
+            }));
+
+            console.log(`[HeritageMap] Final markers: ${resolvedItems.length} total (${normalizedEvents.length} events + ${normalizedAlbums.length} album locations)`);
+            setItems(resolvedItems);
         } catch (error) {
             console.error('Error fetching map items:', error);
         } finally {

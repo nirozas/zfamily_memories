@@ -47,22 +47,22 @@ export class CloudflareR2Service {
         return false;
     }
 
-    /**
-     * Extracts the object key from a public R2 URL.
-     */
     static extractKey(url?: string | null): string | null {
         if (!url) return null;
         try {
             const urlObj = new URL(url);
-            let key = '';
+            let key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+            
+            // If it's a direct cloudflarestorage.com URL, the bucket name is the first path segment. Strip it.
             const lowerUrl = url.toLowerCase();
-            
-            if (lowerUrl.includes('r2.dev') || (this._publicUrl && lowerUrl.includes(this._publicUrl.toLowerCase()))) {
-                key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
-            } else {
-                key = url.replace(this._publicUrl, '').replace(/^\//, '');
+            if (lowerUrl.includes('r2.cloudflarestorage.com')) {
+                const parts = key.split('/');
+                if (parts.length > 1) {
+                    parts.shift(); // Remove the bucket name
+                    key = parts.join('/');
+                }
             }
-            
+
             if (key) {
                 try {
                     return decodeURIComponent(key);
@@ -71,7 +71,8 @@ export class CloudflareR2Service {
                 }
             }
         } catch (e) {
-            const key = url.replace(this._publicUrl, '').replace(/^\//, '');
+            // Fallback for relative URLs
+            const key = url.replace(this._publicUrl || '', '').replace(/^\//, '');
             if (key) {
                 try {
                     return decodeURIComponent(key);

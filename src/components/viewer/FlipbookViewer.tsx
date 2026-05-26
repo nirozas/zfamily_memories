@@ -19,7 +19,6 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     const [isExporting, setIsExporting] = useState(false);
     const [exportDpi, setExportDpi] = useState<300 | 450 | 600>(300);
     const [currentPageIndex, setCurrentPageIndex] = useState(0);
-    const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
     const [zoom, setZoom] = useState(1);
     const [selectedVideo, setSelectedVideo] = useState<{ url: string, rotation?: number } | null>(null);
     const [isTheaterMode, setIsTheaterMode] = useState(false);
@@ -220,12 +219,6 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
         return newPages;
     }, [pages]);
 
-    useEffect(() => {
-        const handleResize = () => setIsMobile(window.innerWidth < 1024);
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
-
     const bookRef = useRef<any>(null);
     const pageRefs = useRef<(HTMLElement | null)[]>([]);
 
@@ -239,7 +232,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
 
             const { width: containerW, height: containerH } = container.getBoundingClientRect();
 
-            const bookW = isMobile ? dimensions.width : dimensions.width * 2;
+            const bookW = dimensions.width * 2;
             const bookH = dimensions.height;
 
             const zoomW = (containerW - 80) / bookW;
@@ -255,7 +248,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             clearTimeout(timer);
             window.removeEventListener('resize', calculateFitZoom);
         };
-    }, [isMobile, dimensions.width, dimensions.height, isFullscreen]);
+    }, [dimensions.width, dimensions.height, isFullscreen]);
 
     const FLIP_SOUND_ID = 'flip-sound-element';
     const FLIP_SOUND_URL = 'https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3';
@@ -454,6 +447,13 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 "absolute inset-0 overflow-visible",
                 isTheaterMode && "album-canvas pointer-events-none opacity-50"
             )}>
+                {/* Mobile/Tablet Touch Zones */}
+                {!isTheaterMode && (
+                    <>
+                        <div className="absolute left-0 top-16 bottom-16 w-[15%] z-50 cursor-pointer lg:hidden" onClick={goToPrev} />
+                        <div className="absolute right-0 top-16 bottom-16 w-[15%] z-50 cursor-pointer lg:hidden" onClick={goToNext} />
+                    </>
+                )}
                 <div
                     style={{
                         position: 'absolute',
@@ -473,7 +473,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                         minHeight={dimensions.height}
                         maxHeight={dimensions.height}
                         showCover={true}
-                        usePortrait={isMobile}
+                        usePortrait={false}
                         mobileScrollSupport={false}
                         onFlip={onFlip}
                         onChangeState={onChangeState}
@@ -565,7 +565,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                             const container = document.getElementById('flipbook-container');
                             if (!container) return;
                             const { width: containerW, height: containerH } = container.getBoundingClientRect();
-                            const bookW = isMobile ? dimensions.width : dimensions.width * 2;
+                            const bookW = dimensions.width * 2;
                             const bookH = dimensions.height;
                             const zoomW = (containerW - 80) / bookW;
                             const zoomH = (containerH - 80) / bookH;

@@ -19,6 +19,8 @@ interface AlbumCardProps {
     onPrint?: () => void;
 }
 
+import { AlbumPage } from '../viewer/AlbumPage';
+
 /**
  * AlbumCard - Premium 'Wow' Edition
  * 
@@ -34,39 +36,48 @@ export function AlbumCard(props: AlbumCardProps) {
     const loc = location || config?.location;
 
     // 1. First Page (Front Page) Derivation Fallback
+    const frontPageRaw = pages?.find(p => p.page_number === 1 || p.pageNumber === 1) || pages?.find(p => p.page_number === 0 || p.pageNumber === 0) || pages?.[0];
+        
+    let parsedFrontPage: any = null;
+    if (frontPageRaw) {
+        let layoutJson = frontPageRaw.layout_json || frontPageRaw.layoutConfig || {};
+        let assets = [];
+        let slots = undefined;
+        if (Array.isArray(layoutJson)) {
+            assets = layoutJson;
+        } else if (layoutJson && typeof layoutJson === 'object') {
+            assets = layoutJson.assets || [];
+            slots = layoutJson.slots;
+        }
+        
+        const rawAssets = frontPageRaw.assets || assets;
+
+        parsedFrontPage = {
+            id: frontPageRaw.id,
+            pageNumber: frontPageRaw.page_number || frontPageRaw.pageNumber || 1,
+            layoutTemplate: frontPageRaw.layout_template || frontPageRaw.layoutTemplate,
+            backgroundColor: frontPageRaw.background_config?.color || frontPageRaw.backgroundColor || '#18181b', // zinc-900 fallback
+            backgroundImage: frontPageRaw.background_config?.imageUrl || frontPageRaw.backgroundImage,
+            backgroundOpacity: frontPageRaw.background_config?.opacity || frontPageRaw.backgroundOpacity,
+            layoutConfig: slots || frontPageRaw.layoutConfig,
+            assets: rawAssets.map((a: any) => ({ 
+                ...a, 
+                url: a.url || a.content?.url, 
+                type: a.type || a.content?.type || 'image', 
+                x: a.x ?? a.position?.x ?? 50, 
+                y: a.y ?? a.position?.y ?? 50, 
+                width: a.width ?? a.size?.width ?? 20, 
+                height: a.height ?? a.size?.height ?? 20 
+            }))
+        };
+    }
+
     const displayCover = cover_url || (() => {
         if (!pages || pages.length === 0) return null;
+        // Keep the old image extraction logic as a fallback
         const findImageInPage = (page: any) => {
-            // Priority 0: Background Image (Unified or Legacy)
-            if (page.backgroundImage || page.background_image) {
-                return page.backgroundImage || page.background_image;
-            }
-            if (page.background_config?.imageUrl) {
-                return page.background_config.imageUrl;
-            }
-            if (typeof page.background_config === 'string') {
-                try {
-                    const config = JSON.parse(page.background_config);
-                    if (config.imageUrl) return config.imageUrl;
-                } catch (e) {}
-            }
-
-            // Check nested layout boxes
-            if (page.layout_json) {
-                let assetsArray: any[] = [];
-                if (Array.isArray(page.layout_json)) {
-                    assetsArray = page.layout_json;
-                } else if (page.layout_json && typeof page.layout_json === 'object' && Array.isArray(page.layout_json.assets)) {
-                    assetsArray = page.layout_json.assets;
-                }
-                
-                const box = assetsArray.find((b: any) => 
-                    (b.content?.url && (b.content.type === 'image' || b.content.type === 'video')) ||
-                    (b.url && (b.type === 'image' || b.type === 'video'))
-                );
-                if (box) return box.content?.url || box.url;
-            }
-            // Check flat assets
+            if (page.backgroundImage || page.background_image) return page.backgroundImage || page.background_image;
+            if (page.background_config?.imageUrl) return page.background_config.imageUrl;
             if (page.assets) {
                 const assets = Array.isArray(page.assets) ? page.assets : [];
                 const asset = assets.find((a: any) => a.url && (a.asset_type === 'image' || a.type === 'image'));
@@ -74,26 +85,7 @@ export function AlbumCard(props: AlbumCardProps) {
             }
             return null;
         };
-
-        // Priority 1: Page 1 (Front Cover)
-        const frontPage = pages.find(p => p.page_number === 1 || p.pageNumber === 1);
-        if (frontPage) {
-            const img = findImageInPage(frontPage);
-            if (img) return img;
-        }
-
-        // Priority 2: Page 0 (Legacy Support)
-        const legacyPage = pages.find(p => p.page_number === 0 || p.pageNumber === 0);
-        if (legacyPage) {
-            const img = findImageInPage(legacyPage);
-            if (img) return img;
-        }
-
-        // Priority 3: First available content
-        for (const p of pages) {
-            const img = findImageInPage(p);
-            if (img) return img;
-        }
+        if (frontPageRaw) return findImageInPage(frontPageRaw);
         return null;
     })();
 
@@ -110,7 +102,24 @@ export function AlbumCard(props: AlbumCardProps) {
 
                     {/* 1. Dynamic Background & Glow */}
                     <div className="absolute inset-0 z-0">
-                        {displayCover ? (
+                        {parsedFrontPage ? (
+                            <div className="absolute inset-0 flex justify-center opacity-80 group-hover/card:opacity-100 transition-opacity duration-1000 pointer-events-none">
+                                <div className="w-[800px] h-[1130px] shrink-0 origin-top transition-transform duration-1000 group-hover/card:rotate-1" style={{ transform: 'scale(0.39)' }}>
+                                    <AlbumPage 
+                                        page={parsedFrontPage} 
+                                        dimensions={{ width: 800, height: 1130 }} 
+                                        side="single" 
+                                        isCover={true} 
+                                        density="hard"
+                                        onVideoClick={() => {}}
+                                        showPageNumber={false}
+                                    />
+                                </div>
+                                <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent z-10" />
+                                <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-zinc-950 to-transparent z-15" />
+                                <div className="absolute inset-0 bg-catalog-accent/5 mix-blend-overlay z-10" />
+                            </div>
+                        ) : displayCover ? (
                             <>
                                 <img
                                     src={displayCover}

@@ -37,7 +37,7 @@ export function AlbumsGrid({ albums, viewMode, onEdit, onDelete, onDuplicate, on
                     key={album.id}
                     {...album}
                     onEdit={() => onEdit(album.id, album.title)}
-                    onDelete={() => onDelete(album.id)}
+                    onDelete={album.config?.isLocked ? undefined : () => onDelete(album.id)}
                     onDuplicate={() => onDuplicate(album.id)}
                     onShare={() => onShare(album.id)}
                     onPrint={() => onPrint(album.id)}
