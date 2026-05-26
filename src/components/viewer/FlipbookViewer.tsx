@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import HTMLFlipBook from 'react-pageflip';
-import { ChevronLeft, ChevronRight, X, Maximize2, Minimize2, Download, FileText, Globe, BookOpen, Moon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Maximize2, Minimize2, Download, FileText, Globe, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { type Album, type Page } from '../../contexts/AlbumContext';
 import { printService } from '../../services/printService';
@@ -23,9 +23,11 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
     const [selectedVideo, setSelectedVideo] = useState<{ url: string, rotation?: number } | null>(null);
     const [isTheaterMode, setIsTheaterMode] = useState(false);
     const [flippingTime, setFlippingTime] = useState(1000);
-    const [showPageNumbers, setShowPageNumbers] = useState(true);
-    const [showShadows, setShowShadows] = useState(true);
+    const [showPageNumbers] = useState(true);
+    const [showShadows] = useState(true);
     const [_layouts, _setLayouts] = useState<Record<string, any>>({});
+    const [magnifierLevel, setMagnifierLevel] = useState(0);
+    const [mousePos, setMousePos] = useState<{ x: number, y: number } | null>(null);
 
     const processedPages = useMemo(() => {
         if (!pages) return [];
@@ -318,6 +320,10 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             if (e.key === 'ArrowRight') goToNext();
             if (e.key === 'ArrowLeft') goToPrev();
             if (e.key === 'Escape') {
+                if (magnifierLevel > 0) {
+                    setMagnifierLevel(0);
+                    return;
+                }
                 // 2. Fix Fullscreen Escape: If video is playing, ONLY close video.
                 // If not, close the whole viewer.
                 if (selectedVideo) {
@@ -330,11 +336,52 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, selectedVideo]);
+    }, [onClose, selectedVideo, magnifierLevel]);
 
     const handleSetSelectedVideo = useCallback((url: string, rotation?: number) => {
         setSelectedVideo({ url, rotation });
     }, []);
+
+    const renderMagnifierPages = () => {
+        if (!processedPages.length) return null;
+        
+        if (currentPageIndex === 0) {
+            return (
+                <>
+                    <div style={{ width: dimensions.width, height: dimensions.height }} />
+                    <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
+                        <AlbumPage page={processedPages[0]} dimensions={dimensions} side="right" density="hard" isCover={true} onVideoClick={() => {}} showPageNumber={showPageNumbers} />
+                    </div>
+                </>
+            );
+        }
+
+        const isBackCover = currentPageIndex >= processedPages.length - 1;
+        if (isBackCover) {
+            return (
+                <>
+                    <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
+                        <AlbumPage page={processedPages[processedPages.length - 1]} dimensions={dimensions} side="left" density="hard" isCover={true} onVideoClick={() => {}} showPageNumber={showPageNumbers} />
+                    </div>
+                    <div style={{ width: dimensions.width, height: dimensions.height }} />
+                </>
+            );
+        }
+
+        const leftPage = processedPages[currentPageIndex];
+        const rightPage = processedPages[currentPageIndex + 1];
+
+        return (
+            <>
+                <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
+                    {leftPage && <AlbumPage page={leftPage} dimensions={dimensions} side="left" density="soft" isCover={false} onVideoClick={() => {}} showPageNumber={showPageNumbers} />}
+                </div>
+                <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
+                    {rightPage && <AlbumPage page={rightPage} dimensions={dimensions} side="right" density="soft" isCover={false} onVideoClick={() => {}} showPageNumber={showPageNumbers} />}
+                </div>
+            </>
+        );
+    };
 
     return (
         <div className={cn(
@@ -445,14 +492,67 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
 
             <div id="flipbook-container" className={cn(
                 "absolute inset-0 overflow-visible",
-                isTheaterMode && "album-canvas pointer-events-none opacity-50"
-            )}>
+                isTheaterMode && "album-canvas pointer-events-none opacity-50",
+                magnifierLevel > 0 && "cursor-crosshair"
+            )}
+            onMouseMove={(e) => {
+                if (magnifierLevel === 0) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                setMousePos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+            }}
+            onMouseLeave={() => setMousePos(null)}
+            >
                 {/* Mobile/Tablet Touch Zones */}
                 {!isTheaterMode && (
                     <>
                         <div className="absolute left-0 top-16 bottom-16 w-[15%] z-50 cursor-pointer lg:hidden" onClick={goToPrev} />
                         <div className="absolute right-0 top-16 bottom-16 w-[15%] z-50 cursor-pointer lg:hidden" onClick={goToNext} />
                     </>
+                )}
+                {magnifierLevel > 0 && mousePos && (
+                    <div
+                        style={{
+                            position: 'absolute',
+                            left: mousePos.x,
+                            top: mousePos.y,
+                            width: 500,
+                            height: 500,
+                            transform: 'translate(-50%, -50%)',
+                            borderRadius: '12px',
+                            border: '2px solid rgba(255,255,255,0.8)',
+                            boxShadow: '0 15px 35px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,0,0,0.2) inset',
+                            overflow: 'hidden',
+                            pointerEvents: 'none',
+                            zIndex: 200,
+                            backgroundColor: '#fff',
+                        }}
+                    >
+                        <div
+                            style={{
+                                position: 'absolute',
+                                left: 0,
+                                top: 0,
+                                width: '100vw',
+                                height: '100vh',
+                                transformOrigin: '0 0',
+                                transform: `translate(${250 - magnifierLevel * mousePos.x}px, ${250 - magnifierLevel * mousePos.y}px) scale(${magnifierLevel})`
+                            }}
+                        >
+                            <div
+                                style={{
+                                    position: 'absolute',
+                                    left: '50%',
+                                    top: '50%',
+                                    transform: `translate(-50%, -50%) scale(${zoom})`,
+                                    transformOrigin: 'center center',
+                                }}
+                            >
+                                <div style={{ display: 'flex', width: dimensions.width * 2, height: dimensions.height, backgroundColor: '#fdfdfd', boxShadow: '0 0 20px rgba(0,0,0,0.1)' }}>
+                                    {renderMagnifierPages()}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 )}
                 <div
                     style={{
@@ -520,63 +620,45 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 </div>
             </div>
 
-            <footer className="absolute bottom-4 left-4 flex flex-col items-start gap-2 py-2 px-2 text-white/60 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 shadow-lg z-[110]">
-                <div className="flex items-center gap-1">
-                    <button onClick={goToPrev} className="p-1 rounded bg-white/5 hover:bg-white/10 transition-all">
-                        <ChevronLeft className="w-4 h-4 text-gray-200" />
-                    </button>
-                    <div className="flex items-center bg-white/5 rounded px-2 py-0.5 gap-1 border border-white/5">
-                        <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="text-xs font-bold hover:text-white w-3">-</button>
-                        <span className="text-[10px] font-bold tracking-wider min-w-[30px] text-center text-white">{Math.round(zoom * 100)}%</span>
-                        <button onClick={() => setZoom(z => Math.min(2.5, z + 0.1))} className="text-xs font-bold hover:text-white w-3">+</button>
-                    </div>
-                    <button onClick={goToNext} className="p-1 rounded bg-white/5 hover:bg-white/10 transition-all">
-                        <ChevronRight className="w-4 h-4 text-gray-200" />
-                    </button>
+            {/* Left Sidebar */}
+            <div className="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col items-center gap-4 py-4 px-2 text-white/60 bg-black/60 backdrop-blur-md rounded-xl border border-white/10 shadow-2xl z-[110]">
+                <div className="flex flex-col gap-2">
+                    {[2, 3, 5].map(level => (
+                        <button
+                            key={level}
+                            onClick={() => setMagnifierLevel(prev => prev === level ? 0 : level)}
+                            className={cn(
+                                "flex flex-col items-center justify-center p-2 rounded-lg transition-all",
+                                magnifierLevel === level ? "bg-catalog-accent text-white" : "hover:bg-white/10 text-white/60"
+                            )}
+                            title={`${level}x Magnifier`}
+                        >
+                            <Search className="w-4 h-4 mb-1" />
+                            <span className="text-[10px] font-bold">{level}x</span>
+                        </button>
+                    ))}
                 </div>
 
-                <div className="flex items-center gap-1 w-full justify-between">
-                    <div className="flex items-center gap-1">
-                        <button
-                            onClick={() => setShowPageNumbers(!showPageNumbers)}
-                            className={cn(
-                                "p-1.5 rounded transition-all",
-                                showPageNumbers ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
-                            )}
-                            title="Toggle Page Numbers"
-                        >
-                            <BookOpen className="w-3 h-3" />
-                        </button>
+                <div className="w-full h-px bg-white/10" />
 
-                        <button
-                            onClick={() => setShowShadows(!showShadows)}
-                            className={cn(
-                                "p-1.5 rounded transition-all",
-                                showShadows ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
-                            )}
-                            title="Toggle Shadows"
-                        >
-                            <Moon className="w-3 h-3" />
-                        </button>
-                    </div>
-
-                    <button
-                        onClick={() => {
-                            const container = document.getElementById('flipbook-container');
-                            if (!container) return;
-                            const { width: containerW, height: containerH } = container.getBoundingClientRect();
-                            const bookW = dimensions.width * 2;
-                            const bookH = dimensions.height;
-                            const zoomW = (containerW - 80) / bookW;
-                            const zoomH = (containerH - 80) / bookH;
-                            setZoom(Math.max(0.2, Math.min(zoomW, zoomH, 1.5)));
-                        }}
-                        className="px-2 py-1 text-[9px] font-semibold uppercase bg-white/5 hover:bg-white/10 rounded transition-colors text-gray-300 ml-2"
-                    >
-                        Fit
-                    </button>
+                <div className="flex flex-col items-center gap-2">
+                    <button onClick={() => setZoom(z => Math.min(2.5, z + 0.1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 font-bold text-lg text-white">+</button>
+                    <span className="text-[10px] font-bold tracking-wider text-center text-white">{Math.round(zoom * 100)}%</span>
+                    <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/10 font-bold text-lg text-white">-</button>
                 </div>
-            </footer>
+            </div>
+
+            {/* Bottom Navigation Arrows */}
+            <div className="absolute bottom-6 left-6 z-[110]">
+                <button onClick={goToPrev} className="p-3 rounded-full bg-black/60 backdrop-blur-md border border-white/10 hover:bg-white/10 transition-all text-white shadow-xl">
+                    <ChevronLeft className="w-6 h-6" />
+                </button>
+            </div>
+            <div className="absolute bottom-6 right-6 z-[110]">
+                <button onClick={goToNext} className="p-3 rounded-full bg-black/60 backdrop-blur-md border border-white/10 hover:bg-white/10 transition-all text-white shadow-xl">
+                    <ChevronRight className="w-6 h-6" />
+                </button>
+            </div>
 
             <VideoPortal
                 videoUrl={selectedVideo?.url || null}
