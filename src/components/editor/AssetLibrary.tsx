@@ -28,11 +28,7 @@ import { MediaPickerModal } from '../media/MediaPickerModal';
 import { UniversalUploadButton } from '../ui/UniversalUploadButton';
 import { UploadOverlay } from '../ui/UploadOverlay';
 import { CloudflareR2Service } from '../../services/cloudflareR2';
-
-// Helper for library thumbnails (not full assets)
-const getThumbnailUrl = (url: string) => {
-    return url;
-};
+import { SecureMedia } from '../common/SecureMedia';
 
 
 // Helper to get assets by category
@@ -781,13 +777,10 @@ export function AssetLibrary() {
                                                         >
                                                             {item.type === 'video' ? (
                                                                 <div className="w-full h-full relative">
-                                                                    <img src={getThumbnailUrl(item.url) || undefined} alt="" className="w-full h-full object-cover" />
-                                                                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 group-hover:bg-black/30 transition-colors">
-                                                                        <Video className="w-5 h-5 text-white drop-shadow-md" />
-                                                                    </div>
+                                                                    <SecureMedia url={item.url} isVideo={true} className="w-full h-full object-cover" />
                                                                 </div>
                                                             ) : (
-                                                                <img src={getThumbnailUrl(item.url) || undefined} alt="" className="w-full h-full object-cover" />
+                                                                <SecureMedia url={item.url} alt="" className="w-full h-full object-cover" />
                                                             )}
                                                             <div className="absolute inset-0 bg-catalog-accent/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                                 <Plus className="w-5 h-5 text-white" />
@@ -860,7 +853,7 @@ export function AssetLibrary() {
                                     onClick={() => handleAssetClick(item, 'backgrounds')}
                                     className="aspect-[4/3] rounded-lg overflow-hidden cursor-pointer hover:ring-2 hover:ring-catalog-accent transition-all shadow-sm bg-white relative group border border-gray-100"
                                 >
-                                    <img src={getThumbnailUrl(item.url)} alt="" className="w-full h-full object-cover" />
+                                    <SecureMedia url={item.url} alt="" className="w-full h-full object-cover" />
                                     <div className="absolute inset-0 bg-catalog-accent/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                         <Plus className="w-6 h-6 text-white" />
                                     </div>
@@ -894,7 +887,7 @@ export function AssetLibrary() {
                                     onClick={() => handleAssetClick(item, 'stickers')}
                                     className="aspect-square p-2 bg-white rounded-lg border border-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer flex items-center justify-center group"
                                 >
-                                    <img src={item.url} alt="" className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform" />
+                                    <SecureMedia url={item.url} alt="" className="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform" />
                                 </div>
                             ))}
                     </div>
@@ -926,7 +919,7 @@ export function AssetLibrary() {
                                     className="aspect-square bg-white rounded-lg border border-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer flex items-center justify-center p-1 group shadow-sm overflow-hidden"
                                 >
                                     <div className="relative w-full h-full group-hover:scale-105 transition-transform duration-300">
-                                        <img src={item.url} alt="" className="w-full h-full object-contain" />
+                                        <SecureMedia url={item.url} alt="" className="w-full h-full object-contain" />
                                     </div>
                                 </div>
                             ))}
@@ -958,7 +951,7 @@ export function AssetLibrary() {
                                     onClick={() => handleAssetClick(item, 'ribbons')}
                                     className="aspect-[4/1] bg-white rounded-lg border border-catalog-accent/5 hover:border-catalog-accent/30 transition-all cursor-pointer flex items-center justify-center p-2 group shadow-sm"
                                 >
-                                    <img src={item.url} alt="" className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform" />
+                                    <SecureMedia url={item.url} alt="" className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform" />
                                 </div>
                             ))}
                     </div>

@@ -62,7 +62,7 @@ export const LayoutFrame = memo(function LayoutFrame({
         width: `${box.width}%`,
         height: `${box.height}%`,
         zIndex: isMedia ? 100 : getStrictZIndex(box.role, box.zIndex),
-        overflow: 'hidden',
+        overflow: (isEditable && isSelected) ? 'visible' : 'hidden',
         boxSizing: 'border-box',
         borderRadius: config.borderRadius ? `${config.borderRadius}px` : undefined,
         border: config.borderWidth ? `${config.borderWidth}px solid ${config.borderColor || '#000'}` : undefined,
@@ -91,19 +91,26 @@ export const LayoutFrame = memo(function LayoutFrame({
             onDoubleClick={onDoubleClick}
             onContextMenu={onContextMenu}
         >
-            <MediaRenderer
-                id={box.id}
-                type={box.content?.type || 'image'}
-                url={box.content?.url}
-                content={box.content?.text}
-                zoom={box.content?.zoom}
-                focalX={box.content?.x}
-                focalY={box.content?.y}
-                rotation={box.content?.rotation}
-                config={config}
-                isEditable={isEditable}
-                onVideoClick={onVideoClick}
-            />
+            <div 
+                className="w-full h-full overflow-hidden"
+                style={{
+                    borderRadius: config.borderRadius ? `${config.borderRadius}px` : undefined,
+                }}
+            >
+                <MediaRenderer
+                    id={box.id}
+                    type={box.content?.type || 'image'}
+                    url={box.content?.url}
+                    content={box.content?.text}
+                    zoom={box.content?.zoom}
+                    focalX={box.content?.x}
+                    focalY={box.content?.y}
+                    rotation={box.content?.rotation}
+                    config={config}
+                    isEditable={isEditable}
+                    onVideoClick={onVideoClick}
+                />
+            </div>
 
             {/* --- PROFESSIONAL STUDIO OVERLAYS (Conditional) --- */}
             {isEditable && isSelected && (

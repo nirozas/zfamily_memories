@@ -48,6 +48,49 @@ export class CloudflareR2Service {
     }
 
     /**
+     * Extracts the object key from a public R2 URL.
+     */
+    static extractKey(url?: string | null): string | null {
+        if (!url) return null;
+        try {
+            const urlObj = new URL(url);
+            let key = '';
+            const lowerUrl = url.toLowerCase();
+            
+            if (lowerUrl.includes('r2.dev') || (this._publicUrl && lowerUrl.includes(this._publicUrl.toLowerCase()))) {
+                key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
+            } else {
+                key = url.replace(this._publicUrl, '').replace(/^\//, '');
+            }
+            
+            if (key) {
+                try {
+                    return decodeURIComponent(key);
+                } catch (e) {
+                    return key;
+                }
+            }
+        } catch (e) {
+            const key = url.replace(this._publicUrl, '').replace(/^\//, '');
+            if (key) {
+                try {
+                    return decodeURIComponent(key);
+                } catch (e) {
+                    return key;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Gets a cached authorized URL if present.
+     */
+    static getCachedUrl(key: string): string | null {
+        return this._authCache.get(key) || null;
+    }
+
+    /**
      * Converts an R2 object key into its full public CDN URL.
      */
     static getPublicUrl(key: string): string {
@@ -86,7 +129,6 @@ export class CloudflareR2Service {
         return new Promise((resolve, reject) => {
             const xhr = new XMLHttpRequest();
             xhr.open('PUT', presignedUrl);
-            xhr.setRequestHeader('Content-Type', contentType);
 
             if (signal) {
                 signal.addEventListener('abort', () => {
@@ -157,6 +199,46 @@ export class CloudflareR2Service {
         // Store in cache
         this._authCache.set(key, data.presignedUrl);
         return data.presignedUrl;
+    }
+
+    /**
+     * Requests an image via the Edge Function PROXY_GET.
+     * This bypasses S3 API CORS issues by attaching CORS headers server-side,
+     * and returns a local blob URL that will never taint a canvas.
+     */
+    static async getProxiedObjectUrl(key: string): Promise<string> {
+        if (!key) return '';
+        
+        // 0. Check cache first
+        if (this._authCache.has(`proxy_${key}`)) {
+            return this._authCache.get(`proxy_${key}`)!;
+        }
+
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) throw new Error("Unauthorized");
+        
+        // We use raw fetch here because we need to extract the binary Blob, not JSON.
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const response = await fetch(`${supabaseUrl}/functions/v1/get-r2-presigned-url`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ operation: 'PROXY_GET', key, expiresIn: 3600 })
+        });
+
+        if (!response.ok) {
+            console.error('[R2] Failed to get proxied URL for key:', key);
+            return this.getPublicUrl(key);
+        }
+
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        
+        // Store in cache
+        this._authCache.set(`proxy_${key}`, objectUrl);
+        return objectUrl;
     }
 
     /**

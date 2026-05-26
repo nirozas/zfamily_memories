@@ -3,6 +3,7 @@ import { Maximize2, MapPin } from 'lucide-react';
 import { type Asset } from '../../contexts/AlbumContext';
 import { getTransformedUrl, getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
+import { useAuthorizedUrl } from '../../hooks/useAuthorizedUrl';
 
 interface AssetDisplayProps {
     asset: Asset;
@@ -25,7 +26,8 @@ export const AssetDisplay = memo(function AssetDisplay({
     onVideoClick,
     isInSlot = false
 }: AssetDisplayProps) {
-    const displayUrl = asset.url;
+    const { authorizedUrl } = useAuthorizedUrl(asset.url);
+    const displayUrl = authorizedUrl || asset.url;
 
     // Calculate positioning
     // If isInSlot is true, we assume the parent is already positioned and we take up 100%
@@ -59,6 +61,7 @@ export const AssetDisplay = memo(function AssetDisplay({
 
     // 1. Handle Images
     if (asset.type === 'image' || asset.type === 'frame') {
+        if (!displayUrl) return null;
         const crop = asset.crop;
         const isLayoutImage = isInSlot || asset.fitMode === 'cover';
 
@@ -107,6 +110,7 @@ export const AssetDisplay = memo(function AssetDisplay({
 
     // 2. Handle Videos (Version 2.0 Rules)
     if (asset.type === 'video') {
+        if (!displayUrl) return null;
         return (
             <div style={{ ...style, overflow: 'hidden' }} className="group/video layout-frame">
                 <video
@@ -122,7 +126,6 @@ export const AssetDisplay = memo(function AssetDisplay({
                     }}
                     playsInline
                     controls
-                    crossOrigin="anonymous"
                     preload="metadata"
                     className="pointer-events-auto stPageFlip-ignore"
                     onMouseDown={(e) => { e.stopPropagation(); }}
@@ -169,21 +172,65 @@ export const AssetDisplay = memo(function AssetDisplay({
 
     // 3. Handle Text
     if (asset.type === 'text') {
+        const getGradientStyle = (gradientName: string): React.CSSProperties => {
+            switch (gradientName) {
+                case 'sunset':
+                    return {
+                        background: 'linear-gradient(135deg, #f59e0b, #ec4899, #8b5cf6)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                case 'ocean':
+                    return {
+                        background: 'linear-gradient(135deg, #06b6d4, #3b82f6, #6366f1)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                case 'royal':
+                    return {
+                        background: 'linear-gradient(135deg, #d946ef, #8b5cf6, #ec4899)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                case 'emerald':
+                    return {
+                        background: 'linear-gradient(135deg, #10b981, #059669, #047857)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                default:
+                    return {};
+            }
+        };
+
+        const gradientStyle = asset.textGradient && asset.textGradient !== 'none' ? getGradientStyle(asset.textGradient) : {};
+
         return (
             <div style={{
                 ...style,
+                fontFamily: asset.fontFamily || 'Inter, sans-serif',
                 fontSize: asset.fontSize || 16,
-                fontFamily: asset.fontFamily,
-                color: asset.textColor,
-                textAlign: asset.textAlign as any,
-                fontWeight: asset.fontWeight,
-                lineHeight: asset.lineHeight,
+                fontWeight: asset.fontWeight || 'normal',
+                fontStyle: asset.fontStyle || 'normal',
+                color: asset.textColor || asset.color || 'inherit',
+                textAlign: (asset.textAlign || 'center') as any,
+                textDecoration: asset.textDecoration || 'none',
+                lineHeight: asset.lineHeight || 1.4,
+                letterSpacing: (asset.letterSpacing || 0) + 'px',
                 whiteSpace: 'pre-wrap',
+                textShadow: asset.textShadow || 'none',
+                backgroundColor: asset.textBackgroundColor || 'transparent',
+                padding: `${asset.padding !== undefined ? asset.padding : 16}px`,
                 display: 'flex',
                 flexDirection: 'column',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                ...gradientStyle
             }}
-                className="pointer-events-none select-none"
+                className="pointer-events-none select-none break-words overflow-hidden"
                 dangerouslySetInnerHTML={{ __html: asset.content || '' }}
             />
         );

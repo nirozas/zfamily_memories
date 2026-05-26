@@ -90,7 +90,10 @@ export function Catalog() {
         };
     }, [familyId]);
 
-    const handleEditAlbum = (id: string) => navigate(`/album/${id}/edit`);
+    const handleEditAlbum = (id: string, title?: string) => {
+        const urlParam = title ? title.replace(/\s+/g, '_') : id;
+        navigate(`/album/${urlParam}/edit`);
+    };
 
     const handleDeleteAlbum = async (id: string) => {
         if (!window.confirm('Are you sure?')) return;

@@ -13,6 +13,7 @@ import {
     Maximize2,
     Copy,
     Bold,
+    Italic,
     Underline,
     AlignLeft,
     AlignCenter,
@@ -20,7 +21,8 @@ import {
     Type as TypeIcon,
     Lock,
     Unlock,
-    X
+    X,
+    ChevronDown
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useState } from 'react';
@@ -31,12 +33,12 @@ interface AssetControlPanelProps {
     setEditorMode: (mode: 'select' | 'mask' | 'pivot' | 'studio') => void;
 }
 
-function CollapsibleSection({ title, children, icon: Icon }: { title: string, children: React.ReactNode, icon?: any, defaultOpen?: boolean }) {
-    const [isOpen, setIsOpen] = useState(false);
+function CollapsibleSection({ title, children, icon: Icon, defaultOpen = false }: { title: string, children: React.ReactNode, icon?: any, defaultOpen?: boolean }) {
+    const [isOpen, setIsOpen] = useState(defaultOpen);
     return (
         <div className="mb-2">
             <button
-                onClick={() => setIsOpen(true)}
+                onClick={() => setIsOpen(!isOpen)}
                 className="w-full flex items-center justify-between py-3 px-4 bg-white/50 hover:bg-white rounded-2xl border border-black/5 hover:border-catalog-accent/30 hover:shadow-lg transition-all group pointer-events-auto"
             >
                 <div className="flex items-center gap-3">
@@ -45,36 +47,22 @@ function CollapsibleSection({ title, children, icon: Icon }: { title: string, ch
                     </div>
                     <span className="text-[10px] font-black text-catalog-text/80 uppercase tracking-[0.2em] font-outfit">{title}</span>
                 </div>
+                <div className={cn("transition-transform duration-300 text-catalog-text/40", isOpen && "rotate-180")}>
+                    <ChevronDown className="w-4 h-4" />
+                </div>
             </button>
             <AnimatePresence>
                 {isOpen && (
-                    <div className="fixed inset-0 z-[200] flex items-center justify-center pointer-events-auto">
-                        <motion.div 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="absolute inset-0 bg-zinc-950/20 backdrop-blur-md" 
-                            onClick={() => setIsOpen(false)} 
-                        />
-                        <motion.div
-                            initial={{ scale: 0.95, y: 20, opacity: 0 }}
-                            animate={{ scale: 1, y: 0, opacity: 1 }}
-                            exit={{ scale: 0.95, y: 20, opacity: 0 }}
-                            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                            className="relative bg-white/90 backdrop-blur-3xl p-6 sm:p-8 rounded-[2.5rem] shadow-2xl border border-white/50 w-[90vw] max-w-[400px] z-10 pointer-events-auto max-h-[80vh] overflow-y-auto styling-scrollbar-thin"
-                        >
-                            <div className="flex justify-between items-center mb-6 pb-4 border-b border-black/5">
-                                <h3 className="text-[11px] font-black uppercase tracking-[0.3em] flex items-center gap-3 text-catalog-text">
-                                    {Icon && <Icon className="w-5 h-5 text-catalog-accent" />}
-                                    {title}
-                                </h3>
-                                <button onClick={() => setIsOpen(false)} className="p-2 hover:bg-black/5 text-catalog-text/40 hover:text-red-500 rounded-full transition-all">
-                                    <X className="w-5 h-5" />
-                                </button>
-                            </div>
-                            <div className="space-y-4">{children}</div>
-                        </motion.div>
-                    </div>
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden pointer-events-auto"
+                    >
+                        <div className="p-4 bg-white/30 rounded-2xl border border-black/5 mt-2 space-y-4 shadow-inner styling-scrollbar-thin max-h-[60vh] overflow-y-auto">
+                            {children}
+                        </div>
+                    </motion.div>
                 )}
             </AnimatePresence>
         </div>
@@ -114,27 +102,64 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                     {currentPage && (
                         <section className="space-y-10">
                             <div className="space-y-6">
-                                <label className="text-[10px] font-black text-catalog-accent uppercase tracking-[0.4em]">Background Atmosphere</label>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-[10px] font-black text-catalog-accent uppercase tracking-[0.4em]">Background Atmosphere</label>
+                                    <button 
+                                        onClick={() => {
+                                            if (confirm('Apply this background color to all pages?')) {
+                                                album.pages.forEach(p => {
+                                                    if (p.id !== currentPage.id) {
+                                                        updatePage(p.id, { backgroundColor: currentPage.backgroundColor });
+                                                    }
+                                                });
+                                            }
+                                        }}
+                                        className="text-[8px] font-black uppercase tracking-widest text-catalog-accent/60 hover:text-catalog-accent px-2 py-1 bg-catalog-accent/5 rounded-md transition-colors"
+                                    >
+                                        Apply to All
+                                    </button>
+                                </div>
 
-                                <div className="grid grid-cols-5 gap-4">
+                                <div className="grid grid-cols-6 gap-3">
                                     {[
+                                        // Neutrals & Whites
                                         { name: 'Pure', value: '#ffffff' },
                                         { name: 'Warm', value: '#fff9f2' },
                                         { name: 'Archive', value: '#fdfcfb' },
                                         { name: 'Soft Gray', value: '#f8fafc' },
                                         { name: 'Bone', value: '#ececeb' },
+                                        { name: 'Sand', value: '#e6dfd9' },
+                                        
+                                        // Pastels & Lights
                                         { name: 'Mint', value: '#f0fff4' },
                                         { name: 'Sky', value: '#f0f9ff' },
                                         { name: 'Rose', value: '#fff1f2' },
+                                        { name: 'Lavender', value: '#f5f3ff' },
+                                        { name: 'Peach', value: '#fff7ed' },
+                                        { name: 'Ice', value: '#f0fdfa' },
+                                        
+                                        // Earth Tones
+                                        { name: 'Terracotta', value: '#c28e7e' },
+                                        { name: 'Olive', value: '#a3b18a' },
+                                        { name: 'Clay', value: '#b5a197' },
+                                        { name: 'Mustard', value: '#d4b483' },
+                                        { name: 'Sage', value: '#9caf88' },
+                                        { name: 'Rust', value: '#bc6c25' },
+                                        
+                                        // Darks & Moods
                                         { name: 'Slate', value: '#334155' },
+                                        { name: 'Navy', value: '#1e293b' },
+                                        { name: 'Charcoal', value: '#27272a' },
+                                        { name: 'Forest', value: '#14532d' },
                                         { name: 'Midnight', value: '#0f172a' },
+                                        { name: 'Obsidian', value: '#09090b' },
                                     ].map((c) => (
                                         <button
                                             key={c.value}
                                             onClick={() => updatePage(currentPage.id, { backgroundColor: c.value })}
                                             className={cn(
-                                                "w-full aspect-square rounded-[1rem] border transition-all hover:scale-110 shadow-sm",
-                                                currentPage.backgroundColor === c.value ? "border-catalog-accent scale-110 shadow-xl ring-4 ring-catalog-accent/10" : "border-black/5"
+                                                "w-full aspect-square rounded-[0.75rem] border transition-all hover:scale-110 shadow-sm",
+                                                currentPage.backgroundColor === c.value ? "border-catalog-accent scale-110 shadow-md ring-2 ring-catalog-accent/20" : "border-black/5 hover:border-black/20"
                                             )}
                                             style={{ backgroundColor: c.value }}
                                             title={c.name}
@@ -468,100 +493,242 @@ export function AssetControlPanel({ editorMode, setEditorMode }: AssetControlPan
                 </CollapsibleSection>
 
                 {asset.type === 'text' && (
-                    <CollapsibleSection title="Typography Essence" icon={TypeIcon}>
-                        <div className="space-y-4">
-                            {/* Font Family */}
-                            <div className="space-y-2">
-                                <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Typeface</label>
-                                <select
-                                    disabled={isLockedForEditing}
-                                    value={asset.fontFamily || 'Inter'}
-                                    onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontFamily: e.target.value })}
-                                    className="w-full h-10 px-4 bg-white border border-black/5 rounded-xl text-[11px] font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-catalog-accent/5 appearance-none"
-                                >
-                                    <option value="Inter">Outfit (Modern)</option>
-                                    <option value="'Cormorant Garamond'">Garamond (Elegant)</option>
-                                    <option value="'Playfair Display'">Playfair (Classic)</option>
-                                    <option value="'Dancing Script'">Dancing (Script)</option>
-                                    <option value="Montserrat">Montserrat (Geometric)</option>
-                                </select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                {/* Font Size */}
+                    <>
+                        <CollapsibleSection title="Typography Essence" icon={TypeIcon}>
+                            <div className="space-y-4">
+                                {/* Font Family */}
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Size (pt)</label>
-                                    <input
-                                        type="number"
+                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Typeface</label>
+                                    <select
                                         disabled={isLockedForEditing}
-                                        value={asset.fontSize || 32}
-                                        onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontSize: parseInt(e.target.value) || 12 })}
-                                        className="w-full h-10 px-3 bg-white border border-black/5 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-catalog-accent/5"
+                                        value={asset.fontFamily || 'Outfit'}
+                                        onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontFamily: e.target.value })}
+                                        className="w-full h-10 px-4 bg-white border border-black/5 rounded-xl text-[11px] font-black uppercase tracking-widest outline-none focus:ring-4 focus:ring-catalog-accent/5 appearance-none"
+                                    >
+                                        <option value="Outfit">Outfit (Modern)</option>
+                                        <option value="Inter">Inter (Sans-Serif)</option>
+                                        <option value="'Cormorant Garamond'">Cormorant (Elegant)</option>
+                                        <option value="'Playfair Display'">Playfair (Classic)</option>
+                                        <option value="'Dancing Script'">Dancing (Script)</option>
+                                        <option value="Montserrat">Montserrat (Geometric)</option>
+                                        <option value="Cinzel">Cinzel (Regal)</option>
+                                        <option value="'Libre Baskerville'">Libre Baskerville (Editorial)</option>
+                                        <option value="'EB Garamond'">EB Garamond (Traditional)</option>
+                                        <option value="'Space Grotesk'">Space Grotesk (Tech)</option>
+                                        <option value="'Plus Jakarta Sans'">Plus Jakarta Sans (Sleek)</option>
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* Font Size */}
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Size (pt)</label>
+                                        <input
+                                            type="number"
+                                            disabled={isLockedForEditing}
+                                            value={asset.fontSize || 32}
+                                            onChange={(e) => updateAsset(parentPage!.id, asset!.id, { fontSize: parseInt(e.target.value) || 12 })}
+                                            className="w-full h-10 px-3 bg-white border border-black/5 rounded-xl text-xs font-mono font-bold outline-none focus:ring-4 focus:ring-catalog-accent/5"
+                                        />
+                                    </div>
+                                    {/* Text Color */}
+                                    <div className="space-y-2">
+                                        <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Ink Color</label>
+                                        <div className="flex gap-2 h-10">
+                                            <div className="flex-1 relative rounded-xl overflow-hidden border border-black/5">
+                                                <input
+                                                    type="color"
+                                                    disabled={isLockedForEditing}
+                                                    value={asset.textColor || '#000000'}
+                                                    onChange={(e) => updateAsset(parentPage!.id, asset!.id, { textColor: e.target.value, color: e.target.value })}
+                                                    className="absolute inset-0 w-full h-full scale-150 cursor-pointer border-none p-0"
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Style Toggles */}
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, { fontWeight: asset.fontWeight === 'bold' ? 'normal' : 'bold' })}
+                                        className={cn(
+                                            "py-3 rounded-xl border border-black/5 flex items-center justify-center gap-2 transition-all",
+                                            asset.fontWeight === 'bold' ? "bg-catalog-accent text-white shadow-lg" : "hover:bg-black/5 text-catalog-text/40"
+                                        )}
+                                    >
+                                        <Bold className="w-4 h-4" /> <span className="text-[10px] font-black uppercase tracking-widest text-[9px]">Bold</span>
+                                    </button>
+                                    <button
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, { fontStyle: asset.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                                        className={cn(
+                                            "py-3 rounded-xl border border-black/5 flex items-center justify-center gap-2 transition-all",
+                                            asset.fontStyle === 'italic' ? "bg-catalog-accent text-white shadow-lg" : "hover:bg-black/5 text-catalog-text/40"
+                                        )}
+                                    >
+                                        <Italic className="w-4 h-4" /> <span className="text-[10px] font-black uppercase tracking-widest text-[9px]">Italic</span>
+                                    </button>
+                                    <button
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => updateAsset(parentPage!.id, asset!.id, { textDecoration: asset.textDecoration === 'underline' ? 'none' : 'underline' } as any)}
+                                        className={cn(
+                                            "py-3 rounded-xl border border-black/5 flex items-center justify-center gap-2 transition-all",
+                                            asset.textDecoration === 'underline' ? "bg-catalog-accent text-white shadow-lg" : "hover:bg-black/5 text-catalog-text/40"
+                                        )}
+                                    >
+                                        <Underline className="w-4 h-4" /> <span className="text-[10px] font-black uppercase tracking-widest text-[9px]">Underline</span>
+                                    </button>
+                                </div>
+
+                                {/* Alignment */}
+                                <div className="grid grid-cols-3 gap-2 p-1.5 bg-black/5 rounded-2xl border border-black/5">
+                                    {[
+                                        { id: 'left', icon: AlignLeft },
+                                        { id: 'center', icon: AlignCenter },
+                                        { id: 'right', icon: AlignRight }
+                                    ].map((align) => (
+                                        <button
+                                            key={align.id}
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => updateAsset(parentPage!.id, asset!.id, { textAlign: align.id as any })}
+                                            className={cn(
+                                                "py-2 rounded-xl flex items-center justify-center transition-all",
+                                                (asset.textAlign || 'center') === align.id ? "bg-white text-catalog-accent shadow-sm" : "text-catalog-text/20 hover:text-catalog-text/40"
+                                            )}
+                                        >
+                                            <align.icon className="w-4 h-4" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </CollapsibleSection>
+
+                        <CollapsibleSection title="Text Art & Effects" icon={Droplets}>
+                            <div className="space-y-4">
+                                {/* Inside Padding */}
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
+                                        <span>Inside Padding</span>
+                                        <span className="text-catalog-accent">{asset.padding !== undefined ? asset.padding : 16}px</span>
+                                    </div>
+                                    <Slider
+                                        value={[asset.padding !== undefined ? asset.padding : 16]}
+                                        min={0}
+                                        max={64}
+                                        onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { padding: v[0] })}
                                     />
                                 </div>
-                                {/* Text Color */}
+
+                                {/* Letter Spacing */}
                                 <div className="space-y-2">
-                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Ink Color</label>
+                                    <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
+                                        <span>Letter Spacing</span>
+                                        <span className="text-catalog-accent">{asset.letterSpacing || 0}px</span>
+                                    </div>
+                                    <Slider
+                                        value={[asset.letterSpacing || 0]}
+                                        min={-2}
+                                        max={20}
+                                        onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { letterSpacing: v[0] })}
+                                    />
+                                </div>
+
+                                {/* Line Height */}
+                                <div className="space-y-2">
+                                    <div className="flex justify-between text-[8px] font-black text-catalog-text/40 uppercase tracking-widest">
+                                        <span>Line Height</span>
+                                        <span className="text-catalog-accent">{(asset.lineHeight || 1.4).toFixed(1)}x</span>
+                                    </div>
+                                    <Slider
+                                        value={[asset.lineHeight || 1.4]}
+                                        min={0.8}
+                                        max={2.5}
+                                        step={0.1}
+                                        onValueChange={(v: number[]) => updateAsset(parentPage!.id, asset!.id, { lineHeight: v[0] })}
+                                    />
+                                </div>
+
+                                {/* Text Shadow Presets */}
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Text Shadow Style</label>
+                                    <select
+                                        disabled={isLockedForEditing}
+                                        value={asset.textShadowStyle || 'none'}
+                                        onChange={(e) => {
+                                            const styleName = e.target.value;
+                                            let shadowVal = 'none';
+                                            switch (styleName) {
+                                                case 'soft-light': shadowVal = '0 2px 4px rgba(0,0,0,0.1)'; break;
+                                                case 'soft-dark': shadowVal = '0 2px 4px rgba(0,0,0,0.5)'; break;
+                                                case 'neon-gold': shadowVal = '0 0 10px rgba(245,158,11,0.6), 0 0 20px rgba(245,158,11,0.4)'; break;
+                                                case 'neon-pink': shadowVal = '0 0 10px rgba(236,72,153,0.6), 0 0 20px rgba(236,72,153,0.4)'; break;
+                                                case 'retro': shadowVal = '3px 3px 0px rgba(0,0,0,0.2)'; break;
+                                                case 'vintage': shadowVal = '1px 1px 1px #fff, 2px 2px 0px rgba(0,0,0,0.15)'; break;
+                                            }
+                                            updateAsset(parentPage!.id, asset!.id, { textShadowStyle: styleName, textShadow: shadowVal });
+                                        }}
+                                        className="w-full h-10 px-4 bg-white border border-black/5 rounded-xl text-[11px] font-black uppercase tracking-widest outline-none appearance-none"
+                                    >
+                                        <option value="none">Solid (No Shadow)</option>
+                                        <option value="soft-light">Soft Light Glow</option>
+                                        <option value="soft-dark">Soft Dark Shadow</option>
+                                        <option value="neon-gold">Golden Neon Glow</option>
+                                        <option value="neon-pink">Pink Neon Glow</option>
+                                        <option value="retro">Retro Pop Offset</option>
+                                        <option value="vintage">Vintage Embossed</option>
+                                    </select>
+                                </div>
+
+                                {/* Text Gradient Fill */}
+                                <div className="space-y-2">
+                                    <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Ink Color Art Fill</label>
+                                    <select
+                                        disabled={isLockedForEditing}
+                                        value={asset.textGradient || 'none'}
+                                        onChange={(e) => updateAsset(parentPage!.id, asset!.id, { textGradient: e.target.value })}
+                                        className="w-full h-10 px-4 bg-white border border-black/5 rounded-xl text-[11px] font-black uppercase tracking-widest outline-none appearance-none"
+                                    >
+                                        <option value="none">Solid (Use Ink Color)</option>
+                                        <option value="sunset">Sunset Gold Gradient</option>
+                                        <option value="ocean">Ocean Breeze Gradient</option>
+                                        <option value="royal">Royal Velvet Gradient</option>
+                                        <option value="emerald">Emerald Forest Gradient</option>
+                                    </select>
+                                </div>
+
+                                {/* Box Background Color Fill */}
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest">Box Background Fill</label>
+                                        {asset.textBackgroundColor && asset.textBackgroundColor !== 'transparent' && (
+                                            <button
+                                                onClick={() => updateAsset(parentPage!.id, asset!.id, { textBackgroundColor: undefined })}
+                                                className="text-[8px] text-red-500 font-black uppercase tracking-widest"
+                                            >
+                                                Clear
+                                            </button>
+                                        )}
+                                    </div>
                                     <div className="flex gap-2 h-10">
                                         <div className="flex-1 relative rounded-xl overflow-hidden border border-black/5">
                                             <input
                                                 type="color"
                                                 disabled={isLockedForEditing}
-                                                value={asset.textColor || '#000000'}
-                                                onChange={(e) => updateAsset(parentPage!.id, asset!.id, { textColor: e.target.value })}
+                                                value={asset.textBackgroundColor && asset.textBackgroundColor !== 'transparent' ? asset.textBackgroundColor : '#ffffff'}
+                                                onChange={(e) => updateAsset(parentPage!.id, asset!.id, { textBackgroundColor: e.target.value })}
                                                 className="absolute inset-0 w-full h-full scale-150 cursor-pointer border-none p-0"
                                             />
                                         </div>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Style Toggles */}
-                            <div className="grid grid-cols-2 gap-2">
-                                <button
-                                    onClick={() => updateAsset(parentPage!.id, asset!.id, { fontWeight: asset.fontWeight === 'bold' ? 'normal' : 'bold' })}
-                                    className={cn(
-                                        "py-3 rounded-xl border border-black/5 flex items-center justify-center gap-2 transition-all",
-                                        asset.fontWeight === 'bold' ? "bg-catalog-accent text-white shadow-lg" : "hover:bg-black/5 text-catalog-text/40"
-                                    )}
-                                >
-                                    <Bold className="w-4 h-4" /> <span className="text-[10px] font-black uppercase tracking-widest">Bold</span>
-                                </button>
-                                <button
-                                    onClick={() => updateAsset(parentPage!.id, asset!.id, { textDecoration: asset.textDecoration === 'underline' ? 'none' : 'underline' } as any)}
-                                    className={cn(
-                                        "py-3 rounded-xl border border-black/5 flex items-center justify-center gap-2 transition-all",
-                                        asset.textDecoration === 'underline' ? "bg-catalog-accent text-white shadow-lg" : "hover:bg-black/5 text-catalog-text/40"
-                                    )}
-                                >
-                                    <Underline className="w-4 h-4" /> <span className="text-[10px] font-black uppercase tracking-widest">Underline</span>
-                                </button>
-                            </div>
-
-                            {/* Alignment */}
-                            <div className="grid grid-cols-3 gap-2 p-1.5 bg-black/5 rounded-2xl border border-black/5">
-                                {[
-                                    { id: 'left', icon: AlignLeft },
-                                    { id: 'center', icon: AlignCenter },
-                                    { id: 'right', icon: AlignRight }
-                                ].map((align) => (
-                                    <button
-                                        key={align.id}
-                                        onClick={() => updateAsset(parentPage!.id, asset!.id, { textAlign: align.id as any })}
-                                        className={cn(
-                                            "py-2 rounded-xl flex items-center justify-center transition-all",
-                                            (asset.textAlign || 'center') === align.id ? "bg-white text-catalog-accent shadow-sm" : "text-catalog-text/20 hover:text-catalog-text/40"
-                                        )}
-                                    >
-                                        <align.icon className="w-4 h-4" />
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </CollapsibleSection>
+                        </CollapsibleSection>
+                    </>
                 )}
 
-                {(asset.type === 'image' || asset.type === 'video' || asset.type === 'frame') && (
+                {(asset.type === 'image' || asset.type === 'video' || asset.type === 'frame' || asset.type === 'text') && (
                     <CollapsibleSection title="Borders & Shape" icon={Maximize2} defaultOpen={false}>
                         <div className="space-y-4">
                             <div className="space-y-2">

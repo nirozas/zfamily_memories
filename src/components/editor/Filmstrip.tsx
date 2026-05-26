@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Plus, GripVertical, Copy, Trash2, PlusCircle } from 'lucide-react';
 import { useAlbum, type Page } from '../../contexts/AlbumContext';
 import { cn } from '../../lib/utils';
+import { SecureMedia } from '../common/SecureMedia';
 import {
     DndContext,
     closestCenter,
@@ -98,7 +99,7 @@ function SortablePageThumbnail({ page, index, isSelected, isSpreadView, spread, 
                         >
                             {/* Page Preview if background exists */}
                             {spreadPage.backgroundImage && (
-                                <img src={spreadPage.backgroundImage} className="absolute inset-0 w-full h-full object-cover opacity-50" alt="" />
+                                <SecureMedia url={spreadPage.backgroundImage} className="absolute inset-0 w-full h-full object-cover opacity-50" alt="" />
                             )}
 
                             {/* Page Number */}

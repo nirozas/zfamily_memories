@@ -4,12 +4,13 @@ import { supabase } from '../lib/supabase';
 import {
     ArrowLeft, Save, Share, X, Copy, Check, Settings as SettingsIcon, Tag,
     ChevronDown, ChevronRight, ChevronLeft, ChevronUp,
-    Layers, Bold, Underline, Pencil, Trash2, Wand2, Scissors,
+    Layers, Bold, Italic, Underline, Pencil, Trash2, Wand2, Scissors,
     Lock, Unlock, Eye, Undo, Redo, Maximize, MapPin, Image as ImageIcon, Droplets, Shuffle, ArrowLeftRight,
     FlipHorizontal, FlipVertical, RotateCw, Maximize2, Type
 } from 'lucide-react';
 import { MediaPickerModal } from '../components/media/MediaPickerModal';
 import { useAlbum } from '../contexts/AlbumContext';
+import type { LayoutBox, Asset, Album } from '../contexts/AlbumContext';
 import { EditorCanvas } from '../components/editor/EditorCanvas';
 import { AssetControlPanel } from '../components/editor/AssetControlPanel';
 import { Filmstrip } from '../components/editor/Filmstrip';
@@ -30,7 +31,8 @@ import { LocationPickerModal } from '../components/ui/LocationPickerModal';
 import { MapAssetModal } from '../components/ui/MapAssetModal';
 import { LayoutSidebar } from '../components/editor/LayoutSidebar';
 
-import { TextEditorModal } from '../components/editor/TextEditorModal';
+import { useUpload } from '../contexts/UploadContext';
+import { UploadOverlay } from '../components/ui/UploadOverlay';
 
 function AlbumEditorContent() {
     const { id } = useParams<{ id: string }>();
@@ -62,13 +64,23 @@ function AlbumEditorContent() {
         swapSlotAssets
     } = useAlbum();
 
+    const {
+        state: uploadState,
+        uploadFiles,
+        cancelUpload,
+        cancelAll,
+        dismissUpload,
+        setMinimized
+    } = useUpload();
+
     // --- CONSOLIDATED STUDIO INITIALIZATION ---
     useEffect(() => {
         if (!id || isLoading) return;
 
         const loadStudio = async () => {
-            // Only fetch if data is missing or ID changed
-            if (!album || album.id !== id) {
+            // Only fetch if data is missing or ID/Slug changed
+            const slugifiedTitle = album?.title?.replace(/\s+/g, '_');
+            if (!album || (album.id !== id && slugifiedTitle !== id)) {
                 console.info(`[AlbumEditor] 🔄 Syncing Studio State for Asset: ${id}`);
                 const { success, error } = await fetchAlbum(id);
                 if (!success) {
@@ -95,11 +107,43 @@ function AlbumEditorContent() {
     const [hasCopied, setHasCopied] = useState(false);
     const [activeSidebarTab, setActiveSidebarTab] = useState<'properties' | 'layers' | 'layouts'>('properties');
 
-    // Editor State
-    const [proTextAssetId, setProTextAssetId] = useState<string | null>(null);
     // Navigation State
     const [zoom, setZoom] = useState(0.5); // Start zoomed out to see full spread
     const [pan, setPan] = useState({ x: 0, y: 0 });
+
+    const panRef = useRef(pan);
+    const zoomRef = useRef(zoom);
+    const touchStartRef = useRef<{
+        distance: number;
+        midpoint: { x: number; y: number };
+        pan: { x: number; y: number };
+        zoom: number;
+    } | null>(null);
+
+    useEffect(() => {
+        panRef.current = pan;
+    }, [pan]);
+
+    useEffect(() => {
+        zoomRef.current = zoom;
+    }, [zoom]);
+
+    const updateZoom = useCallback((newZoomOrUpdater: number | ((prev: number) => number)) => {
+        setZoom(prev => {
+            const next = typeof newZoomOrUpdater === 'function' ? newZoomOrUpdater(prev) : newZoomOrUpdater;
+            const clamped = Math.max(0.2, Math.min(2.0, next));
+            if (prev !== clamped) {
+                const ratio = clamped / prev;
+                setPan(p => {
+                    if (clamped <= 0.55) {
+                        return { x: 0, y: 0 };
+                    }
+                    return { x: p.x * ratio, y: p.y * ratio };
+                });
+            }
+            return clamped;
+        });
+    }, []);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [navigationDirection, setNavigationDirection] = useState<'next' | 'prev'>('next');
     const [activePageId, setActivePageId] = useState<string | null>(null);
@@ -181,6 +225,158 @@ function AlbumEditorContent() {
     };
 
     const exitRearrangeMode = () => { setIsRearrangeMode(false); setRearrangeFirstId(null); };
+
+    const handleLocalFileDrop = useCallback(async (files: File[], xPercent: number, yPercent: number, pageId: string) => {
+        if (!album || album.config.isLocked) return;
+
+        const folder = album.title ? `Albums/${album.title.trim()}` : 'Albums';
+
+        await uploadFiles(files, {
+            familyId: album.family_id,
+            folder: folder,
+            onComplete: (results) => {
+                if (results.length === 0) return;
+                
+                setAlbum((prev: Album | null) => {
+                    if (!prev) return null;
+                    
+                    const updatedPages = [...prev.pages];
+                    
+                    results.forEach((item, index) => {
+                        const isVideo = item.type === 'video';
+                        let natW = 800;
+                        let natH = 600;
+                        if (item.metadata?.resolution) {
+                            const [wStr, hStr] = item.metadata.resolution.split('x');
+                            natW = parseInt(wStr) || 800;
+                            natH = parseInt(hStr) || 600;
+                        }
+                        const ratio = natW / natH;
+                        const albumW = prev.config.dimensions.width || 1000;
+                        const albumH = prev.config.dimensions.height || 700;
+
+                        const offsetX = index * 4;
+                        const offsetY = index * 4;
+                        const targetX = xPercent + offsetX;
+                        const targetY = yPercent + offsetY;
+
+                        const pageIdx = updatedPages.findIndex(p => p.id === pageId);
+                        if (pageIdx === -1) return;
+                        const targetPageObj = updatedPages[pageIdx];
+
+                        const newAssetId = generateId();
+
+                        // 1. Check placeholders
+                        const hitPlaceholder = targetPageObj.assets
+                            .filter((a: Asset) => a.isPlaceholder)
+                            .sort((a: Asset, b: Asset) => (b.zIndex || 0) - (a.zIndex || 0))
+                            .find((a: Asset) => targetX >= a.x && targetX <= (a.x + a.width) && targetY >= a.y && targetY <= (a.y + a.height));
+
+                        if (hitPlaceholder) {
+                            const updatedAssets = targetPageObj.assets.map((a: Asset) => 
+                                a.id === hitPlaceholder.id 
+                                    ? { ...a, url: item.url, type: isVideo ? ('video' as const) : ('image' as const), isPlaceholder: false, fitMode: 'cover' as const } 
+                                    : a
+                            );
+                            
+                            const updatedLayoutConfig = (targetPageObj.layoutConfig || []).map((box: LayoutBox) => 
+                                box.id === hitPlaceholder.id 
+                                    ? { ...box, content: { ...box.content, type: isVideo ? 'video' : 'image', url: item.url, zoom: 1, x: 50, y: 50, rotation: 0 } as any } 
+                                    : box
+                            );
+
+                            updatedPages[pageIdx] = {
+                                ...targetPageObj,
+                                assets: updatedAssets,
+                                layoutConfig: updatedLayoutConfig
+                            };
+                            return;
+                        }
+
+                        // 2. Check layout slots
+                        const layoutCfg = targetPageObj.layoutConfig || [];
+                        const hitSlot = layoutCfg.find((box: LayoutBox, idx: number) => {
+                            if (box.role !== 'slot') return false;
+                            const isOccupied = targetPageObj.assets.some((a: Asset) => a.slotId === idx);
+                            if (isOccupied) return false;
+                            return targetX >= box.left && targetX <= (box.left + box.width) &&
+                                targetY >= box.top && targetY <= (box.top + box.height);
+                        });
+
+                        if (hitSlot) {
+                            const slotIdx = layoutCfg.indexOf(hitSlot);
+                            const newAsset: Asset = {
+                                id: newAssetId,
+                                type: isVideo ? ('video' as const) : ('image' as const),
+                                url: item.url,
+                                x: hitSlot.left,
+                                y: hitSlot.top,
+                                width: hitSlot.width,
+                                height: hitSlot.height,
+                                zIndex: 10,
+                                rotation: 0,
+                                slotId: slotIdx,
+                                isPlaceholder: false,
+                                fitMode: 'cover'
+                            };
+
+                            const updatedLayoutConfig = (targetPageObj.layoutConfig || []).map((box: LayoutBox, idx: number) => 
+                                idx === slotIdx 
+                                    ? { ...box, content: { type: isVideo ? 'video' : 'image', url: item.url, zoom: 1, x: 50, y: 50, rotation: 0 } as any } 
+                                    : box
+                            );
+
+                            updatedPages[pageIdx] = {
+                                ...targetPageObj,
+                                assets: [...targetPageObj.assets, newAsset],
+                                layoutConfig: updatedLayoutConfig
+                            };
+                            return;
+                        }
+
+                        // 3. Freeform
+                        let w = (natW / albumW) * 100;
+                        let h = (natH / albumH) * 100;
+                        const maxUnit = 60;
+                        if (w > maxUnit || h > maxUnit) {
+                            const scale = Math.min(maxUnit / w, maxUnit / h);
+                            w *= scale;
+                            h *= scale;
+                        }
+                        h = w / ratio;
+
+                        const newAsset: Asset = {
+                            id: newAssetId,
+                            type: isVideo ? ('video' as const) : ('image' as const),
+                            url: item.url,
+                            x: Math.max(0, Math.min(100 - w, targetX - (w / 2))),
+                            y: Math.max(0, Math.min(100 - h, targetY - (h / 2))),
+                            width: w,
+                            height: h,
+                            originalDimensions: { width: natW, height: natH },
+                            rotation: 0,
+                            zIndex: (targetPageObj.assets.length || 0) + 10,
+                            aspectRatio: ratio,
+                            fitMode: 'cover',
+                            lockAspectRatio: true,
+                            folder: folder
+                        };
+
+                        updatedPages[pageIdx] = {
+                            ...targetPageObj,
+                            assets: [...targetPageObj.assets, newAsset]
+                        };
+                    });
+
+                    return {
+                        ...prev,
+                        pages: updatedPages,
+                        updatedAt: new Date()
+                    };
+                });
+            }
+        });
+    }, [album, uploadFiles, setAlbum]);
     const [showLocationModal, setShowLocationModal] = useState(false);
     const [showMapModal, setShowMapModal] = useState(false);
     const [showCoverPicker, setShowCoverPicker] = useState(false);
@@ -206,7 +402,7 @@ function AlbumEditorContent() {
         const zoomH = availableH / canvasH;
         const idealZoom = Math.min(zoomW, zoomH, 1.2); // Limit max auto-zoom to 1.2x
 
-        setZoom(Number(idealZoom.toFixed(2)));
+        updateZoom(Number(idealZoom.toFixed(2)));
         setPan({ x: 0, y: 0 }); // Reset pan when fitting
     }, [album, currentPageIndex]);
 
@@ -238,6 +434,123 @@ function AlbumEditorContent() {
         resizeObserver.observe(workspaceRef.current);
         return () => resizeObserver.disconnect();
     }, [fitToWorkspace]);
+
+    // Vanilla Touch Gestures (Pinch to Zoom, Two-finger Pan) & Wheel Zoom
+    useEffect(() => {
+        const workspace = workspaceRef.current;
+        if (!workspace) return;
+
+        const handleTouchStart = (e: TouchEvent) => {
+            if (e.touches.length === 2) {
+                e.preventDefault(); // Prevent default browser pinch-zoom on viewport
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const midpoint = {
+                    x: (t1.clientX + t2.clientX) / 2,
+                    y: (t1.clientY + t2.clientY) / 2
+                };
+                
+                touchStartRef.current = {
+                    distance,
+                    midpoint,
+                    pan: { ...panRef.current },
+                    zoom: zoomRef.current
+                };
+            }
+        };
+
+        const handleTouchMove = (e: TouchEvent) => {
+            if (e.touches.length === 2 && touchStartRef.current) {
+                e.preventDefault(); // Prevent browser scroll and pinch zoom
+                
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                const dx = t1.clientX - t2.clientX;
+                const dy = t1.clientY - t2.clientY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const midpoint = {
+                    x: (t1.clientX + t2.clientX) / 2,
+                    y: (t1.clientY + t2.clientY) / 2
+                };
+
+                const start = touchStartRef.current;
+                const scale = distance / start.distance;
+                const targetZoom = Math.max(0.2, Math.min(2.0, start.zoom * scale));
+                
+                const panDiffX = midpoint.x - start.midpoint.x;
+                const panDiffY = midpoint.y - start.midpoint.y;
+                const targetPanX = start.pan.x + panDiffX;
+                const targetPanY = start.pan.y + panDiffY;
+                
+                updateZoom(targetZoom);
+                setPan({
+                    x: targetZoom <= 0.55 ? 0 : targetPanX,
+                    y: targetZoom <= 0.55 ? 0 : targetPanY
+                });
+            }
+        };
+
+        const handleTouchEnd = (e: TouchEvent) => {
+            if (e.touches.length < 2) {
+                touchStartRef.current = null;
+            }
+        };
+
+        const handleWheel = (e: WheelEvent) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault(); // Blocks browser page zoom!
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                updateZoom(z => Math.max(0.2, Math.min(2.0, z + delta)));
+            } else {
+                setPan(p => {
+                    const zoomVal = zoomRef.current;
+                    if (zoomVal <= 0.55) {
+                        return { x: 0, y: 0 };
+                    }
+                    return { x: p.x - e.deltaX, y: p.y - e.deltaY };
+                });
+            }
+        };
+
+        workspace.addEventListener('touchstart', handleTouchStart, { passive: false });
+        workspace.addEventListener('touchmove', handleTouchMove, { passive: false });
+        workspace.addEventListener('touchend', handleTouchEnd, { passive: false });
+        workspace.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+        workspace.addEventListener('wheel', handleWheel, { passive: false });
+
+        return () => {
+            workspace.removeEventListener('touchstart', handleTouchStart);
+            workspace.removeEventListener('touchmove', handleTouchMove);
+            workspace.removeEventListener('touchend', handleTouchEnd);
+            workspace.removeEventListener('touchcancel', handleTouchEnd);
+            workspace.removeEventListener('wheel', handleWheel);
+        };
+    }, [updateZoom]);
+
+    // Global multitouch detector for touch pan/zoom isolation
+    useEffect(() => {
+        const handleWindowTouchStart = (e: TouchEvent) => {
+            if (e.touches.length >= 2) {
+                (window as any).__isMultiTouchActive = true;
+            }
+        };
+        const handleWindowTouchEnd = (e: TouchEvent) => {
+            if (e.touches.length === 0) {
+                (window as any).__isMultiTouchActive = false;
+            }
+        };
+        window.addEventListener('touchstart', handleWindowTouchStart, { passive: true });
+        window.addEventListener('touchend', handleWindowTouchEnd, { passive: true });
+        window.addEventListener('touchcancel', handleWindowTouchEnd, { passive: true });
+        return () => {
+            window.removeEventListener('touchstart', handleWindowTouchStart);
+            window.removeEventListener('touchend', handleWindowTouchEnd);
+            window.removeEventListener('touchcancel', handleWindowTouchEnd);
+        };
+    }, []);
 
 
 
@@ -334,7 +647,7 @@ function AlbumEditorContent() {
             // Priority 6: Reset View (Ctrl+0 or Cmd+0)
             if (isMod && e.key === '0') {
                 e.preventDefault();
-                setZoom(0.5);
+                updateZoom(0.5);
                 setPan({ x: 0, y: 0 });
                 return;
             }
@@ -342,7 +655,7 @@ function AlbumEditorContent() {
 
         window.addEventListener('keydown', handleGlobalKeydown);
         return () => window.removeEventListener('keydown', handleGlobalKeydown);
-    }, [undo, redo, removeAsset, selectedAssetId, album, currentPageIndex, updateAsset, setSelectedAssetId, setPan, setZoom]);
+    }, [undo, redo, removeAsset, selectedAssetId, album, currentPageIndex, updateAsset, setSelectedAssetId, setPan, updateZoom]);
 
     // Update zoom when album loads or spread view changes
     useEffect(() => {
@@ -356,20 +669,35 @@ function AlbumEditorContent() {
     // REMOVED Redundant keyboard effect
     const [showPreview, setShowPreview] = useState(false);
 
-    const selectedAsset = album?.pages.flatMap(p => p.assets).find(a => a.id === selectedAssetId);
-    const activePage = album?.pages.find(p => p.assets.some(a => a.id === selectedAssetId)) || album?.pages?.[currentPageIndex];
+    const selectedAsset = album?.pages.flatMap(p => [
+        ...(p.assets || []),
+        ...(p.layoutConfig || []).map(b => ({ ...b, ...b.content?.config, type: b.content?.type || 'image', content: b.content?.text })),
+        ...(p.textLayers || []).map(l => ({ ...l, ...l.content?.config, type: 'text', content: l.content?.text }))
+    ] as any[]).find(a => a.id === selectedAssetId);
 
-
+    const activePage = album?.pages.find(p =>
+        (p.assets || []).some(a => a.id === selectedAssetId) ||
+        (p.layoutConfig || []).some(b => b.id === selectedAssetId) ||
+        (p.textLayers || []).some(l => l.id === selectedAssetId)
+    ) || album?.pages?.[currentPageIndex];
 
     // Sync active page and sidebar with selection
     useEffect(() => {
         if (selectedAssetId && album) {
-            const page = album.pages.find(p => p.assets.some(a => a.id === selectedAssetId));
+            const page = album.pages.find(p =>
+                (p.assets || []).some(a => a.id === selectedAssetId) ||
+                (p.layoutConfig || []).some(b => b.id === selectedAssetId) ||
+                (p.textLayers || []).some(l => l.id === selectedAssetId)
+            );
             if (page) {
                 if (page.id !== activePageId) setActivePageId(page.id);
-                // Auto-open properties for images
-                const asset = page.assets.find(a => a.id === selectedAssetId);
-                if (asset && (asset.type === 'image' || asset.type === 'video' || asset.type === 'frame')) {
+                // Find asset to determine if we should auto-open properties
+                const asset = [
+                    ...(page.assets || []),
+                    ...(page.layoutConfig || []).map(b => ({ ...b, ...b.content?.config, type: b.content?.type || 'image', content: b.content?.text })),
+                    ...(page.textLayers || []).map(l => ({ ...l, ...l.content?.config, type: 'text', content: l.content?.text }))
+                ].find(a => a.id === selectedAssetId);
+                if (asset && (asset.type === 'image' || asset.type === 'video' || asset.type === 'frame' || asset.type === 'text')) {
                     setActiveSidebarTab('properties');
                 }
             }
@@ -654,7 +982,7 @@ function AlbumEditorContent() {
                                 {(currentPage.layoutTemplate || 'freeform').replace('-', ' ')}
                             </span>
                             <div className="flex items-center bg-black/5 rounded-xl overflow-hidden p-0.5 border border-black/5">
-                                <button className="w-8 h-6 flex items-center justify-center hover:bg-white rounded-lg text-[10px] font-bold transition-all" onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}>-</button>
+                                <button className="w-8 h-6 flex items-center justify-center hover:bg-white rounded-lg text-[10px] font-bold transition-all" onClick={() => updateZoom(z => Math.max(0.2, z - 0.1))}>-</button>
                                 <div className="flex items-center px-1">
                                     <input
                                         type="number"
@@ -664,19 +992,19 @@ function AlbumEditorContent() {
                                         onChange={(e) => {
                                             const val = parseInt(e.target.value);
                                             if (!isNaN(val) && val >= 10 && val <= 300) {
-                                                setZoom(val / 100);
+                                                updateZoom(val / 100);
                                             }
                                         }}
                                         className="w-10 text-[10px] text-center bg-transparent border-none p-0 text-catalog-text/60 font-black focus:ring-0 appearance-none m-0"
                                     />
                                     <span className="text-[8px] text-catalog-text/40 font-black">%</span>
                                 </div>
-                                <button className="w-8 h-6 flex items-center justify-center hover:bg-white rounded-lg text-[10px] font-bold transition-all" onClick={() => setZoom(z => Math.min(2.0, z + 0.1))}>+</button>
+                                <button className="w-8 h-6 flex items-center justify-center hover:bg-white rounded-lg text-[10px] font-bold transition-all" onClick={() => updateZoom(z => Math.min(2.0, z + 0.1))}>+</button>
                             </div>
                             <button
                                 className="px-3 h-6 flex items-center justify-center bg-black/5 hover:bg-black/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-catalog-text/60 hover:text-catalog-accent transition-all border border-black/5"
                                 onClick={() => {
-                                    setZoom(0.5);
+                                    updateZoom(0.5);
                                     setPan({ x: 0, y: 0 });
                                 }}
                                 title="Reset view to center"
@@ -860,16 +1188,6 @@ function AlbumEditorContent() {
                     ref={workspaceRef}
                     className="flex-1 flex flex-col min-w-0 overflow-hidden relative"
                     onClick={() => setSelectedAssetId(null)}
-                    onWheel={(e) => {
-                        if (e.ctrlKey || e.metaKey) {
-                            e.preventDefault();
-                            const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                            setZoom(z => Math.max(0.2, Math.min(2.0, z + delta)));
-                        } else {
-                            // Pan on wheel
-                            setPan(p => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
-                        }
-                    }}
                     onMouseDown={(e) => {
                         // Global background click to deselect
                         if (e.target === e.currentTarget) setSelectedAssetId(null);
@@ -995,15 +1313,15 @@ function AlbumEditorContent() {
                                             <div className="flex items-center gap-4 glass p-1.5 rounded-2xl border border-black/5">
                                                 <select
                                                     disabled={album.config.isLocked || selectedAsset.isLocked}
-                                                    value={selectedAsset.fontFamily || 'Inter'}
+                                                    value={selectedAsset.fontFamily || 'Outfit'}
                                                     onChange={(e) => {
                                                         if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAsset(pageId, selectedAsset.id, { fontFamily: e.target.value });
                                                     }}
                                                     className="text-[11px] font-black bg-transparent border-none focus:ring-0 cursor-pointer text-catalog-text uppercase tracking-widest py-1 px-4 disabled:opacity-50"
                                                 >
-                                                    <option value="Inter">Outfit</option>
+                                                    <option value="Outfit">Outfit</option>
                                                     <option value="'Cormorant Garamond'">Garamond</option>
                                                     <option value="'Playfair Display'">Playfair</option>
                                                     <option value="'Dancing Script'">Dancing</option>
@@ -1022,7 +1340,7 @@ function AlbumEditorContent() {
                                                         onChange={(e) => {
                                                             if (album.config.isLocked || selectedAsset.isLocked) return;
                                                             const val = parseInt(e.target.value);
-                                                            const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                            const pageId = activePage?.id;
                                                             if (pageId && !isNaN(val)) updateAsset(pageId, selectedAsset.id, { fontSize: val });
                                                         }}
                                                         className="w-12 bg-transparent border-none text-[11px] font-black text-catalog-accent focus:ring-0 text-center p-0 disabled:opacity-50"
@@ -1035,9 +1353,10 @@ function AlbumEditorContent() {
                                                 <div className="flex items-center gap-1">
                                                     <button
                                                         disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                        onMouseDown={(e) => e.preventDefault()}
                                                         onClick={() => {
                                                             if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                            const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                            const pageId = activePage?.id;
                                                             if (pageId) updateAsset(pageId, selectedAsset.id, { fontWeight: selectedAsset.fontWeight === 'bold' ? 'normal' : 'bold' });
                                                         }}
                                                         className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", selectedAsset.fontWeight === 'bold' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/20 hover:text-catalog-accent")}
@@ -1047,9 +1366,23 @@ function AlbumEditorContent() {
 
                                                     <button
                                                         disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                        onMouseDown={(e) => e.preventDefault()}
                                                         onClick={() => {
                                                             if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                            const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                            const pageId = activePage?.id;
+                                                            if (pageId) updateAsset(pageId, selectedAsset.id, { fontStyle: selectedAsset.fontStyle === 'italic' ? 'normal' : 'italic' });
+                                                        }}
+                                                        className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", selectedAsset.fontStyle === 'italic' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/20 hover:text-catalog-accent")}
+                                                    >
+                                                        <Italic className="w-4 h-4" />
+                                                    </button>
+
+                                                    <button
+                                                        disabled={album.config.isLocked || selectedAsset.isLocked}
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            if (album.config.isLocked || selectedAsset.isLocked) return;
+                                                            const pageId = activePage?.id;
                                                             if (pageId) updateAsset(pageId, selectedAsset.id, { textDecoration: selectedAsset.textDecoration === 'underline' ? 'none' : 'underline' } as any);
                                                         }}
                                                         className={cn("w-8 h-8 flex items-center justify-center rounded-xl transition-all", selectedAsset.textDecoration === 'underline' ? "text-catalog-accent bg-catalog-accent/10" : "text-catalog-text/20 hover:text-catalog-accent")}
@@ -1064,7 +1397,7 @@ function AlbumEditorContent() {
                                                             value={selectedAsset.textColor || '#000000'}
                                                             onChange={(e) => {
                                                                 if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                                const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                                const pageId = activePage?.id;
                                                                 if (pageId) updateAsset(pageId, selectedAsset.id, { textColor: e.target.value });
                                                             }}
                                                             className="absolute inset-0 w-full h-full scale-150 cursor-pointer border-none p-0 disabled:opacity-50"
@@ -1078,7 +1411,7 @@ function AlbumEditorContent() {
                                             <div className="flex items-center gap-2 glass p-1 rounded-2xl border border-black/5">
                                                 <button
                                                     onClick={() => {
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAsset(pageId, selectedAsset.id, { fitMode: selectedAsset.fitMode === 'cover' ? 'fit' : 'cover' });
                                                     }}
                                                     className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent flex items-center gap-1.5"
@@ -1092,7 +1425,7 @@ function AlbumEditorContent() {
 
                                                 <button
                                                     onClick={() => {
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAsset(pageId, selectedAsset.id, { flipX: !selectedAsset.flipX });
                                                     }}
                                                     className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent"
@@ -1103,7 +1436,7 @@ function AlbumEditorContent() {
 
                                                 <button
                                                     onClick={() => {
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAsset(pageId, selectedAsset.id, { flipY: !selectedAsset.flipY });
                                                     }}
                                                     className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent"
@@ -1114,7 +1447,7 @@ function AlbumEditorContent() {
 
                                                 <button
                                                     onClick={() => {
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAsset(pageId, selectedAsset.id, { rotation: ((selectedAsset.rotation || 0) + 90) % 360 });
                                                     }}
                                                     className="p-2 hover:bg-black/5 rounded-xl transition-all text-catalog-text/50 hover:text-catalog-accent"
@@ -1185,7 +1518,7 @@ function AlbumEditorContent() {
                                                     disabled={album.config.isLocked || selectedAsset.isLocked}
                                                     onClick={() => {
                                                         if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAssetZIndex(pageId, selectedAsset.id, 'front');
                                                     }}
                                                     className="w-9 h-9 flex items-center justify-center hover:bg-white rounded-xl transition-all text-catalog-text/40 hover:text-catalog-accent"
@@ -1197,7 +1530,7 @@ function AlbumEditorContent() {
                                                     disabled={album.config.isLocked || selectedAsset.isLocked}
                                                     onClick={() => {
                                                         if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) updateAssetZIndex(pageId, selectedAsset.id, 'back');
                                                     }}
                                                     className="w-9 h-9 flex items-center justify-center hover:bg-white rounded-xl transition-all text-catalog-text/40 hover:text-catalog-accent"
@@ -1217,7 +1550,7 @@ function AlbumEditorContent() {
                                                         onChange={(e) => {
                                                             if (album.config.isLocked || selectedAsset.isLocked) return;
                                                             const val = parseFloat(e.target.value);
-                                                            const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                            const pageId = activePage?.id;
                                                             if (pageId && !isNaN(val) && val > 0) {
                                                                 const aspectRatio = selectedAsset.aspectRatio || (selectedAsset.width / selectedAsset.height);
                                                                 updateAsset(pageId, selectedAsset.id, {
@@ -1237,7 +1570,7 @@ function AlbumEditorContent() {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         if (album.config.isLocked) return;
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) {
                                                             updateAsset(pageId, selectedAsset.id, { isLocked: !selectedAsset.isLocked });
                                                         }
@@ -1253,7 +1586,7 @@ function AlbumEditorContent() {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         if (album.config.isLocked) return;
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) {
                                                             duplicateAsset(pageId, selectedAsset.id);
                                                         }
@@ -1269,7 +1602,7 @@ function AlbumEditorContent() {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         if (album.config.isLocked) return;
-                                                        const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                        const pageId = activePage?.id;
                                                         if (pageId) {
                                                             const pageW = album.config.dimensions.width;
                                                             const pageH = album.config.dimensions.height;
@@ -1299,7 +1632,7 @@ function AlbumEditorContent() {
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     if (album.config.isLocked || selectedAsset.isLocked) return;
-                                                    const pageId = album.pages.find(p => p.assets.some(a => a.id === selectedAsset.id))?.id;
+                                                    const pageId = activePage?.id;
                                                     if (pageId) {
                                                         removeAsset(pageId, selectedAsset.id);
                                                         setSelectedAssetId(null);
@@ -1412,6 +1745,7 @@ function AlbumEditorContent() {
                                                             onAssetClick={handleRearrangeClick}
                                                             rearrangeFirstId={rearrangeFirstId}
                                                             isRearrangeMode={isRearrangeMode}
+                                                            onLocalFileDrop={handleLocalFileDrop}
                                                         />
                                                         {/* Gutter Guide */}
                                                         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-full z-10 pointer-events-none flex">
@@ -1444,6 +1778,7 @@ function AlbumEditorContent() {
                                                             onAssetClick={handleRearrangeClick}
                                                             rearrangeFirstId={rearrangeFirstId}
                                                             isRearrangeMode={isRearrangeMode}
+                                                            onLocalFileDrop={handleLocalFileDrop}
                                                         />
                                                     </div>
                                                 );
@@ -1690,26 +2025,7 @@ function AlbumEditorContent() {
                 }}
             />
 
-            {/* Pro Text Editor Modal (Pop-out) */}
-            {
-                proTextAssetId && (
-                    <TextEditorModal
-                        isOpen={true}
-                        onClose={() => setProTextAssetId(null)}
-                        initialContent={(() => {
-                            const pId = activePageId || album?.pages?.[currentPageIndex]?.id;
-                            const asset = album?.pages?.find(p => p.id === pId)?.assets.find(a => a.id === proTextAssetId);
-                            return asset?.content || '';
-                        })()}
-                        onSave={(newContent) => {
-                            const pId = activePageId || album?.pages?.[currentPageIndex]?.id;
-                            if (pId && proTextAssetId) {
-                                updateAsset(pId, proTextAssetId, { content: newContent });
-                            }
-                        }}
-                    />
-                )
-            }
+            {/* TextEditorModal has been replaced with inline editing on the canvas */}
 
             {
                 showCoverPicker && (
@@ -1726,10 +2042,25 @@ function AlbumEditorContent() {
                     />
                 )
             }
+
+            <UploadOverlay
+                state={uploadState}
+                onDismiss={dismissUpload}
+                onCancelFile={cancelUpload}
+                onCancelAll={cancelAll}
+                onMinimize={() => setMinimized(true)}
+            />
         </div>
     );
 }
 
 export function AlbumEditor() {
     return <AlbumEditorContent />;
+}
+
+function generateId() {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+        return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
 }

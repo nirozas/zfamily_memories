@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { useAlbum } from '../../contexts/AlbumContext';
 import { cn } from '../../lib/utils';
 import { Upload, Plus, Image as ImageIcon, Video, Link as LinkIcon } from 'lucide-react';
+import { SecureMedia } from '../common/SecureMedia';
 
 export function MediaLibrary() {
     const { album, uploadMedia, moveFromLibrary, addMediaByUrl, isSaving, activeSlot, setActiveSlot, updateAsset } = useAlbum();
@@ -99,7 +100,7 @@ export function MediaLibrary() {
                                     }}
                                 >
                                     {asset.type === 'image' ? (
-                                        <img src={asset.url} alt="" className="w-full h-full object-cover" />
+                                        <SecureMedia url={asset.url} alt="" className="w-full h-full object-cover" />
                                     ) : (
                                         <div className="w-full h-full flex items-center justify-center bg-gray-900">
                                             <Video className="w-6 h-6 text-white" />
@@ -128,7 +129,7 @@ export function MediaLibrary() {
                     <div className="grid grid-cols-2 gap-2 opacity-60">
                         {album.pages.flatMap(p => p.assets).map(asset => (
                             <div key={asset.id} className="aspect-square rounded-lg overflow-hidden border border-catalog-accent/5">
-                                <img src={asset.url} alt="" className="w-full h-full object-cover grayscale" />
+                                <SecureMedia url={asset.url} alt="" className="w-full h-full object-cover grayscale" />
                             </div>
                         ))}
                     </div>

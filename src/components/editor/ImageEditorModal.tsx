@@ -3,6 +3,7 @@ import { X, Check, Sun, Loader2, Pipette, Eye, Sparkles, Palette, Zap, Camera } 
 import { Slider } from '../ui/Slider';
 import { cn } from '../../lib/utils';
 import type { Asset } from '../../contexts/AlbumContext';
+import { CloudflareR2Service } from '../../services/cloudflareR2';
 
 interface ImageEditorModalProps {
     asset: Asset;
@@ -57,15 +58,33 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
         setWarmth(preset.values.warmth);
     };
 
+    const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(null);
+
     // Load image
     useEffect(() => {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = asset.url;
-        img.onload = () => {
-            imageRef.current = img;
-            render();
-        };
+        let isMounted = true;
+        async function loadImage() {
+            let cleanUrl = asset.url;
+            if (CloudflareR2Service.isR2Url(cleanUrl)) {
+                const key = CloudflareR2Service.extractKey(cleanUrl);
+                if (key) {
+                    cleanUrl = await CloudflareR2Service.getProxiedObjectUrl(key);
+                }
+            }
+            if (!isMounted) return;
+            setAuthorizedUrl(cleanUrl);
+
+            const img = new Image();
+            img.src = cleanUrl;
+            img.onload = () => {
+                if (isMounted) {
+                    imageRef.current = img;
+                    render();
+                }
+            };
+        }
+        loadImage();
+        return () => { isMounted = false; };
     }, [asset.url]);
 
     const render = useCallback(() => {
@@ -88,40 +107,44 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
 
         // Apply Chroma Key
         if (chromaKeyColors.length > 0) {
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imageData.data;
-            const targets = chromaKeyColors.map(c => hexToRgb(c)).filter(Boolean);
+            try {
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const data = imageData.data;
+                const targets = chromaKeyColors.map(c => hexToRgb(c)).filter(Boolean);
 
-            for (let i = 0; i < data.length; i += 4) {
-                const r = data[i];
-                const g = data[i + 1];
-                const b = data[i + 2];
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
 
-                let isSelected = false;
-                for (const target of targets) {
-                    if (!target) continue;
-                    const dr = r - target.r;
-                    const dg = g - target.g;
-                    const db = b - target.b;
-                    const dist = Math.sqrt(dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11);
-                    if (dist < chromaKeyTolerance) {
-                        isSelected = true;
-                        break;
+                    let isSelected = false;
+                    for (const target of targets) {
+                        if (!target) continue;
+                        const dr = r - target.r;
+                        const dg = g - target.g;
+                        const db = b - target.b;
+                        const dist = Math.sqrt(dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11);
+                        if (dist < chromaKeyTolerance) {
+                            isSelected = true;
+                            break;
+                        }
+                    }
+
+                    if (isSelected) {
+                        if (isMaskVisible) {
+                            data[i] = 255;
+                            data[i + 1] = 0;
+                            data[i + 2] = 255;
+                            data[i + 3] = 200;
+                        } else {
+                            data[i + 3] = 0;
+                        }
                     }
                 }
-
-                if (isSelected) {
-                    if (isMaskVisible) {
-                        data[i] = 255;
-                        data[i + 1] = 0;
-                        data[i + 2] = 255;
-                        data[i + 3] = 200;
-                    } else {
-                        data[i + 3] = 0;
-                    }
-                }
+                ctx.putImageData(imageData, 0, 0);
+            } catch (err) {
+                console.error("Canvas tainted: Unable to apply Chroma Key because CORS is missing on the image host.", err);
             }
-            ctx.putImageData(imageData, 0, 0);
         }
     }, [brightness, contrast, saturate, hue, sepia, blur, exposure, highlights, shadows, warmth, sharpness, chromaKeyColors, chromaKeyTolerance, isMaskVisible]);
 
@@ -143,22 +166,8 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
     };
 
     const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        if (!isPickingColor || !canvasRef.current) return;
-
-        const canvas = canvasRef.current;
-        const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left) * (canvas.width / rect.width);
-        const y = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const pixel = ctx.getImageData(x, y, 1, 1).data;
-        const hex = rgbToHex(pixel[0], pixel[1], pixel[2]);
-        if (!chromaKeyColors.includes(hex)) {
-            setChromaKeyColors([...chromaKeyColors, hex]);
-        }
-        setIsPickingColor(false);
+        // Disabled because of canvas tainting cross-origin SecurityError.
+        // The native window.EyeDropper API is used via the 'Pick Color' button instead.
     };
 
     const handleSave = async () => {
@@ -268,7 +277,7 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
                             />
                             {showCompare && (
                                 <img
-                                    src={asset.url}
+                                    src={authorizedUrl || asset.url}
                                     alt="Original"
                                     className="absolute inset-0 w-full h-full object-contain bg-white rounded-lg pointer-events-none animate-in fade-in duration-200"
                                     crossOrigin="anonymous"
@@ -467,11 +476,22 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
                                         <div className="space-y-4">
                                             <div className="flex gap-2">
                                                 <button
-                                                    onClick={() => setIsPickingColor(!isPickingColor)}
-                                                    className={cn(
-                                                        "flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg",
-                                                        isPickingColor ? "bg-catalog-accent text-white scale-105" : "bg-catalog-stone/10 text-catalog-text hover:bg-catalog-stone/20"
-                                                    )}
+                                                    onClick={async () => {
+                                                        if ('EyeDropper' in window) {
+                                                            try {
+                                                                const eyeDropper = new (window as any).EyeDropper();
+                                                                const result = await eyeDropper.open();
+                                                                if (!chromaKeyColors.includes(result.sRGBHex)) {
+                                                                    setChromaKeyColors([...chromaKeyColors, result.sRGBHex]);
+                                                                }
+                                                            } catch (e) {
+                                                                // User canceled the eyedropper
+                                                            }
+                                                        } else {
+                                                            alert("The native color picker is not supported in this browser. Please use Chrome or Edge.");
+                                                        }
+                                                    }}
+                                                    className="flex-1 py-3 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all shadow-lg bg-catalog-stone/10 text-catalog-text hover:bg-catalog-stone/20"
                                                 >
                                                     <Pipette className="w-4 h-4" /> Pick Color
                                                 </button>

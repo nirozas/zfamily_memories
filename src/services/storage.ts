@@ -38,10 +38,11 @@ export const storageService = {
             if (file.type.startsWith('image/')) {
                 try {
                     reportProgress(10);
-                    fileToUpload = await imageCompression(file, {
-                        maxSizeMB: 1,
-                        maxWidthOrHeight: 2040,
+        fileToUpload = await imageCompression(file, {
+                        maxSizeMB: 4,
+                        maxWidthOrHeight: 3840,
                         useWebWorker: true,
+                        initialQuality: 0.9,
                         onProgress: (p) => {
                             // Detect if p is 0-1 or 0-100
                             const normalized = p > 1 ? p / 100 : p;

@@ -313,19 +313,26 @@ export class AlbumDataService {
      * Fetch album with all pages and assets
      * Automatically detects and converts from legacy or unified schema
      */
-    static async fetchAlbum(albumId: string): Promise<UnifiedAlbum | null> {
+    static async fetchAlbum(albumIdOrSlug: string): Promise<UnifiedAlbum | null> {
         try {
+            let query = supabase.from('albums').select('*');
+            const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(albumIdOrSlug);
+            
+            if (isUUID) {
+                query = query.eq('id', albumIdOrSlug);
+            } else {
+                query = query.ilike('title', albumIdOrSlug.replace(/_/g, ' '));
+            }
+
             // Fetch album metadata
-            const { data: albumData, error: albumError } = await supabase
-                .from('albums')
-                .select('*')
-                .eq('id', albumId)
-                .single();
+            const { data: albumData, error: albumError } = await query.single();
 
             if (albumError || !albumData) {
                 console.error('Failed to fetch album:', albumError);
                 return null;
             }
+
+            const actualAlbumId = albumData.id;
 
             // Detect schema version
             const schema = await SchemaDetector.detect();
@@ -337,7 +344,7 @@ export class AlbumDataService {
                 const { data: unifiedPages, error: upError } = await supabase
                     .from('album_pages')
                     .select('*')
-                    .eq('album_id', albumId)
+                    .eq('album_id', actualAlbumId)
                     .order('page_number', { ascending: true });
 
                 if (!upError && unifiedPages && unifiedPages.length > 0) {
@@ -350,7 +357,7 @@ export class AlbumDataService {
                 const { data: legacyPages, error: lpError } = await supabase
                     .from('pages')
                     .select('*')
-                    .eq('album_id', albumId)
+                    .eq('album_id', actualAlbumId)
                     .order('page_number', { ascending: true });
 
                 if (!lpError && legacyPages) {

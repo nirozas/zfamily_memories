@@ -5,8 +5,30 @@ import { CloudflareR2Service } from '../services/cloudflareR2';
  * A hook that converts a potentially private R2 URL into an authorized presigned URL.
  */
 export function useAuthorizedUrl(url?: string | null) {
-    const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(() => {
+        if (!url) return null;
+        if (url.includes('X-Amz-Signature')) return url;
+        if (CloudflareR2Service.isR2Url(url)) {
+            const key = CloudflareR2Service.extractKey(url);
+            if (key) {
+                const cached = CloudflareR2Service.getCachedUrl(key);
+                if (cached) return cached;
+            }
+        }
+        return url;
+    });
+    
+    const [loading, setLoading] = useState(() => {
+        if (!url) return false;
+        if (url.includes('X-Amz-Signature')) return false;
+        if (CloudflareR2Service.isR2Url(url)) {
+            const key = CloudflareR2Service.extractKey(url);
+            if (key && CloudflareR2Service.getCachedUrl(key)) return false;
+            return true;
+        }
+        return false;
+    });
+    
     const [error, setError] = useState(false);
 
     useEffect(() => {
@@ -20,9 +42,6 @@ export function useAuthorizedUrl(url?: string | null) {
             }
 
             try {
-                setLoading(true);
-                setError(false);
-
                 // 1. If it's already an authorized URL (has signature), use it directly
                 if (url.includes('X-Amz-Signature')) {
                     setAuthorizedUrl(url);
@@ -32,42 +51,44 @@ export function useAuthorizedUrl(url?: string | null) {
 
                 // 2. If it's an R2 URL, get a fresh authorized URL
                 if (CloudflareR2Service.isR2Url(url)) {
-                    let key = '';
-                    try {
-                        const urlObj = new URL(url);
-                        // Extract key from pathname
-                        key = urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname;
-                        
-                        if (key) {
-                            try {
-                                key = decodeURIComponent(key);
-                            } catch (e) {
-                                // Ignore decode errors
-                            }
-                        }
-                    } catch (e) {
-                        // Fallback: try manual strip
-                        key = url.replace(CloudflareR2Service.publicUrl, '').replace(/^\//, '');
-                    }
-
+                    const key = CloudflareR2Service.extractKey(url);
+                    
                     if (key) {
+                        const cached = CloudflareR2Service.getCachedUrl(key);
+                        if (cached) {
+                            if (isMounted) {
+                                setAuthorizedUrl(cached);
+                                setLoading(false);
+                            }
+                            return;
+                        }
+
+                        if (isMounted) setLoading(true);
                         const authed = await CloudflareR2Service.getAuthorizedUrl(key);
-                        if (isMounted) setAuthorizedUrl(authed);
+                        if (isMounted) {
+                            setAuthorizedUrl(authed);
+                            setLoading(false);
+                        }
                     } else {
-                        if (isMounted) setAuthorizedUrl(url); // Fallback to raw
+                        if (isMounted) {
+                            setAuthorizedUrl(url);
+                            setLoading(false);
+                        }
                     }
                 } else {
                     // Not an R2 URL, use as is
-                    if (isMounted) setAuthorizedUrl(url);
+                    if (isMounted) {
+                        setAuthorizedUrl(url);
+                        setLoading(false);
+                    }
                 }
             } catch (err) {
                 console.error('[useAuthorizedUrl] Error:', err);
                 if (isMounted) {
                     setError(true);
                     setAuthorizedUrl(url || null); // Last resort fallback
+                    setLoading(false);
                 }
-            } finally {
-                if (isMounted) setLoading(false);
             }
         }
 

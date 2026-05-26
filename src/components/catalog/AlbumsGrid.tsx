@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 interface AlbumsGridProps {
     albums: any[];
     viewMode: 'grid' | 'list';
-    onEdit: (id: string) => void;
+    onEdit: (id: string, title?: string) => void;
     onDelete: (id: string) => void;
     onDuplicate: (id: string) => void;
     onShare: (id: string) => void;
@@ -36,7 +36,7 @@ export function AlbumsGrid({ albums, viewMode, onEdit, onDelete, onDuplicate, on
                 <AlbumCard
                     key={album.id}
                     {...album}
-                    onEdit={() => onEdit(album.id)}
+                    onEdit={() => onEdit(album.id, album.title)}
                     onDelete={() => onDelete(album.id)}
                     onDuplicate={() => onDuplicate(album.id)}
                     onShare={() => onShare(album.id)}

@@ -2,10 +2,11 @@ import React, { useState, memo, useRef, useCallback } from 'react';
 import { useAlbum, type Page, type Asset } from '../../contexts/AlbumContext';
 import { cn } from '../../lib/utils';
 import { motion } from 'framer-motion';
-import { Plus, Grid } from 'lucide-react';
+import { Plus, Grid, AlignLeft, AlignCenter, AlignRight, Bold, Italic } from 'lucide-react';
 import { ContextMenu } from './ContextMenu';
 import { FocalPointEditorModal } from './FocalPointEditorModal';
 import { LayoutFrame } from '../shared/LayoutFrame';
+import { SecureMedia } from '../common/SecureMedia';
 
 interface EditorCanvasProps {
     page: Page;
@@ -19,7 +20,9 @@ interface EditorCanvasProps {
     onAssetClick?: (assetId: string, pageId: string) => boolean;
     rearrangeFirstId?: string | null;
     isRearrangeMode?: boolean;
+    onLocalFileDrop?: (files: File[], dropX: number, dropY: number, pageId: string) => void;
 }
+
 
 interface AssetRendererProps {
     asset: Asset;
@@ -34,10 +37,14 @@ interface AssetRendererProps {
     onDrop?: (e: React.DragEvent) => void;
     isInSlot?: boolean;
     isRearrangeFirst?: boolean;
+    isEditing?: boolean;
+    editingValue?: string;
+    onEditingValueChange?: (val: string) => void;
+    onEditingComplete?: () => void;
 }
 
 const SlotRenderer = memo(function SlotRenderer({
-    box, index, pageId, targetSide, nextPage, isSpreadLayout, handleAssetDrop, onSelect
+    box, index, pageId, targetSide, nextPage, isSpreadLayout, handleAssetDrop, onSelect, onLocalFileDrop
 }: any) {
     const [isDragOver, setIsDragOver] = useState(false);
     const { showLayoutOutlines } = useAlbum();
@@ -60,6 +67,14 @@ const SlotRenderer = memo(function SlotRenderer({
                 e.preventDefault();
                 e.stopPropagation();
                 setIsDragOver(false);
+                // Detect OS file drop
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/') || f.type.startsWith('video/'));
+                    if (files.length > 0) {
+                        onLocalFileDrop?.(files, box.left + box.width / 2, box.top + box.height / 2, pageId);
+                        return;
+                    }
+                }
                 handleAssetDrop(`slot-${index}`, pageId, e);
             }}
             style={{
@@ -95,7 +110,8 @@ const SlotRenderer = memo(function SlotRenderer({
 const AssetRenderer = memo(function AssetRenderer({
     asset, isSelected, onClick, onDoubleClick,
     onContextMenu, pageId, side = 'single',
-    zoom, canvasRef, onDrop, isInSlot, isRearrangeFirst
+    zoom, canvasRef, onDrop, isInSlot, isRearrangeFirst,
+    isEditing, editingValue, onEditingValueChange, onEditingComplete
 }: AssetRendererProps) {
     const { updateAsset, album, commitHistory } = useAlbum();
     const [dragPos, setDragPos] = useState<{ x: number, y: number } | null>(null);
@@ -131,6 +147,7 @@ const AssetRenderer = memo(function AssetRenderer({
     const handlePointerDown = (e: React.PointerEvent, forcedHandleType?: string) => {
         if (asset.isLocked || album?.config?.isLocked) return;
         if (e.button !== 0) return;
+        if ((window as any).__isMultiTouchActive) return;
 
         const handleType = forcedHandleType || (e.nativeEvent as any).handleType;
         const isResizing = !!handleType;
@@ -148,6 +165,10 @@ const AssetRenderer = memo(function AssetRenderer({
         const totalHeight_px = canvasRect.height / zoomFactor;
 
         const handlePointerMove = (mv: PointerEvent) => {
+            if ((window as any).__isMultiTouchActive) {
+                handlePointerUp();
+                return;
+            }
             requestAnimationFrame(() => {
                 const dx_px = (mv.clientX - startPos.x) / zoomFactor;
                 const dy_px = (mv.clientY - startPos.y) / zoomFactor;
@@ -265,7 +286,8 @@ const AssetRenderer = memo(function AssetRenderer({
             >
                 <LayoutFrame
                     box={box as any}
-                    isEditable={true}
+                    isEditable={!isEditing} 
+                    hideContent={isEditing} // We need to hide original text while editing
                     isSelected={isSelected}
                     zoom={zoom}
                     onClick={onClick}
@@ -281,6 +303,106 @@ const AssetRenderer = memo(function AssetRenderer({
                         }
                     }}
                 />
+                {isEditing && (
+                    <>
+                        <div 
+                            className="absolute -top-12 left-0 right-0 bg-white/95 backdrop-blur-md shadow-xl rounded-lg p-1.5 flex items-center justify-center gap-1 border border-black/5 pointer-events-auto"
+                            onPointerDown={e => e.stopPropagation()}
+                            onMouseDown={e => e.stopPropagation()}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <button onClick={() => updateAsset(pageId, asset.id, { textAlign: 'left' })} className={cn("p-1.5 rounded hover:bg-black/5 transition-colors", asset.textAlign === 'left' && 'bg-black/5 text-catalog-accent')}>
+                                <AlignLeft className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => updateAsset(pageId, asset.id, { textAlign: 'center' })} className={cn("p-1.5 rounded hover:bg-black/5 transition-colors", asset.textAlign === 'center' && 'bg-black/5 text-catalog-accent')}>
+                                <AlignCenter className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => updateAsset(pageId, asset.id, { textAlign: 'right' })} className={cn("p-1.5 rounded hover:bg-black/5 transition-colors", asset.textAlign === 'right' && 'bg-black/5 text-catalog-accent')}>
+                                <AlignRight className="w-4 h-4" />
+                            </button>
+                            <div className="w-px h-4 bg-black/10 mx-1" />
+                            <button onClick={() => updateAsset(pageId, asset.id, { fontWeight: asset.fontWeight === 'bold' ? 'normal' : 'bold' })} className={cn("p-1.5 rounded hover:bg-black/5 transition-colors", asset.fontWeight === 'bold' && 'bg-black/5 text-catalog-accent')}>
+                                <Bold className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => updateAsset(pageId, asset.id, { fontStyle: asset.fontStyle === 'italic' ? 'normal' : 'italic' })} className={cn("p-1.5 rounded hover:bg-black/5 transition-colors", asset.fontStyle === 'italic' && 'bg-black/5 text-catalog-accent')}>
+                                <Italic className="w-4 h-4" />
+                            </button>
+                            <div className="w-px h-4 bg-black/10 mx-1" />
+                            <input 
+                                type="color" 
+                                value={asset.color || '#000000'}
+                                onChange={(e) => updateAsset(pageId, asset.id, { color: e.target.value })}
+                                className="w-6 h-6 p-0 border-0 rounded cursor-pointer"
+                            />
+                            <button 
+                                onClick={() => onEditingComplete?.()} 
+                                className="ml-2 bg-catalog-accent text-white px-3 py-1 rounded text-xs font-semibold shadow-sm hover:opacity-90"
+                            >
+                                Done
+                            </button>
+                        </div>
+                        <textarea
+                            autoFocus
+                            spellCheck={true}
+                            value={editingValue}
+                            onChange={(e) => onEditingValueChange?.(e.target.value)}
+                            onFocus={(e) => {
+                                const ta = e.target;
+                                ta.style.height = 'auto';
+                                ta.style.height = ta.scrollHeight + 'px';
+                                // Move cursor to end
+                                ta.setSelectionRange(ta.value.length, ta.value.length);
+                            }}
+                            onBlur={() => {
+                                onEditingComplete?.();
+                            }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                    onEditingComplete?.();
+                                }
+                                // Allow indenting
+                                if (e.key === 'Tab') {
+                                    e.preventDefault();
+                                    const ta = e.currentTarget;
+                                    const start = ta.selectionStart;
+                                    const end = ta.selectionEnd;
+                                    const val = ta.value;
+                                    if (e.shiftKey) {
+                                        // simple outdent for now (can expand if needed)
+                                        onEditingValueChange?.(val.substring(0, start) + val.substring(end));
+                                    } else {
+                                        const newText = val.substring(0, start) + '  ' + val.substring(end);
+                                        onEditingValueChange?.(newText);
+                                        setTimeout(() => { ta.selectionStart = ta.selectionEnd = start + 2; }, 0);
+                                    }
+                                }
+                                e.stopPropagation();
+                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onContextMenu={(e) => e.stopPropagation()} // Allow native context menu for pasting
+                            style={{
+                                position: 'absolute',
+                                inset: 0,
+                                width: '100%',
+                                minHeight: '100%',
+                                background: 'transparent',
+                                caretColor: 'currentColor',
+                                color: asset.color || '#000',
+                                fontSize: `${asset.fontSize || 32}px`,
+                                fontFamily: asset.fontFamily || 'sans-serif',
+                                fontWeight: asset.fontWeight || 'normal',
+                                textAlign: asset.textAlign || 'left',
+                                padding: '8px',
+                                border: '2px dashed rgba(139, 92, 246, 0.5)',
+                                borderRadius: '4px',
+                                resize: 'none',
+                                outline: 'none',
+                                zIndex: 100,
+                                overflow: 'hidden'
+                            }}
+                        />
+                    </>
+                )}
             </motion.div>
         </div>
     );
@@ -291,20 +413,28 @@ const AssetRenderer = memo(function AssetRenderer({
         prev.isRearrangeFirst === next.isRearrangeFirst &&
         prev.zoom === next.zoom &&
         prev.side === next.side &&
-        prev.pageId === next.pageId
+        prev.pageId === next.pageId &&
+        prev.isEditing === next.isEditing &&
+        prev.editingValue === next.editingValue
     );
 });
 
 export const EditorCanvas = memo(function EditorCanvas({
     page, nextPage, side = 'single',
     showPrintSafe = true, zoom, onPageSelect, onOpenMapEditor, onOpenLocationEditor,
-    onAssetClick, rearrangeFirstId, isRearrangeMode
+    onAssetClick, rearrangeFirstId, isRearrangeMode, onLocalFileDrop
 }: EditorCanvasProps) {
     const {
         album, selectedAssetId, setSelectedAssetId, updateAsset,
         removeAsset, duplicateAsset, updateAssetZIndex, addAsset,
-        setActiveSlot
+        setActiveSlot, commitHistory
     } = useAlbum();
+
+    const [editingTextId, setEditingTextId] = useState<string | null>(null);
+    const [editingValue, setEditingValue] = useState<string>('');
+
+    // Share state with AssetRenderers
+    (window as any).__editorCanvasState = { editingTextId, setEditingTextId, editingValue, setEditingValue };
 
     const canvasRef = useRef<HTMLDivElement>(null);
     const [contextMenu, setContextMenu] = useState<{ x: number, y: number, assetId?: string, pageId?: string } | null>(null);
@@ -361,31 +491,44 @@ export const EditorCanvas = memo(function EditorCanvas({
     const handleDrop = (e: React.DragEvent) => {
         e.preventDefault();
         if (album?.config.isLocked) return;
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        const zoomFactor = zoom || 1;
+        const clickX = e.clientX - rect.left;
+        const clickY = e.clientY - rect.top;
+        const dropX_Pct = (clickX / (rect.width / zoomFactor)) * (nextPage ? 200 : 100);
+        const dropY_Pct = (clickY / (rect.height / zoomFactor)) * 100;
+
+        let targetPageId = page.id;
+        let localX = dropX_Pct;
+
+        // If dropping on the right side of a spread
+        if (nextPage && dropX_Pct > 100) {
+            // IF the current page is a spread layout, we still target the left page (container for the spread)
+            if (page.isSpreadLayout) {
+                targetPageId = page.id;
+                localX = dropX_Pct; // Keep it as 100+ for the spread slots
+            } else {
+                targetPageId = nextPage.id;
+                localX = dropX_Pct - 100;
+            }
+        }
+
+        // ✅ Detect OS file drop (from computer desktop/folder)
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const files = Array.from(e.dataTransfer.files).filter(
+                f => f.type.startsWith('image/') || f.type.startsWith('video/')
+            );
+            if (files.length > 0 && onLocalFileDrop) {
+                onLocalFileDrop(files, localX, dropY_Pct, targetPageId);
+                return;
+            }
+        }
+
         const assetData = e.dataTransfer.getData('asset');
         if (!assetData) return;
         try {
             const data = JSON.parse(assetData);
-            const rect = e.currentTarget.getBoundingClientRect();
-            const zoomFactor = zoom || 1;
-            const clickX = e.clientX - rect.left;
-            const clickY = e.clientY - rect.top;
-            const dropX_Pct = (clickX / (rect.width / zoomFactor)) * (nextPage ? 200 : 100);
-            const dropY_Pct = (clickY / (rect.height / zoomFactor)) * 100;
-            let targetPageId = page.id;
-            let localX = dropX_Pct;
-
-            // If dropping on the right side of a spread
-            if (nextPage && dropX_Pct > 100) {
-                // IF the current page is a spread layout, we still target the left page (container for the spread)
-                if (page.isSpreadLayout) {
-                    targetPageId = page.id;
-                    localX = dropX_Pct; // Keep it as 100+ for the spread slots
-                } else {
-                    targetPageId = nextPage.id;
-                    localX = dropX_Pct - 100;
-                }
-            }
-
             const targetPageObj = targetPageId === page.id ? page : nextPage;
             if (targetPageObj) {
                 // 1. Check for placeholders
@@ -528,6 +671,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                                     isSpreadLayout={targetPage.isSpreadLayout}
                                     handleAssetDrop={handleAssetDrop}
                                     onSelect={() => setActiveSlot({ pageId: targetPage.id, index })}
+                                    onLocalFileDrop={onLocalFileDrop}
                                 />
                             );
                         }
@@ -549,7 +693,7 @@ export const EditorCanvas = memo(function EditorCanvas({
 
                         return (
                             <AssetRenderer
-                                key={box.id}
+                                key={box.id || `unified-box-${targetPage.id}-${index}`}
                                 asset={unifiedAsset}
                                 pageId={targetPage.id}
                                 side={targetSide}
@@ -565,7 +709,7 @@ export const EditorCanvas = memo(function EditorCanvas({
                     })}
 
                     {/* 2. Text Layers (Unified) */}
-                    {textLayers.map((layer: any) => {
+                    {textLayers.map((layer: any, index: number) => {
                         const textAsset = {
                             id: layer.id,
                             type: 'text',
@@ -576,12 +720,30 @@ export const EditorCanvas = memo(function EditorCanvas({
                             width: layer.width,
                             height: layer.height,
                             rotation: layer.content?.rotation || 0,
-                            zIndex: layer.zIndex || 50
+                            zIndex: layer.zIndex || 50,
+                            fontFamily: layer.content?.config?.fontFamily || layer.content?.fontFamily || 'Outfit',
+                            fontSize: layer.content?.config?.fontSize || layer.content?.fontSize || 32,
+                            color: layer.content?.config?.color || layer.content?.config?.textColor || layer.content?.color || '#000000',
+                            textColor: layer.content?.config?.color || layer.content?.config?.textColor || layer.content?.color || '#000000',
+                            textAlign: layer.content?.config?.textAlign || layer.content?.textAlign || 'center',
+                            fontWeight: layer.content?.config?.fontWeight || layer.content?.fontWeight || 'normal',
+                            textDecoration: layer.content?.config?.textDecoration || layer.content?.textDecoration || 'none',
+                            fontStyle: layer.content?.config?.fontStyle || layer.content?.fontStyle || 'normal',
+                            letterSpacing: layer.content?.config?.letterSpacing || layer.content?.letterSpacing || 0,
+                            lineHeight: layer.content?.config?.lineHeight || layer.content?.lineHeight || 1.4,
+                            textShadow: layer.content?.config?.textShadow || layer.content?.textShadow || 'none',
+                            textShadowStyle: layer.content?.config?.textShadowStyle || layer.content?.textShadowStyle || 'none',
+                            textBackgroundColor: layer.content?.config?.textBackgroundColor || layer.content?.textBackgroundColor || 'transparent',
+                            textGradient: layer.content?.config?.textGradient || layer.content?.textGradient || 'none',
+                            padding: layer.content?.config?.padding !== undefined ? layer.content.config.padding : (layer.content?.padding !== undefined ? layer.content.padding : 16),
+                            borderWidth: layer.content?.config?.borderWidth || layer.content?.borderWidth,
+                            borderColor: layer.content?.config?.borderColor || layer.content?.borderColor,
+                            borderRadius: layer.content?.config?.borderRadius || layer.content?.borderRadius,
                         } as any;
 
                         return (
                             <AssetRenderer
-                                key={layer.id}
+                                key={layer.id || `text-layer-${targetPage.id}-${index}`}
                                 asset={textAsset}
                                 pageId={targetPage.id}
                                 side={targetSide}
@@ -591,8 +753,8 @@ export const EditorCanvas = memo(function EditorCanvas({
                                 canvasRef={canvasRef}
                                 onClick={(e) => handleAssetClick(layer.id, targetPage.id, e)}
                                 onDoubleClick={() => {
-                                    const el = document.querySelector(`[data-text-asset-id="${layer.id}"]`) as HTMLElement;
-                                    if (el) el.focus();
+                                    setEditingTextId(layer.id);
+                                    setEditingValue((textAsset.content as string) || (textAsset as any).text || '');
                                 }}
                                 onContextMenu={(e) => handleContextMenu(e, layer.id, targetPage.id)}
                                 isInSlot={true}
@@ -612,8 +774,8 @@ export const EditorCanvas = memo(function EditorCanvas({
                             onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
                             onDoubleClick={() => {
                                 if (asset.type === 'text') {
-                                    const el = document.querySelector(`[data-text-asset-id="${asset.id}"]`) as HTMLElement;
-                                    if (el) el.focus();
+                                    setEditingTextId(asset.id);
+                                    setEditingValue((asset.content as string) || (asset as any).text || '');
                                 }
                                 else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
                                 else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
@@ -629,31 +791,42 @@ export const EditorCanvas = memo(function EditorCanvas({
             );
         }
 
-        return [...targetPage.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset: Asset) => (
-            <AssetRenderer
-                key={asset.id}
-                asset={asset}
-                pageId={targetPage.id}
-                side={targetSide}
-                isSelected={selectedAssetId === asset.id}
-                isRearrangeFirst={rearrangeFirstId === asset.id}
-                onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
-                onDoubleClick={() => {
-                    if (asset.type === 'text') {
-                        // Focus the contentEditable div
-                        const el = document.querySelector(`[data-text-asset-id="${asset.id}"]`) as HTMLElement;
-                        if (el) el.focus();
-                    }
-                    else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
-                    else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
-                    else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
-                }}
-                onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)}
-                zoom={zoom}
-                canvasRef={canvasRef}
-                onDrop={(e) => handleAssetDrop(asset.id, targetPage.id, e)}
-            />
-        ));
+        return (
+            <>
+                {[...targetPage.assets].sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0)).map((asset: Asset) => (
+                    <AssetRenderer
+                        key={asset.id}
+                        asset={asset}
+                        pageId={targetPage.id}
+                        side={targetSide}
+                        isSelected={selectedAssetId === asset.id}
+                        isRearrangeFirst={rearrangeFirstId === asset.id}
+                        onClick={(e) => handleAssetClick(asset.id, targetPage.id, e)}
+                        onDoubleClick={() => {
+                            if (asset.type === 'text') {
+                                setEditingTextId(asset.id);
+                                setEditingValue((asset.content as string) || (asset as any).text || '');
+                            }
+                            else if (asset.type === 'map') onOpenMapEditor?.(asset.id);
+                            else if (asset.type === 'location') onOpenLocationEditor?.(asset.id);
+                            else if (asset.type === 'image' || asset.type === 'frame') setFocalEditorAsset({ asset, pageId: targetPage.id });
+                        }}
+                        onContextMenu={(e) => handleContextMenu(e, asset.id, targetPage.id)}
+                        zoom={zoom}
+                        canvasRef={canvasRef}
+                        isEditing={editingTextId === asset.id}
+                        editingValue={editingTextId === asset.id ? editingValue : undefined}
+                        onEditingValueChange={(val) => setEditingValue(val)}
+                        onEditingComplete={() => {
+                            if (editingTextId === asset.id) {
+                                updateAsset(targetPage.id, asset.id, { content: editingValue });
+                                setEditingTextId(null);
+                            }
+                        }}
+                    />
+                ))}
+            </>
+        );
     };
 
     return (
@@ -671,8 +844,8 @@ export const EditorCanvas = memo(function EditorCanvas({
             ref={canvasRef}
         >
             {page.backgroundImage && (
-                <img
-                    src={page.backgroundImage || undefined}
+                <SecureMedia
+                    url={page.backgroundImage || undefined}
                     alt=""
                     className={cn("absolute top-0 bottom-0 pointer-events-none z-0", nextPage ? "left-0 w-1/2" : "inset-0 w-full h-full")}
                     style={{
@@ -683,8 +856,8 @@ export const EditorCanvas = memo(function EditorCanvas({
                 />
             )}
             {nextPage && nextPage.backgroundImage && (
-                <img
-                    src={nextPage.backgroundImage || undefined}
+                <SecureMedia
+                    url={nextPage.backgroundImage || undefined}
                     alt=""
                     className="absolute top-0 bottom-0 left-1/2 w-1/2 pointer-events-none z-0"
                     style={{

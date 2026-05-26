@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils';
 import { type Page, type LayoutBox } from '../../contexts/AlbumContext';
 import { LayoutFrame } from '../shared/LayoutFrame';
 import { mapAssetsToLayoutSlots } from '../../lib/layoutUtils';
+import { SecureMedia } from '../common/SecureMedia';
 
 interface AlbumPageProps {
     page: Page;
@@ -34,10 +35,11 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
 
     // 1. Data Normalization (The "Bridge")
     const normalizedPage = useMemo(() => {
-        const styles = page.pageStyles || {
-            backgroundColor: page.backgroundColor || '#fdfdfd',
-            backgroundOpacity: page.backgroundOpacity ?? 100,
-            backgroundImage: page.backgroundImage
+        const styles = {
+            ...page.pageStyles,
+            backgroundColor: page.backgroundColor || page.pageStyles?.backgroundColor || '#fdfdfd',
+            backgroundOpacity: page.backgroundOpacity ?? page.pageStyles?.backgroundOpacity ?? 1,
+            backgroundImage: page.backgroundImage || page.pageStyles?.backgroundImage
         };
 
         const layoutBoxes: LayoutBox[] = page.layoutConfig || [];
@@ -104,12 +106,12 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
         >
             {/* LAYER 0: Background */}
             {normalizedPage.styles.backgroundImage && (
-                <img
-                    src={normalizedPage.styles.backgroundImage}
+                <SecureMedia
+                    url={normalizedPage.styles.backgroundImage}
                     alt=""
                     className="absolute inset-0 w-full h-full pointer-events-none z-0"
                     style={{
-                        opacity: (normalizedPage.styles.backgroundOpacity || 100) / 100,
+                        opacity: normalizedPage.styles.backgroundOpacity ?? 1,
                         objectFit: page.backgroundScale === 'contain' ? 'contain' : (page.backgroundScale === 'stretch' ? 'fill' : 'cover'),
                         objectPosition: page.backgroundPosition || 'center'
                     }}

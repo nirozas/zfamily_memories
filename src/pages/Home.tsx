@@ -38,7 +38,6 @@ function HomeMediaItem({ item }: { item: any }) {
             alt=""
             className="w-full h-full object-cover grayscale-[0.2] transition-all duration-700 group-hover:grayscale-0 group-hover:scale-110"
             referrerPolicy="no-referrer"
-            crossOrigin="anonymous"
         />
     );
 }

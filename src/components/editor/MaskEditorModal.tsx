@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { X, Check, Grid3X3, ImageIcon, Box, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { Asset } from '../../contexts/AlbumContext';
+import { CloudflareR2Service } from '../../services/cloudflareR2';
+import { useEffect } from 'react';
 
 interface MaskEditorModalProps {
     asset: Asset;
@@ -10,6 +12,26 @@ interface MaskEditorModalProps {
 }
 
 export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEditorModalProps) {
+    const [authorizedUrl, setAuthorizedUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        let isMounted = true;
+        async function loadImage() {
+            let cleanUrl = asset.url;
+            if (CloudflareR2Service.isR2Url(cleanUrl)) {
+                const key = CloudflareR2Service.extractKey(cleanUrl);
+                if (key) {
+                    cleanUrl = await CloudflareR2Service.getAuthorizedUrl(key);
+                }
+            }
+            if (isMounted) {
+                setAuthorizedUrl(cleanUrl);
+            }
+        }
+        loadImage();
+        return () => { isMounted = false; };
+    }, [asset.url]);
+
     const [points, setPoints] = useState(() => {
         if (asset.clipPoints && asset.clipPoints.length > 0) return asset.clipPoints;
         // Default to a 16-point border grid for precision cropping
@@ -116,7 +138,7 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
                             {/* Base Media (Ghosted Full Dimensions) */}
                             {asset.type === 'video' ? (
                                 <video
-                                    src={asset.url}
+                                    src={authorizedUrl || asset.url}
                                     className="absolute inset-0 w-full h-full object-contain opacity-20 filter grayscale blur-[1px]"
                                     muted
                                     playsInline
@@ -125,7 +147,7 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
                                 />
                             ) : (
                                 <img
-                                    src={asset.url}
+                                    src={authorizedUrl || asset.url}
                                     alt=""
                                     className="absolute inset-0 w-full h-full object-contain opacity-20 filter grayscale blur-[1px]"
                                     draggable={false}
@@ -135,7 +157,7 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
                             {/* Clipped Media (Selection) */}
                             {asset.type === 'video' ? (
                                 <video
-                                    src={asset.url}
+                                    src={authorizedUrl || asset.url}
                                     className="relative w-full h-full object-contain transition-opacity duration-300 shadow-2xl z-20"
                                     style={{ clipPath: getClipPath() }}
                                     muted
@@ -145,7 +167,7 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
                                 />
                             ) : (
                                 <img
-                                    src={asset.url}
+                                    src={authorizedUrl || asset.url}
                                     alt=""
                                     className="relative w-full h-full object-contain transition-opacity duration-300 shadow-2xl z-20"
                                     style={{ clipPath: getClipPath() }}

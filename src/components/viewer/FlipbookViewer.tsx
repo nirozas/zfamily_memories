@@ -42,144 +42,180 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             const rightPage = newPages[i + 1];
             if (!rightPage) break;
 
-            // Only process spread pages
-            if (!leftPage.isSpreadLayout) continue;
+            const isSpread = leftPage.isSpreadLayout;
 
             // ═══════════════════════════════════════════════════════════════════
-            // THE CORE MATH:
-            // Spread layout boxes are stored in 0-100% of the FULL SPREAD width.
-            // e.g., a box at left:25, width:50 sits in the center of the spread.
-            // AlbumPage renders in 0-100% of ONE page (= half the spread).
-            // So we must DOUBLE all horizontal coordinates:
-            //   left:25, width:50  → scaled left:50, width:100 → spans left page right half to right page left half
-            //   left:0,  width:50  → scaled left:0,  width:100 → fills entire left page
-            //   left:50, width:50  → scaled left:100, width:100 → fills entire right page
+            // COORDINATE SYSTEMS:
+            //
+            // 1. layoutConfig boxes & textLayers (isInSlot=true in editor):
+            //    Stored in 0-50% "half-spread" coordinates.
+            //    Need *2 to convert to 0-100% single-page space.
+            //
+            // 2. Freeform assets (isInSlot=false in editor):
+            //    Stored in 0-100% single-page coordinates.
+            //    NO scaling needed. But cross-page spillover is needed
+            //    when an asset is dragged past the page boundary.
             // ═══════════════════════════════════════════════════════════════════
 
             // ── STEP 1: BACKGROUND BLEEDING ───────────────────────────────────
-            if (leftPage.backgroundImage && !rightPage.backgroundImage) {
+            if (isSpread && leftPage.backgroundImage && !rightPage.backgroundImage) {
                 rightPage.backgroundImage = leftPage.backgroundImage;
                 rightPage.backgroundColor = leftPage.backgroundColor;
                 rightPage.backgroundOpacity = leftPage.backgroundOpacity;
                 rightPage.backgroundScale = leftPage.backgroundScale || 'cover';
             }
 
-            // ── STEP 2: LAYOUT CONFIG — scale and split ────────────────────────
-            const leftBoxes: any[] = [];
-            const rightBoxes: any[] = [];
-            const leftSlotMap = new Map<number, number>();
-            const rightSlotMap = new Map<number, number>();
+            // ── STEP 2: LAYOUT CONFIG — scale (*2) and split (spread only) ────
+            if (isSpread) {
+                const leftBoxes: any[] = [];
+                const rightBoxes: any[] = [];
+                const leftSlotMap = new Map<number, number>();
+                const rightSlotMap = new Map<number, number>();
 
-            (leftPage.layoutConfig || []).forEach((box: any, originalIdx: number) => {
-                if (!box) return;
-                const scaledLeft  = (box.left ?? box.x ?? 0) * 2;    // 0-100 spread% → 0-200 page%
-                const scaledWidth = (box.width ?? 100) * 2;
+                (leftPage.layoutConfig || []).forEach((box: any, originalIdx: number) => {
+                    if (!box) return;
+                    const scaledLeft  = (box.left ?? box.x ?? 0) * 2;
+                    const scaledWidth = (box.width ?? 100) * 2;
 
-                // Does this box appear on the left page? (its left edge is < 100%)
-                if (scaledLeft < 100) {
-                    leftBoxes.push({
-                        ...box,
-                        left: scaledLeft,
-                        top: box.top ?? box.y ?? 0,
-                        width: scaledWidth, // Do not truncate, let page overflow hidden mask it. Preserves aspect ratio.
-                        _originalIdx: originalIdx,
-                        _scaledLeft: scaledLeft,
-                        _scaledWidth: scaledWidth,
-                    });
-                    leftSlotMap.set(originalIdx, leftBoxes.length - 1);
-                }
-
-                // Does this box also appear on the right page? (its right edge > 100%)
-                if (scaledLeft + scaledWidth > 100) {
-                    rightBoxes.push({
-                        ...box,
-                        id: `spill-${box.id || originalIdx}`,
-                        left: scaledLeft - 100, // Shift coordinates for right page
-                        top: box.top ?? box.y ?? 0,
-                        width: scaledWidth, // Do not truncate
-                        _originalIdx: originalIdx,
-                    });
-                    rightSlotMap.set(originalIdx, rightBoxes.length - 1);
-                }
-            });
-
-            leftPage.layoutConfig  = leftBoxes;
-            rightPage.layoutConfig = rightBoxes;
-
-            // ── STEP 3: ASSETS — route to the page that owns their slot ────────
-            const leftAssets:  any[] = [];
-            const rightAssets: any[] = [];
-
-            (leftPage.assets || []).forEach((asset: any) => {
-                if (asset.slotId === undefined || asset.slotId === null) {
-                    // Freeform asset - scale and split identical to layout boxes
-                    const scaledLeft = (asset.x ?? 0) * 2;
-                    const scaledWidth = (asset.width ?? 100) * 2;
-                    
                     if (scaledLeft < 100) {
-                        leftAssets.push({
+                        leftBoxes.push({
+                            ...box,
+                            left: scaledLeft,
+                            top: box.top ?? box.y ?? 0,
+                            width: scaledWidth,
+                            _originalIdx: originalIdx,
+                            _scaledLeft: scaledLeft,
+                            _scaledWidth: scaledWidth,
+                        });
+                        leftSlotMap.set(originalIdx, leftBoxes.length - 1);
+                    }
+
+                    if (scaledLeft + scaledWidth > 100) {
+                        rightBoxes.push({
+                            ...box,
+                            id: `spill-${box.id || originalIdx}`,
+                            left: scaledLeft - 100,
+                            top: box.top ?? box.y ?? 0,
+                            width: scaledWidth,
+                            _originalIdx: originalIdx,
+                        });
+                        rightSlotMap.set(originalIdx, rightBoxes.length - 1);
+                    }
+                });
+
+                leftPage.layoutConfig = leftBoxes;
+                rightPage.layoutConfig = [...(rightPage.layoutConfig || []), ...rightBoxes];
+
+                // Route slotted assets to the correct page
+                const leftSlotAssets: any[] = [];
+                const rightSlotAssets: any[] = [];
+                (leftPage.assets || []).forEach((asset: any) => {
+                    if (asset.slotId !== undefined && asset.slotId !== null) {
+                        if (leftSlotMap.has(asset.slotId)) {
+                            leftSlotAssets.push({ ...asset, slotId: leftSlotMap.get(asset.slotId) });
+                        }
+                        if (rightSlotMap.has(asset.slotId)) {
+                            rightSlotAssets.push({ ...asset, id: `spill-${asset.id}`, slotId: rightSlotMap.get(asset.slotId) });
+                        }
+                    }
+                });
+                // Keep only freeform assets on each page, add routed slot assets
+                const leftFreeform = (leftPage.assets || []).filter((a: any) => a.slotId === undefined || a.slotId === null);
+                leftPage.assets = [...leftFreeform, ...leftSlotAssets];
+                rightPage.assets = [...(rightPage.assets || []), ...rightSlotAssets];
+            }
+
+            // ── STEP 3: FREEFORM ASSETS — cross-page spillover (both modes) ──
+            {
+                const leftSpill: any[] = [];
+                const rightSpill: any[] = [];
+
+                // Left-page freeform assets that overflow right
+                (leftPage.assets || []).forEach((asset: any) => {
+                    if (asset.slotId !== undefined && asset.slotId !== null) return;
+                    const ax = asset.x ?? 0;
+                    const aw = asset.width ?? 100;
+                    if (ax + aw > 100) {
+                        rightSpill.push({
                             ...asset,
-                            x: scaledLeft,
+                            id: `spill-${asset.id}`,
+                            x: ax - 100,
+                            width: aw
+                        });
+                    }
+                });
+
+                // Right-page freeform assets that overflow left
+                (rightPage.assets || []).forEach((asset: any) => {
+                    if (asset.slotId !== undefined && asset.slotId !== null) return;
+                    const ax = asset.x ?? 0;
+                    const aw = asset.width ?? 100;
+                    if (ax < 0) {
+                        leftSpill.push({
+                            ...asset,
+                            id: `spill-left-${asset.id}`,
+                            x: ax + 100,
+                            width: aw
+                        });
+                    }
+                });
+
+                if (leftSpill.length > 0) leftPage.assets = [...(leftPage.assets || []), ...leftSpill];
+                if (rightSpill.length > 0) rightPage.assets = [...(rightPage.assets || []), ...rightSpill];
+            }
+
+            // ── STEP 4: TEXT LAYERS — scale (*2) and split ─────────────────────
+            {
+                const leftText:  any[] = [];
+                const rightText: any[] = [];
+
+                // Left-page text layers: scale *2 (half-spread → page coords) and split
+                (leftPage.textLayers || []).forEach((layer: any) => {
+                    const scaledLeft  = (layer.left ?? layer.x ?? 0) * 2;
+                    const scaledWidth = (layer.width ?? 0) * 2;
+
+                    if (scaledLeft < 100) {
+                        leftText.push({
+                            ...layer,
+                            left: scaledLeft,
                             width: scaledWidth
                         });
                     }
                     if (scaledLeft + scaledWidth > 100) {
-                        rightAssets.push({
-                            ...asset,
-                            id: `spill-${asset.id}`,
-                            x: scaledLeft - 100,
+                        rightText.push({
+                            ...layer,
+                            id: `spill-${layer.id}`,
+                            left: scaledLeft - 100,
                             width: scaledWidth
                         });
                     }
-                    return;
-                }
+                });
 
-                // Slotted asset 
-                if (leftSlotMap.has(asset.slotId)) {
-                    leftAssets.push({
-                        ...asset,
-                        slotId: leftSlotMap.get(asset.slotId)
-                    });
-                }
-                if (rightSlotMap.has(asset.slotId)) {
-                    rightAssets.push({
-                        ...asset,
-                        id: `spill-${asset.id}`,
-                        slotId: rightSlotMap.get(asset.slotId)
-                    });
-                }
-            });
+                // Right-page text layers: scale *2 and split
+                (rightPage.textLayers || []).forEach((layer: any) => {
+                    const scaledLeft  = (layer.left ?? layer.x ?? 0) * 2;
+                    const scaledWidth = (layer.width ?? 0) * 2;
 
-            leftPage.assets  = leftAssets;
-            rightPage.assets = rightAssets;
+                    if (scaledLeft < 100) {
+                        rightText.push({
+                            ...layer,
+                            left: scaledLeft,
+                            width: scaledWidth
+                        });
+                    }
+                    if (scaledLeft + scaledWidth > 100) {
+                        // Spills further right — no more pages, just include on right
+                        rightText.push({
+                            ...layer,
+                            left: scaledLeft,
+                            width: scaledWidth
+                        });
+                    }
+                });
 
-            // ── STEP 4: TEXT LAYERS — scale and split ─────────────────────────
-            const leftText:  any[] = [];
-            const rightText: any[] = [];
-
-            (leftPage.textLayers || []).forEach((layer: any) => {
-                const scaledLeft  = (layer.left ?? layer.x ?? 0) * 2;
-                const scaledWidth = (layer.width ?? 0) * 2;
-
-                if (scaledLeft < 100) {
-                    leftText.push({ 
-                        ...layer, 
-                        left: scaledLeft, 
-                        width: scaledWidth 
-                    });
-                }
-                if (scaledLeft + scaledWidth > 100) {
-                    rightText.push({
-                        ...layer,
-                        id: `spill-${layer.id}`,
-                        left: scaledLeft - 100,
-                        width: scaledWidth
-                    });
-                }
-            });
-
-            leftPage.textLayers  = leftText;
-            rightPage.textLayers = rightText;
+                leftPage.textLayers = leftText;
+                rightPage.textLayers = rightText;
+            }
         }
         return newPages;
     }, [pages]);
@@ -207,7 +243,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             const bookH = dimensions.height;
 
             const zoomW = (containerW - 80) / bookW;
-            const zoomH = (containerH - 120) / bookH;
+            const zoomH = (containerH - 80) / bookH;
 
             const initialZoom = Math.max(0.2, Math.min(zoomW, zoomH, 1.2));
             setZoom(initialZoom);
@@ -309,9 +345,9 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
 
     return (
         <div className={cn(
-            "fixed inset-0 z-[100] flex flex-col transition-all duration-500",
+            "fixed inset-0 z-[100] transition-all duration-500 overflow-hidden flex items-center justify-center",
             "bg-[#000000]",
-            isFullscreen ? "p-0" : "p-4 md:p-8",
+            isFullscreen ? "p-0" : "p-0 md:p-0",
             "flipbook-viewer",
             isTheaterMode && "theater-active"
         )}>
@@ -320,29 +356,29 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 <source src={FLIP_SOUND_URL} type="audio/mpeg" />
             </audio>
 
-            <header className="flex items-center justify-between h-16 px-6 text-white z-[110] bg-black/50 backdrop-blur-md">
-                <div className="flex items-center gap-4">
-                    <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                        <X className="w-6 h-6" />
+            <header className="absolute top-4 left-4 flex items-center gap-2 py-1.5 px-2 text-white z-[110] bg-black/60 backdrop-blur-md rounded-lg border border-white/10 shadow-lg">
+                <div className="flex items-center gap-2 border-r border-white/10 pr-2">
+                    <button onClick={onClose} className="p-1 hover:bg-white/10 rounded-full transition-colors" title="Close Viewer">
+                        <X className="w-4 h-4" />
                     </button>
                     <div>
-                        <h2 className="font-serif text-xl tracking-tight leading-none mb-1 text-gray-100">{title}</h2>
-                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-sans">
-                            Page {currentPageIndex + 1} of {pages.length}
+                        <h2 className="font-serif text-xs tracking-tight leading-none mb-0.5 text-gray-100 truncate max-w-[120px]">{title}</h2>
+                        <p className="text-[8px] uppercase tracking-[0.1em] text-white/40 font-sans">
+                            {currentPageIndex + 1} / {pages.length}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
                     <div className="relative">
                         <Button
                             variant="primary"
                             size="sm"
                             onClick={() => setShowExportMenu(!showExportMenu)}
-                            className="bg-catalog-accent hover:bg-catalog-accent/90 gap-2 shadow-lg shadow-catalog-accent/20 border border-white/10"
+                            className="bg-catalog-accent hover:bg-catalog-accent/90 gap-1 shadow-md h-6 px-2 text-[9px] rounded uppercase tracking-wider"
                         >
-                            <Download className="w-4 h-4" />
-                            {isExporting ? 'Exporting...' : 'Export'}
+                            <Download className="w-3 h-3" />
+                            {isExporting ? '...' : 'Export'}
                         </Button>
 
                         <AnimatePresence>
@@ -351,18 +387,18 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                                     initial={{ opacity: 0, y: 10, scale: 0.95 }}
                                     animate={{ opacity: 1, y: 0, scale: 1 }}
                                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    className="absolute right-0 mt-2 w-56 bg-zinc-900 rounded-xl shadow-2xl border border-white/10 py-2 overflow-hidden z-[120]"
+                                    className="absolute left-0 mt-2 w-48 bg-zinc-900 rounded-xl shadow-2xl border border-white/10 py-2 overflow-hidden z-[120]"
                                 >
-                                    <div className="px-4 py-2 border-b border-white/5 mb-2">
-                                        <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Select Quality</p>
+                                    <div className="px-3 py-1.5 border-b border-white/5 mb-1">
+                                        <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">Select Quality</p>
                                     </div>
-                                    <div className="flex px-2 gap-1 mb-2">
+                                    <div className="flex px-2 gap-1 mb-1">
                                         {[300, 450, 600].map((dpi) => (
                                             <button
                                                 key={dpi}
                                                 onClick={() => setExportDpi(dpi as any)}
                                                 className={cn(
-                                                    "flex-1 py-1 text-[10px] font-bold rounded-md transition-all",
+                                                    "flex-1 py-1 text-[9px] font-bold rounded transition-all",
                                                     exportDpi === dpi ? "bg-catalog-accent text-white" : "hover:bg-white/10 text-white/60"
                                                 )}
                                             >
@@ -380,12 +416,11 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                                             await printService.exportToPDF(validRefs, title || 'Family_Album', scaleFactor);
                                             setIsExporting(false);
                                         }}
-                                        className="w-full px-4 py-2 hover:bg-white/5 flex items-center gap-3 text-white text-left transition-colors"
+                                        className="w-full px-3 py-1.5 hover:bg-white/5 flex items-center gap-2 text-white text-left transition-colors"
                                     >
-                                        <FileText className="w-4 h-4 text-red-400" />
+                                        <FileText className="w-3 h-3 text-red-400" />
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-medium">Interactive PDF</span>
-                                            <span className="text-[10px] text-white/40">Visual fidelity</span>
+                                            <span className="text-xs font-medium">Interactive PDF</span>
                                         </div>
                                     </button>
                                     <button
@@ -393,12 +428,11 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                                             setShowExportMenu(false);
                                             await printService.exportToHTML5({ title, pages });
                                         }}
-                                        className="w-full px-4 py-2 hover:bg-white/5 flex items-center gap-3 text-white text-left transition-colors"
+                                        className="w-full px-3 py-1.5 hover:bg-white/5 flex items-center gap-2 text-white text-left transition-colors"
                                     >
-                                        <Globe className="w-4 h-4 text-blue-400" />
+                                        <Globe className="w-3 h-3 text-blue-400" />
                                         <div className="flex flex-col">
-                                            <span className="text-sm font-medium">HTML5 Bundle</span>
-                                            <span className="text-[10px] text-white/40">Offline interactive</span>
+                                            <span className="text-xs font-medium">HTML5 Bundle</span>
                                         </div>
                                     </button>
                                 </motion.div>
@@ -408,15 +442,16 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
 
                     <button
                         onClick={() => setIsFullscreen(!isFullscreen)}
-                        className="p-2 hover:bg-white/10 rounded-full transition-colors text-white"
+                        className="p-1 hover:bg-white/10 rounded-full transition-colors text-white"
+                        title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
                     >
-                        {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                        {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
                     </button>
                 </div>
             </header>
 
             <div id="flipbook-container" className={cn(
-                "flex-1 flex items-center justify-center p-4 overflow-visible relative min-h-0",
+                "absolute inset-0 overflow-visible",
                 isTheaterMode && "album-canvas pointer-events-none opacity-50"
             )}>
                 <div
@@ -485,45 +520,45 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 </div>
             </div>
 
-            <footer className="h-14 flex items-center justify-between px-6 text-white/60 bg-black/20 backdrop-blur-sm border-t border-white/5">
-                <div className="flex items-center gap-4">
-                    <button onClick={goToPrev} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-all hover:scale-110 active:scale-95">
-                        <ChevronLeft className="w-5 h-5 text-gray-200" />
+            <footer className="absolute bottom-4 left-4 flex flex-col items-start gap-2 py-2 px-2 text-white/60 bg-black/60 backdrop-blur-md rounded-lg border border-white/10 shadow-lg z-[110]">
+                <div className="flex items-center gap-1">
+                    <button onClick={goToPrev} className="p-1 rounded bg-white/5 hover:bg-white/10 transition-all">
+                        <ChevronLeft className="w-4 h-4 text-gray-200" />
                     </button>
-                    <div className="flex items-center bg-white/5 rounded-full px-4 py-1.5 gap-3 border border-white/5">
-                        <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="text-lg font-bold hover:text-white transition-colors w-6">-</button>
-                        <span className="text-sm font-bold tracking-wider min-w-[50px] text-center text-white">{Math.round(zoom * 100)}%</span>
-                        <button onClick={() => setZoom(z => Math.min(2.5, z + 0.1))} className="text-lg font-bold hover:text-white transition-colors w-6">+</button>
+                    <div className="flex items-center bg-white/5 rounded px-2 py-0.5 gap-1 border border-white/5">
+                        <button onClick={() => setZoom(z => Math.max(0.3, z - 0.1))} className="text-xs font-bold hover:text-white w-3">-</button>
+                        <span className="text-[10px] font-bold tracking-wider min-w-[30px] text-center text-white">{Math.round(zoom * 100)}%</span>
+                        <button onClick={() => setZoom(z => Math.min(2.5, z + 0.1))} className="text-xs font-bold hover:text-white w-3">+</button>
                     </div>
-                    <button onClick={goToNext} className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-all hover:scale-110 active:scale-95">
-                        <ChevronRight className="w-5 h-5 text-gray-200" />
+                    <button onClick={goToNext} className="p-1 rounded bg-white/5 hover:bg-white/10 transition-all">
+                        <ChevronRight className="w-4 h-4 text-gray-200" />
                     </button>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    <button
-                        onClick={() => setShowPageNumbers(!showPageNumbers)}
-                        className={cn(
-                            "p-2 rounded-full transition-all flex items-center gap-2 px-3",
-                            showPageNumbers ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
-                        )}
-                        title="Toggle Page Numbers"
-                    >
-                        <BookOpen className="w-4 h-4" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">Numbers</span>
-                    </button>
+                <div className="flex items-center gap-1 w-full justify-between">
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setShowPageNumbers(!showPageNumbers)}
+                            className={cn(
+                                "p-1.5 rounded transition-all",
+                                showPageNumbers ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
+                            )}
+                            title="Toggle Page Numbers"
+                        >
+                            <BookOpen className="w-3 h-3" />
+                        </button>
 
-                    <button
-                        onClick={() => setShowShadows(!showShadows)}
-                        className={cn(
-                            "p-2 rounded-full transition-all flex items-center gap-2 px-3",
-                            showShadows ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
-                        )}
-                        title="Toggle Shadows"
-                    >
-                        <Moon className="w-4 h-4" />
-                        <span className="text-[10px] font-bold uppercase tracking-widest hidden sm:inline">Shadows</span>
-                    </button>
+                        <button
+                            onClick={() => setShowShadows(!showShadows)}
+                            className={cn(
+                                "p-1.5 rounded transition-all",
+                                showShadows ? "bg-catalog-accent text-white" : "bg-white/5 text-gray-400 hover:bg-white/10"
+                            )}
+                            title="Toggle Shadows"
+                        >
+                            <Moon className="w-3 h-3" />
+                        </button>
+                    </div>
 
                     <button
                         onClick={() => {
@@ -532,17 +567,14 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                             const { width: containerW, height: containerH } = container.getBoundingClientRect();
                             const bookW = isMobile ? dimensions.width : dimensions.width * 2;
                             const bookH = dimensions.height;
-                            const zoomW = (containerW - 100) / bookW;
-                            const zoomH = (containerH - 100) / bookH;
+                            const zoomW = (containerW - 80) / bookW;
+                            const zoomH = (containerH - 80) / bookH;
                             setZoom(Math.max(0.2, Math.min(zoomW, zoomH, 1.5)));
                         }}
-                        className="px-3 py-1 text-[10px] font-semibold uppercase tracking-widest bg-white/5 hover:bg-white/10 rounded-full transition-colors text-gray-300"
+                        className="px-2 py-1 text-[9px] font-semibold uppercase bg-white/5 hover:bg-white/10 rounded transition-colors text-gray-300 ml-2"
                     >
-                        Fit to Screen
+                        Fit
                     </button>
-                    <div className="hidden md:block text-[9px] font-medium tracking-[0.2em] uppercase opacity-40 text-gray-400">
-                        Arrows to Flip • +/- to Zoom
-                    </div>
                 </div>
             </footer>
 

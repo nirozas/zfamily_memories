@@ -93,8 +93,10 @@ export function unifiedAssetToContextAsset(unifiedAsset: UnifiedAsset): Asset {
  * Convert UnifiedPage to context Page
  */
 export function unifiedPageToContextPage(unifiedPage: UnifiedPage, pageId: string): Page {
-    // Convert assets
-    const assets = unifiedPage.assets.map(unifiedAssetToContextAsset);
+    // Convert assets (excluding text type to prevent duplication)
+    const assets = unifiedPage.assets
+        .filter(a => a.type !== 'text')
+        .map(unifiedAssetToContextAsset);
 
     // Build layoutConfig from slotted assets
     const layoutConfig: LayoutBox[] = unifiedPage.layoutSlots?.map((slot) => {
@@ -148,6 +150,27 @@ export function unifiedPageToContextPage(unifiedPage: UnifiedPage, pageId: strin
                 textAlign: textAsset.config.textAlign as any,
                 fontWeight: textAsset.config.fontWeight as any,
                 rotation: textAsset.transform.rotation,
+                config: {
+                    ...textAsset.config,
+                    fontSize: textAsset.config.fontSize,
+                    fontFamily: textAsset.config.fontFamily,
+                    color: textAsset.config.color,
+                    textColor: textAsset.config.color,
+                    textAlign: textAsset.config.textAlign,
+                    fontWeight: textAsset.config.fontWeight,
+                    textDecoration: textAsset.config.textDecoration,
+                    fontStyle: textAsset.config.fontStyle,
+                    letterSpacing: textAsset.config.letterSpacing,
+                    lineHeight: textAsset.config.lineHeight,
+                    textShadow: textAsset.config.textShadow,
+                    textShadowStyle: textAsset.config.textShadowStyle,
+                    textBackgroundColor: textAsset.config.textBackgroundColor,
+                    textGradient: textAsset.config.textGradient,
+                    padding: textAsset.config.padding,
+                    borderWidth: textAsset.config.borderWidth,
+                    borderColor: textAsset.config.borderColor,
+                    borderRadius: textAsset.config.borderRadius,
+                }
             },
         }));
 
@@ -160,6 +183,8 @@ export function unifiedPageToContextPage(unifiedPage: UnifiedPage, pageId: strin
         backgroundColor: unifiedPage.background.color || '#ffffff',
         backgroundOpacity: unifiedPage.background.opacity,
         backgroundImage: unifiedPage.background.imageUrl,
+        backgroundScale: unifiedPage.background.imageScale as 'cover' | 'contain' | 'stretch' | undefined,
+        backgroundPosition: unifiedPage.background.imagePosition as 'top' | 'center' | 'bottom' | undefined,
         textLayers,
         isSpreadLayout: unifiedPage.isSpreadLayout,
         pageStyles: {
@@ -316,12 +341,24 @@ export function contextPageToUnifiedPage(page: Page): UnifiedPage {
                     locked: false,
                     visible: true,
                     config: {
-                        content: textLayer.content?.text,
-                        fontSize: textLayer.content?.fontSize,
-                        fontFamily: textLayer.content?.fontFamily,
-                        color: textLayer.content?.color,
-                        textAlign: (textLayer.content?.textAlign === 'justify' ? 'left' : textLayer.content?.textAlign) as any,
-                        fontWeight: textLayer.content?.fontWeight as any,
+                        content: textLayer.content?.text || (textLayer.content as any)?.config?.content,
+                        fontSize: (textLayer.content as any)?.config?.fontSize || (textLayer.content as any)?.fontSize,
+                        fontFamily: (textLayer.content as any)?.config?.fontFamily || (textLayer.content as any)?.fontFamily,
+                        color: (textLayer.content as any)?.config?.color || (textLayer.content as any)?.config?.textColor || (textLayer.content as any)?.color,
+                        textAlign: ((textLayer.content as any)?.config?.textAlign || (textLayer.content as any)?.textAlign || 'center') as any,
+                        fontWeight: (textLayer.content as any)?.config?.fontWeight || (textLayer.content as any)?.fontWeight as any,
+                        textDecoration: (textLayer.content as any)?.config?.textDecoration || (textLayer.content as any)?.textDecoration,
+                        fontStyle: (textLayer.content as any)?.config?.fontStyle || (textLayer.content as any)?.fontStyle,
+                        letterSpacing: (textLayer.content as any)?.config?.letterSpacing || (textLayer.content as any)?.letterSpacing,
+                        lineHeight: (textLayer.content as any)?.config?.lineHeight || (textLayer.content as any)?.lineHeight,
+                        textShadow: (textLayer.content as any)?.config?.textShadow || (textLayer.content as any)?.textShadow,
+                        textShadowStyle: (textLayer.content as any)?.config?.textShadowStyle || (textLayer.content as any)?.textShadowStyle,
+                        textBackgroundColor: (textLayer.content as any)?.config?.textBackgroundColor || (textLayer.content as any)?.textBackgroundColor,
+                        textGradient: (textLayer.content as any)?.config?.textGradient || (textLayer.content as any)?.textGradient,
+                        padding: (textLayer.content as any)?.config?.padding || (textLayer.content as any)?.padding,
+                        borderWidth: (textLayer.content as any)?.config?.borderWidth || (textLayer.content as any)?.borderWidth,
+                        borderColor: (textLayer.content as any)?.config?.borderColor || (textLayer.content as any)?.borderColor,
+                        borderRadius: (textLayer.content as any)?.config?.borderRadius || (textLayer.content as any)?.borderRadius,
                     },
                 });
             }
@@ -330,13 +367,13 @@ export function contextPageToUnifiedPage(page: Page): UnifiedPage {
 
     // Build background config
     const background: BackgroundConfig = {
-        type: page.backgroundImage ? 'image' : 'color',
-        color: page.pageStyles?.backgroundColor || page.backgroundColor,
-        imageUrl: page.pageStyles?.backgroundImage || page.backgroundImage,
-        opacity: page.pageStyles?.backgroundOpacity ?? page.backgroundOpacity ?? 1,
+        type: page.backgroundImage || page.pageStyles?.backgroundImage ? 'image' : 'color',
+        color: page.backgroundColor || page.pageStyles?.backgroundColor || '#ffffff',
+        imageUrl: page.backgroundImage || page.pageStyles?.backgroundImage,
+        opacity: page.backgroundOpacity ?? page.pageStyles?.backgroundOpacity ?? 1,
         blendMode: page.pageStyles?.backgroundBlendMode as any,
-        imageScale: 'cover',
-        imagePosition: 'center',
+        imageScale: page.backgroundScale || 'cover',
+        imagePosition: page.backgroundPosition || 'center',
     };
 
     // Build layout slots from layoutConfig

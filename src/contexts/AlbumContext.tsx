@@ -70,6 +70,10 @@ export interface Asset {
     textBackgroundColor?: string;
     textShadow?: string;
     color?: string; // Unified color property
+    fontStyle?: string;
+    padding?: number;
+    textShadowStyle?: string;
+    textGradient?: string;
 
     // Borders & Appearance
     borderRadius?: number;
@@ -242,7 +246,7 @@ interface AlbumContextType {
     album: Album | null;
     currentPageIndex: number;
     selectedAssetId: string | null;
-    setAlbum: (album: Album) => void;
+    setAlbum: (newAlbum: Album | null | ((prev: Album | null) => Album | null), options?: { skipHistory?: boolean }) => void;
     setCurrentPageIndex: (index: number) => void;
     setSelectedAssetId: (id: string | null) => void;
     addPage: (template?: Page['layoutTemplate'], atIndex?: number) => void;
@@ -414,7 +418,26 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         if (!album || album.config.isLocked) return;
         setAlbum({
             ...album,
-            pages: album.pages.map(p => p.id === pageId ? { ...p, ...updates } : p),
+            pages: album.pages.map(p => {
+                if (p.id !== pageId) return p;
+                
+                const updatedPage = { ...p, ...updates };
+                
+                // Sync top-level styles to nested pageStyles
+                if (updates.backgroundColor !== undefined || updates.backgroundOpacity !== undefined || updates.backgroundImage !== undefined || updates.backgroundScale !== undefined || updates.backgroundPosition !== undefined) {
+                    updatedPage.pageStyles = {
+                        ...(updatedPage.pageStyles || {
+                            backgroundColor: '#ffffff',
+                            backgroundOpacity: 1,
+                        }),
+                        ...(updates.backgroundColor !== undefined && { backgroundColor: updates.backgroundColor }),
+                        ...(updates.backgroundOpacity !== undefined && { backgroundOpacity: updates.backgroundOpacity }),
+                        ...(updates.backgroundImage !== undefined && { backgroundImage: updates.backgroundImage }),
+                    };
+                }
+                
+                return updatedPage;
+            }),
             updatedAt: new Date(),
         });
     }, [album]);
@@ -473,15 +496,55 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
 
     const addAsset = useCallback((pageId: string, asset: Omit<Asset, 'id'>) => {
         if (!album || album.config.isLocked) return;
-        const newAsset: Asset = { ...asset, id: generateId() };
-        setAlbum({
-            ...album,
-            pages: album.pages.map(p =>
-                p.id === pageId ? { ...p, assets: [...p.assets, newAsset] } : p
-            ),
-            updatedAt: new Date(),
+        const newAssetId = generateId();
+        setAlbum(prev => {
+            if (!prev) return null;
+            return {
+                ...prev,
+                pages: prev.pages.map(p => {
+                    if (p.id !== pageId) return p;
+
+                    if (asset.type === 'text') {
+                        const newTextLayer: any = {
+                            id: newAssetId,
+                            role: 'text',
+                            left: asset.x,
+                            top: asset.y,
+                            width: asset.width,
+                            height: asset.height,
+                            zIndex: asset.zIndex || 50,
+                            content: {
+                                type: 'text',
+                                text: asset.content || 'Your story here...',
+                                rotation: asset.rotation || 0,
+                                config: {
+                                    fontSize: asset.fontSize || 32,
+                                    fontFamily: asset.fontFamily || 'Outfit',
+                                    color: asset.textColor || asset.color || '#000000',
+                                    textColor: asset.textColor || asset.color || '#000000',
+                                    textAlign: asset.textAlign || 'center',
+                                    fontWeight: asset.fontWeight || 'normal',
+                                    textDecoration: asset.textDecoration || 'none',
+                                    fontStyle: asset.fontStyle || 'normal',
+                                }
+                            }
+                        };
+                        return {
+                            ...p,
+                            textLayers: [...(p.textLayers || []), newTextLayer]
+                        };
+                    } else {
+                        const newAsset: Asset = { ...asset, id: newAssetId } as any;
+                        return {
+                            ...p,
+                            assets: [...p.assets, newAsset]
+                        };
+                    }
+                }),
+                updatedAt: new Date(),
+            };
         });
-        setSelectedAssetId(newAsset.id);
+        setSelectedAssetId(newAssetId);
     }, [album]);
 
     const updateAsset = useCallback((pageId: string, assetId: string, updates: any, options?: { skipHistory?: boolean }) => {
@@ -552,7 +615,11 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         setAlbum({
             ...album,
             pages: album.pages.map(p =>
-                p.id === pageId ? { ...p, assets: p.assets.filter(a => a.id !== assetId) } : p
+                p.id === pageId ? { 
+                    ...p, 
+                    assets: p.assets.filter(a => a.id !== assetId),
+                    textLayers: (p.textLayers || []).filter(l => l.id !== assetId)
+                } : p
             ),
             updatedAt: new Date(),
         });
@@ -1136,7 +1203,11 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                                 return {
                                     ...p,
                                     layoutTemplate: layout.name,
-                                    layoutConfig: typeof layout.config === 'string' ? JSON.parse(layout.config) : layout.config,
+                                    layoutConfig: (typeof layout.config === 'string' ? JSON.parse(layout.config) : layout.config).map((box: any, idx: number) => ({
+                                        ...box,
+                                        role: box.role || 'slot',
+                                        id: box.id || `slot-${idx}`
+                                    })),
                                     assets: updatedAssets,
                                     isSpreadLayout: true
                                 };
@@ -1171,7 +1242,11 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
                 pages: prev.pages.map(p => p.id === pageId ? {
                     ...p,
                     layoutTemplate: layout.name,
-                    layoutConfig: typeof layout.config === 'string' ? JSON.parse(layout.config) : layout.config,
+                    layoutConfig: (typeof layout.config === 'string' ? JSON.parse(layout.config) : layout.config).map((box: any, idx: number) => ({
+                        ...box,
+                        role: box.role || 'slot',
+                        id: box.id || `slot-${idx}`
+                    })),
                     assets: updatedAssets,
                     isSpreadLayout: false
                 } : p),

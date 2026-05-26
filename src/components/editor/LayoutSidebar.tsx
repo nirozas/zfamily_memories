@@ -127,12 +127,12 @@ export function LayoutSidebar({ activePageId }: LayoutSidebarProps) {
 
         if (filterCount !== 'all') {
             const count = layout.image_count;
-            if (filterCount === '1' && count !== 1) return false;
-            if (filterCount === '2' && count !== 2) return false;
-            if (filterCount === '3' && count !== 3) return false;
-            if (filterCount === '4' && count !== 4) return false;
-            if (filterCount === '5-7' && (count < 5 || count > 7)) return false;
-            if (filterCount === '8-10' && (count < 8 || count > 10)) return false;
+            if (filterCount === '1-2' && (count < 1 || count > 2)) return false;
+            if (filterCount === '3-4' && (count < 3 || count > 4)) return false;
+            if (filterCount === '5-6' && (count < 5 || count > 6)) return false;
+            if (filterCount === '7-8' && (count < 7 || count > 8)) return false;
+            if (filterCount === '9-10' && (count < 9 || count > 10)) return false;
+            if (filterCount === '11+' && count < 11) return false;
         }
 
         return true;
@@ -145,12 +145,12 @@ export function LayoutSidebar({ activePageId }: LayoutSidebarProps) {
 
     const imageCountOptions = [
         { label: 'Any Count', value: 'all' },
-        { label: 'Single Shot', value: '1' },
-        { label: 'Double', value: '2' },
-        { label: 'Triple', value: '3' },
-        { label: 'Quad', value: '4' },
-        { label: 'Art Gallery (5-7)', value: '5-7' },
-        { label: 'Collection (8-10)', value: '8-10' },
+        { label: '1-2', value: '1-2' },
+        { label: '3-4', value: '3-4' },
+        { label: '5-6', value: '5-6' },
+        { label: '7-8', value: '7-8' },
+        { label: '9-10', value: '9-10' },
+        { label: '11+', value: '11+' },
     ];
 
     const viewModeOptions = [

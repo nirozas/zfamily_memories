@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Check, RotateCw, RotateCcw, Move, Target, AlertTriangle, Scissors, Loader2 } from 'lucide-react';
 import { Slider } from '../ui/Slider';
 import { cn } from '../../lib/utils';
 import type { Asset } from '../../contexts/AlbumContext';
 import { getTransformedUrl } from '../../lib/assetUtils';
+import { CloudflareR2Service } from '../../services/cloudflareR2';
 
 interface FocalPointEditorModalProps {
     asset: Asset;
@@ -47,10 +49,16 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
         }
 
         const runHandshake = async () => {
-            const cleanUrl = getTransformedUrl(asset.url, asset);
+            let cleanUrl = getTransformedUrl(asset.url, asset);
+
+            if (CloudflareR2Service.isR2Url(cleanUrl)) {
+                const key = CloudflareR2Service.extractKey(cleanUrl);
+                if (key) {
+                    cleanUrl = await CloudflareR2Service.getAuthorizedUrl(key);
+                }
+            }
 
             const img = new Image();
-            img.crossOrigin = "anonymous";
             img.src = cleanUrl;
 
             img.onload = async () => {
@@ -203,7 +211,7 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
         });
     };
 
-    return (
+    return createPortal(
         <div 
             className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/95 backdrop-blur-3xl animate-in fade-in transition-all duration-700"
             onMouseDown={(e) => e.stopPropagation()}
@@ -217,9 +225,9 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
                             <Target className="w-8 h-8 text-white animate-pulse" />
                         </div>
                         <div>
-                            <h2 className="font-serif text-4xl text-catalog-text tracking-tight">Composition Studio 4.0</h2>
+                            <h2 className="font-serif text-4xl text-catalog-text tracking-tight">Focal Point & Crop</h2>
                             <div className="flex items-center gap-3 mt-1">
-                                <span className="text-[10px] text-catalog-text/50 uppercase tracking-[0.4em] font-black italic">DATABASE TRANSFORM ENGINE</span>
+                                <span className="text-[10px] text-catalog-text/50 uppercase tracking-[0.4em] font-black italic">PAN & ZOOM ENGINE</span>
                                 <div className={cn("h-2 w-2 rounded-full bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.6)]")} />
                             </div>
                         </div>
@@ -360,6 +368,7 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
                     </div>
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }

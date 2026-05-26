@@ -109,9 +109,12 @@ export function normalizePageData(p: any): Page {
                 }
             }));
 
+        const rawOpacity = Number(p.page_styles?.backgroundOpacity ?? p.background_config?.opacity ?? p.background_opacity ?? 1);
+        const normalizedOpacity = rawOpacity > 1 ? rawOpacity / 100 : rawOpacity;
+
         const pageStyles: PageStyles = {
             backgroundColor: p.page_styles?.backgroundColor || p.background_config?.color || p.background_color || '#ffffff',
-            backgroundOpacity: Number(p.page_styles?.backgroundOpacity ?? p.background_config?.opacity ?? p.background_opacity ?? 100),
+            backgroundOpacity: normalizedOpacity,
             backgroundImage: p.page_styles?.backgroundImage || p.background_config?.image || p.background_image || undefined,
             backgroundBlendMode: p.page_styles?.backgroundBlendMode || p.background_config?.blendMode || 'normal'
         };
@@ -126,6 +129,8 @@ export function normalizePageData(p: any): Page {
             backgroundColor: pageStyles.backgroundColor,
             backgroundOpacity: pageStyles.backgroundOpacity,
             backgroundImage: pageStyles.backgroundImage,
+            backgroundScale: p.background_config?.imageScale || p.background_config?.backgroundScale,
+            backgroundPosition: p.background_config?.imagePosition || p.background_config?.backgroundPosition,
             assets: []
         };
     } else {
@@ -150,12 +155,15 @@ export function normalizePageData(p: any): Page {
             };
         });
 
+        const rawLegacyOpacity = p.background_opacity ?? 1;
+        const normalizedLegacyOpacity = rawLegacyOpacity > 1 ? rawLegacyOpacity / 100 : rawLegacyOpacity;
+
         return {
             id: p.id,
             pageNumber: p.page_number,
             layoutTemplate: p.template_id || 'freeform',
             backgroundColor: p.background_color || '#ffffff',
-            backgroundOpacity: p.background_opacity ?? 100,
+            backgroundOpacity: normalizedLegacyOpacity,
             backgroundImage: p.background_image,
             assets: assets,
             layoutConfig: [],

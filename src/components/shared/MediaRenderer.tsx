@@ -3,6 +3,7 @@ import { Maximize2, MapPin } from 'lucide-react';
 import { getTransformedUrl, getFilterStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
 import { cn } from '../../lib/utils';
+import { useAuthorizedUrl } from '../../hooks/useAuthorizedUrl';
 
 interface MediaRendererProps {
     id?: string;
@@ -38,17 +39,17 @@ export const MediaRenderer = memo(function MediaRenderer({
     onVideoClick,
     className
 }: MediaRendererProps) {
-
-    const displayUrl = url || null;
+    const { authorizedUrl } = useAuthorizedUrl(url);
+    const displayUrl = authorizedUrl || url || null;
 
     // 1. Handle Images and Decorative Assets
     if (type === 'image' || type === 'sticker' || type === 'ribbon' || type === 'frame') {
+        if (!displayUrl) return null;
         return (
             <img
-                src={getTransformedUrl(displayUrl || '', config)}
+                src={getTransformedUrl(displayUrl, config)}
                 alt=""
                 className={cn("absolute w-full h-full shadow-none transition-all duration-300", className)}
-                crossOrigin="anonymous"
                 style={{
                     objectFit: config.fitMode === 'fit' ? 'contain' : (config.fitMode === 'stretch' || config.fitMode === 'fill') ? 'fill' : 'cover',
                     objectPosition: `${focalX}% ${focalY}%`,
@@ -68,6 +69,7 @@ export const MediaRenderer = memo(function MediaRenderer({
 
     // 2. Handle Videos
     if (type === 'video') {
+        if (!displayUrl) return null;
         const videoStyle: React.CSSProperties = {
             objectFit: 'contain',
             objectPosition: `${focalX}% ${focalY}%`,
@@ -93,13 +95,12 @@ export const MediaRenderer = memo(function MediaRenderer({
                 onTouchStart={stopPropagation}
             >
                 <video
-                    src={displayUrl || undefined}
+                    src={displayUrl}
                     className="w-full h-full"
                     style={videoStyle}
                     playsInline
                     controls={true}
                     controlsList="nofullscreen"
-                    crossOrigin="anonymous"
                     preload="metadata"
                     muted
                     onPlay={(e) => {
@@ -161,6 +162,43 @@ export const MediaRenderer = memo(function MediaRenderer({
             }
         }, [content, isFocused]);
 
+        const getGradientStyle = (gradientName: string): React.CSSProperties => {
+            switch (gradientName) {
+                case 'sunset':
+                    return {
+                        background: 'linear-gradient(135deg, #f59e0b, #ec4899, #8b5cf6)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                case 'ocean':
+                    return {
+                        background: 'linear-gradient(135deg, #06b6d4, #3b82f6, #6366f1)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                case 'royal':
+                    return {
+                        background: 'linear-gradient(135deg, #d946ef, #8b5cf6, #ec4899)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                case 'emerald':
+                    return {
+                        background: 'linear-gradient(135deg, #10b981, #059669, #047857)',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                        backgroundClip: 'text',
+                    };
+                default:
+                    return {};
+            }
+        };
+
+        const gradientStyle = style.textGradient && style.textGradient !== 'none' ? getGradientStyle(style.textGradient) : {};
+
         return (
             <div
                 ref={textRef}
@@ -198,7 +236,7 @@ export const MediaRenderer = memo(function MediaRenderer({
                     if (isEditable && isFocused) e.stopPropagation();
                 }}
                 className={cn(
-                    "w-full h-full p-4 break-words overflow-hidden flex flex-col justify-center outline-none selection:bg-catalog-accent/20",
+                    "w-full h-full break-words overflow-hidden flex flex-col justify-center outline-none selection:bg-catalog-accent/20",
                     isEditable && "cursor-text",
                     isEmpty && isEditable && !isFocused && "after:content-['Insert_Story_Verse...'] after:opacity-20 after:italic",
                     className
@@ -207,6 +245,7 @@ export const MediaRenderer = memo(function MediaRenderer({
                     fontFamily: style.fontFamily || 'Inter, sans-serif',
                     fontSize: style.fontSize || 16,
                     fontWeight: style.fontWeight || 'normal',
+                    fontStyle: style.fontStyle || 'normal',
                     color: style.textColor || style.color || 'inherit',
                     textAlign: (style.textAlign || 'center') as any,
                     textDecoration: style.textDecoration || 'none',
@@ -215,6 +254,8 @@ export const MediaRenderer = memo(function MediaRenderer({
                     whiteSpace: 'pre-wrap',
                     textShadow: style.textShadow || 'none',
                     backgroundColor: style.textBackgroundColor || 'transparent',
+                    padding: `${style.padding !== undefined ? style.padding : 16}px`,
+                    ...gradientStyle
                 }}
             />
         );
