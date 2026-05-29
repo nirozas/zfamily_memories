@@ -4,6 +4,7 @@ import { type Asset } from '../../contexts/AlbumContext';
 import { getTransformedUrl, getFilterStyle, getClipPathStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
 import { useAuthorizedUrl } from '../../hooks/useAuthorizedUrl';
+import { ChromaKeyImage } from '../shared/ChromaKeyImage';
 
 interface AssetDisplayProps {
     asset: Asset;
@@ -59,8 +60,8 @@ export const AssetDisplay = memo(function AssetDisplay({
         backfaceVisibility: 'hidden',
     };
 
-    // 1. Handle Images
-    if (asset.type === 'image' || asset.type === 'frame') {
+    // 1. Handle Images, Frames, Stickers, and Ribbons
+    if (asset.type === 'image' || asset.type === 'frame' || asset.type === 'sticker' || asset.type === 'ribbon') {
         if (!displayUrl) return null;
         const crop = asset.crop;
         const isLayoutImage = isInSlot || asset.fitMode === 'cover';
@@ -68,20 +69,21 @@ export const AssetDisplay = memo(function AssetDisplay({
         if (isLayoutImage) {
             return (
                 <div style={{ ...style, overflow: 'hidden' }} className="bg-gray-100/50">
-                    <img
+                    <ChromaKeyImage
                         src={getTransformedUrl(displayUrl, asset)}
                         alt=""
                         className="absolute w-full h-full shadow-none transition-opacity duration-300"
                         style={{
                             objectFit: 'cover',
-                            objectPosition: crop ? `${crop.x ?? 50}% ${crop.y ?? 50}%` : 'center',
+                            objectPosition: crop ? `${(crop.x ?? 0.5) * 100}% ${(crop.y ?? 0.5) * 100}%` : 'center',
                             transform: `scale(${crop?.zoom ?? 1})`,
-                            transformOrigin: crop ? `${crop.x ?? 50}% ${crop.y ?? 50}%` : 'center',
+                            transformOrigin: crop ? `${(crop.x ?? 0.5) * 100}% ${(crop.y ?? 0.5) * 100}%` : 'center',
                             display: 'block'
                         }}
                         draggable={false}
-                        loading="lazy"
                         onClick={(e) => e.stopPropagation()}
+                        chromaKeyColors={asset.chromaKeyColors}
+                        chromaKeyTolerance={asset.chromaKeyTolerance}
                     />
                 </div>
             );
@@ -89,7 +91,7 @@ export const AssetDisplay = memo(function AssetDisplay({
 
         return (
             <div style={{ ...style, overflow: 'hidden' }}>
-                <img
+                <ChromaKeyImage
                     src={getTransformedUrl(displayUrl, asset)}
                     alt=""
                     className="absolute max-w-none shadow-none"
@@ -103,6 +105,8 @@ export const AssetDisplay = memo(function AssetDisplay({
                     }}
                     draggable={false}
                     onClick={(e) => e.stopPropagation()}
+                    chromaKeyColors={asset.chromaKeyColors}
+                    chromaKeyTolerance={asset.chromaKeyTolerance}
                 />
             </div>
         );

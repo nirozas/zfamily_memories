@@ -75,6 +75,7 @@ export function ImageEditorModal({ asset, pageId, updateAsset, onClose }: ImageE
             setAuthorizedUrl(cleanUrl);
 
             const img = new Image();
+            img.crossOrigin = 'anonymous';
             img.src = cleanUrl;
             img.onload = () => {
                 if (isMounted) {

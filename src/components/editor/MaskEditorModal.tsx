@@ -33,7 +33,17 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
     }, [asset.url]);
 
     const [points, setPoints] = useState(() => {
-        if (asset.clipPoints && asset.clipPoints.length > 0) return asset.clipPoints;
+        if (asset.clipPoints && asset.clipPoints.length > 0) {
+            if (asset.crop) {
+                // Map from crop coordinates back to whole image coordinates
+                return asset.clipPoints.map(p => ({
+                    ...p,
+                    x: (asset.crop?.x || 0) + p.x * (asset.crop?.width || 1),
+                    y: (asset.crop?.y || 0) + p.y * (asset.crop?.height || 1)
+                }));
+            }
+            return asset.clipPoints;
+        }
         // Default to a 16-point border grid for precision cropping
         const borderPoints = [
             { x: 0, y: 0, type: 'linear' as const }, { x: 0.25, y: 0, type: 'linear' as const }, { x: 0.5, y: 0, type: 'linear' as const }, { x: 0.75, y: 0, type: 'linear' as const },
@@ -45,7 +55,45 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
     });
 
     const handleSave = () => {
-        updateAsset(pageId, asset.id, { clipPoints: points });
+        const minX = Math.min(...points.map((p: any) => p.x));
+        const maxX = Math.max(...points.map((p: any) => p.x));
+        const minY = Math.min(...points.map((p: any) => p.y));
+        const maxY = Math.max(...points.map((p: any) => p.y));
+
+        const cropW = Math.max(0.001, maxX - minX);
+        const cropH = Math.max(0.001, maxY - minY);
+
+        let originalWidth = asset.width;
+        let originalHeight = asset.height;
+        let originalX = asset.x;
+        let originalY = asset.y;
+
+        if (asset.crop) {
+            originalWidth = asset.width / Math.max(0.001, asset.crop.width || 1);
+            originalHeight = asset.height / Math.max(0.001, asset.crop.height || 1);
+            originalX = asset.x - (asset.crop.x || 0) * originalWidth;
+            originalY = asset.y - (asset.crop.y || 0) * originalHeight;
+        }
+
+        const newWidth = originalWidth * cropW;
+        const newHeight = originalHeight * cropH;
+        const newX = originalX + originalWidth * minX;
+        const newY = originalY + originalHeight * minY;
+
+        const normalizedPoints = points.map((p: any) => ({
+            ...p,
+            x: (p.x - minX) / cropW,
+            y: (p.y - minY) / cropH
+        }));
+
+        updateAsset(pageId, asset.id, { 
+            clipPoints: normalizedPoints,
+            crop: { x: minX, y: minY, width: cropW, height: cropH, zoom: 1 },
+            x: newX,
+            y: newY,
+            width: newWidth,
+            height: newHeight
+        });
         onClose();
     };
 
@@ -258,6 +306,24 @@ export function MaskEditorModal({ asset, pageId, updateAsset, onClose }: MaskEdi
                                     <div className="text-left">
                                         <div className="text-xs font-bold leading-none">Rectangle (Corner)</div>
                                         <div className="text-[9px] opacity-60 mt-1 uppercase tracking-wider font-medium">4-Point Frame</div>
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => setPoints([
+                                        { x: 0, y: 0, type: 'linear' }, { x: 0.5, y: 0, type: 'linear' },
+                                        { x: 1, y: 0, type: 'linear' }, { x: 1, y: 0.5, type: 'linear' },
+                                        { x: 1, y: 1, type: 'linear' }, { x: 0.5, y: 1, type: 'linear' },
+                                        { x: 0, y: 1, type: 'linear' }, { x: 0, y: 0.5, type: 'linear' }
+                                    ])}
+                                    className="w-full py-4 px-5 bg-catalog-stone/5 border border-catalog-accent/10 rounded-2xl flex items-center gap-4 hover:border-catalog-accent hover:bg-catalog-accent hover:text-white hover:shadow-lg hover:-translate-y-1 transition-all group"
+                                >
+                                    <div className="p-2 bg-catalog-accent/10 rounded-lg group-hover:bg-white/20">
+                                        <div className="w-5 h-5 border-2 border-dashed border-catalog-accent group-hover:border-white transition-colors" />
+                                    </div>
+                                    <div className="text-left">
+                                        <div className="text-xs font-bold leading-none">8-Point Grid</div>
+                                        <div className="text-[9px] opacity-60 mt-1 uppercase tracking-wider font-medium">Corners & Midpoints</div>
                                     </div>
                                 </button>
 

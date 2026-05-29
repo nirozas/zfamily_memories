@@ -126,6 +126,7 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
                         box={box}
                         onVideoClick={onVideoClick}
                         isEditable={false}
+                        applyRotation={true}
                     />
                 ))}
 
@@ -136,6 +137,7 @@ export const AlbumPage: React.FC<AlbumPageProps> = ({
                         key={box.id || `text-${idx}`}
                         box={box}
                         isEditable={false}
+                        applyRotation={true}
                     />
                 ))}
             </div>

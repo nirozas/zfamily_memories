@@ -18,6 +18,7 @@ interface LayoutFrameProps {
     onContextMenu?: (e: React.MouseEvent) => void;
     onTextChange?: (text: string) => void;
     className?: string;
+    applyRotation?: boolean;
 }
 
 /**
@@ -36,10 +37,15 @@ export const LayoutFrame = memo(function LayoutFrame({
     onDoubleClick,
     onContextMenu,
     onTextChange,
-    className
+    className,
+    applyRotation = false
 }: LayoutFrameProps) {
 
-    const config = { ...(box.content?.config || {}), onTextChange } as any;
+    const config = { 
+        ...(box.content?.config || {}), 
+        crop: box.content?.crop || box.content?.config?.crop,
+        onTextChange 
+    } as any;
     const isLocked = config.isLocked;
 
     // Strict Z-Index Hierarchy
@@ -67,8 +73,8 @@ export const LayoutFrame = memo(function LayoutFrame({
         borderRadius: config.borderRadius ? `${config.borderRadius}px` : undefined,
         border: config.borderWidth ? `${config.borderWidth}px solid ${config.borderColor || '#000'}` : undefined,
         opacity: (config.opacity ?? 100) / 100,
-        ...getClipPathStyle(config as any),
         pointerEvents: isEditable ? 'auto' : (box.role === 'text' ? 'none' : 'auto'),
+        transform: applyRotation ? `rotate(${(box as any).rotation || box.content?.rotation || 0}deg)` : undefined,
     };
 
     return (
@@ -95,6 +101,7 @@ export const LayoutFrame = memo(function LayoutFrame({
                 className="w-full h-full overflow-hidden"
                 style={{
                     borderRadius: config.borderRadius ? `${config.borderRadius}px` : undefined,
+                    ...getClipPathStyle(box.content as any),
                 }}
             >
                 <MediaRenderer
@@ -106,7 +113,14 @@ export const LayoutFrame = memo(function LayoutFrame({
                     focalX={box.content?.x}
                     focalY={box.content?.y}
                     rotation={box.content?.rotation}
-                    config={config}
+                    config={{
+                        ...config,
+                        crop: (box.content as any)?.crop,
+                        fitMode: config.fitMode || (box.content as any)?.fitMode || 'cover',
+                        focalX: box.content?.x,
+                        focalY: box.content?.y,
+                        zoom: box.content?.zoom
+                    }}
                     isEditable={isEditable}
                     onVideoClick={onVideoClick}
                 />

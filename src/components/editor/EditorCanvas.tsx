@@ -153,9 +153,11 @@ const AssetRenderer = memo(function AssetRenderer({
         const isResizing = !!handleType;
 
         const target = e.currentTarget as HTMLElement;
-        const rect = target.getBoundingClientRect();
+        const assetEl = target.closest('.group\\/asset') as HTMLElement;
+        const rect = assetEl ? assetEl.getBoundingClientRect() : target.getBoundingClientRect();
         const startPos = { x: e.clientX, y: e.clientY };
         const startAsset = { x: asset.x, y: asset.y, w: asset.width, h: asset.height, r: asset.rotation || 0, fontSize: asset.fontSize || 32 };
+        const initialAlbumState = album;
 
         const canvasRect = canvasRef.current?.getBoundingClientRect();
         if (!canvasRect) return;
@@ -182,38 +184,69 @@ const AssetRenderer = memo(function AssetRenderer({
                         const angle = Math.atan2(mv.clientY - centerY, mv.clientX - centerX) * (180 / Math.PI) + 90;
                         updateAsset(pageId, asset.id, { rotation: angle }, { skipHistory: true });
                     } else {
-                        let { x, y, w, h } = { ...startAsset };
                         let nextFitMode = asset.fitMode;
 
-                        if (handleType.includes('e')) w = Math.max(2, startAsset.w + dx_pct);
-                        if (handleType.includes('w')) {
-                            const nextW = Math.max(2, startAsset.w - dx_pct);
-                            x = startAsset.x + (startAsset.w - nextW);
-                            w = nextW;
-                        }
-                        if (handleType.includes('s')) h = Math.max(2, startAsset.h + dy_pct);
-                        if (handleType.includes('n')) {
-                            const nextH = Math.max(2, startAsset.h - dy_pct);
-                            y = startAsset.y + (startAsset.h - nextH);
-                            h = nextH;
-                        }
+                        const rad = (startAsset.r || 0) * Math.PI / 180;
+                        const globalDx = (dx_px / totalWidth_px) * 100;
+                        const globalDy = (dy_px / totalHeight_px) * 100;
+
+                        // Local movement
+                        const localDx = globalDx * Math.cos(-rad) - globalDy * Math.sin(-rad);
+                        const localDy = globalDx * Math.sin(-rad) + globalDy * Math.cos(-rad);
+
+                        let w = startAsset.w;
+                        let h = startAsset.h;
+
+                        if (handleType.includes('e')) w = Math.max(2, startAsset.w + localDx);
+                        if (handleType.includes('w')) w = Math.max(2, startAsset.w - localDx);
+                        if (handleType.includes('s')) h = Math.max(2, startAsset.h + localDy);
+                        if (handleType.includes('n')) h = Math.max(2, startAsset.h - localDy);
 
                         const isCorner = handleType.length === 2;
                         const isSide = handleType.length === 1;
 
-                        // 1. Proportional Resize for Corners (DEFAULT for images)
+                        // 1. Proportional Resize for Corners
                         if (mv.shiftKey || ((asset.lockAspectRatio ?? true) && isCorner && (asset.type === 'image' || asset.type === 'video'))) {
-                            const ratio = asset.aspectRatio || (startAsset.w / startAsset.h);
-                            if (handleType.includes('e') || handleType.includes('w')) h = w / ratio;
-                            else w = h * ratio;
-
-                            // If we resize proportionally, ensure we fill the box
+                            const pixelRatio = asset.aspectRatio || ((startAsset.w * totalWidth_px) / (startAsset.h * totalHeight_px));
+                            // Use whichever delta is larger in absolute terms
+                            if (Math.abs(localDx) > Math.abs(localDy)) {
+                                h = w * (totalWidth_px / totalHeight_px) / pixelRatio;
+                            } else {
+                                w = h * (totalHeight_px / totalWidth_px) * pixelRatio;
+                            }
                             if (nextFitMode === 'fit') nextFitMode = 'cover';
                         }
                         // 2. Stretching for Sides
                         else if (isSide && (asset.type === 'image' || asset.type === 'video')) {
                             nextFitMode = 'stretch';
                         }
+
+                        // Determine stationary point fraction (0 to 1)
+                        let fx = 0.5, fy = 0.5;
+                        if (handleType.includes('e')) fx = 0; else if (handleType.includes('w')) fx = 1;
+                        if (handleType.includes('s')) fy = 0; else if (handleType.includes('n')) fy = 1;
+
+                        // Original Center
+                        const cx0 = startAsset.x + startAsset.w / 2;
+                        const cy0 = startAsset.y + startAsset.h / 2;
+                        // Original distance from center to stationary point
+                        const dx0 = (fx - 0.5) * startAsset.w;
+                        const dy0 = (fy - 0.5) * startAsset.h;
+                        // Global position of stationary point
+                        const statX0 = cx0 + dx0 * Math.cos(rad) - dy0 * Math.sin(rad);
+                        const statY0 = cy0 + dx0 * Math.sin(rad) + dy0 * Math.cos(rad);
+
+                        // New distance from center to stationary point
+                        const dx1 = (fx - 0.5) * w;
+                        const dy1 = (fy - 0.5) * h;
+                        
+                        // Calculate new center to keep stationary point fixed
+                        const cx1 = statX0 - (dx1 * Math.cos(rad) - dy1 * Math.sin(rad));
+                        const cy1 = statY0 - (dx1 * Math.sin(rad) + dy1 * Math.cos(rad));
+
+                        // Final top-left coordinates
+                        const x = cx1 - w / 2;
+                        const y = cy1 - h / 2;
 
                         let additionalProps: any = {};
                         if (asset.type === 'text' && isCorner) {
@@ -233,7 +266,7 @@ const AssetRenderer = memo(function AssetRenderer({
         };
 
         const handlePointerUp = () => {
-            commitHistory();
+            if (initialAlbumState) commitHistory(initialAlbumState);
             setDragPos(null);
             window.removeEventListener('pointermove', handlePointerMove);
             window.removeEventListener('pointerup', handlePointerUp);
@@ -282,7 +315,7 @@ const AssetRenderer = memo(function AssetRenderer({
                     isRearrangeFirst && "ring-4 ring-purple-500 ring-offset-4 ring-offset-purple-50 z-[60] scale-[1.02]",
                     asset.isLocked && "cursor-default"
                 )}
-                style={{ transformOrigin: '0 0' }}
+                style={{ transformOrigin: '50% 50%' }}
             >
                 <LayoutFrame
                     box={box as any}
@@ -575,7 +608,6 @@ export const EditorCanvas = memo(function EditorCanvas({
                     const scale = Math.min(maxUnit / w, maxUnit / h);
                     w *= scale; h *= scale;
                 }
-                if (!isBackground && !isFrame) h = w / ratio;
                 addAsset(targetPageId, { type: isFrame ? 'frame' : (assetType as any), url: url, x: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - w, localX - (w / 2))), y: (isBackground || isFrame) ? 0 : Math.max(0, Math.min(100 - h, dropY_Pct - (h / 2))), width: w, height: h, originalDimensions: { width: natW, height: natH }, rotation: 0, zIndex: isFrame ? 50 : (isBackground ? 0 : (targetPageObj?.assets.length || 0) + 10), aspectRatio: ratio, fitMode: isBackground ? 'cover' : 'cover', lockAspectRatio: true, category: category || data.category } as any);
             };
             if (data.type === 'video') {

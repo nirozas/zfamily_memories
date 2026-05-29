@@ -341,7 +341,6 @@ export function AssetLibrary() {
                 w *= scale;
                 h *= scale;
             }
-            if (!isBackground && !isFrame) h = w / ratio; // maintain ratio
 
             addAsset(currentPage.id, {
                 type: assetType,

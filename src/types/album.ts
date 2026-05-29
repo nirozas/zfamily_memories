@@ -22,6 +22,8 @@ export interface Transform {
         zoom: number;        // Zoom level for crop
         x: number;           // Pan X offset (%)
         y: number;           // Pan Y offset (%)
+        width?: number;      // Normalized crop width fraction
+        height?: number;     // Normalized crop height fraction
     };
 }
 

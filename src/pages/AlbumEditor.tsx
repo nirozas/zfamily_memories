@@ -1204,7 +1204,7 @@ function AlbumEditorContent() {
                         onClick={(e) => e.stopPropagation()}
                         className="h-16 border-b border-black/5 bg-white/40 backdrop-blur-md z-30 shrink-0 overflow-x-auto styling-scrollbar-thin flex items-center px-4 md:px-8 relative justify-between whitespace-nowrap"
                     >
-                        <div className="flex items-center gap-4 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                             <Button
                                 variant="ghost"
                                 size="sm"
@@ -1234,12 +1234,12 @@ function AlbumEditorContent() {
                                 }}
                                 disabled={album.config.isLocked}
                                 className={cn(
-                                    "h-10 gap-3 bg-catalog-accent text-white hover:bg-catalog-accent/90 transition-all shadow-lg shadow-catalog-accent/10 rounded-xl px-5",
+                                    "h-9 gap-2 bg-catalog-accent text-white hover:bg-catalog-accent/90 transition-all shadow-lg shadow-catalog-accent/10 rounded-xl px-3",
                                     album.config.isLocked && "opacity-50 cursor-not-allowed grayscale"
                                 )}
                             >
                                 <Type className="w-4 h-4" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Add Text</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Add Text</span>
                             </Button>
 
                             <Button
@@ -1252,15 +1252,15 @@ function AlbumEditorContent() {
                                 }}
                                 disabled={album.config.isLocked}
                                 className={cn(
-                                    "h-10 gap-3 bg-black/5 text-catalog-text hover:bg-black/10 transition-all border border-black/5 rounded-xl px-5",
+                                    "h-9 gap-2 bg-black/5 text-catalog-text hover:bg-black/10 transition-all border border-black/5 rounded-xl px-3",
                                     album.config.isLocked && "opacity-50 cursor-not-allowed grayscale"
                                 )}
                             >
                                 <MapPin className="w-4 h-4" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">Add Location</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest">Add Location</span>
                             </Button>
 
-                            <div className="w-[1px] h-6 bg-black/5 mx-2" />
+                            <div className="w-[1px] h-6 bg-black/5 mx-1" />
 
                             {/* Rearrange Mode Button */}
                             <Button
@@ -1278,7 +1278,7 @@ function AlbumEditorContent() {
                                 }}
                                 disabled={album.config.isLocked}
                                 className={cn(
-                                    "h-10 gap-3 transition-all border rounded-xl px-5",
+                                    "h-9 gap-2 transition-all border rounded-xl px-3",
                                     isRearrangeMode
                                         ? "bg-purple-600 text-white border-purple-700 shadow-lg shadow-purple-500/20"
                                         : "bg-black/5 text-catalog-text hover:bg-black/10 border-black/5",
@@ -1287,7 +1287,7 @@ function AlbumEditorContent() {
                                 title="Rearrange images by clicking two to swap them"
                             >
                                 <Shuffle className="w-4 h-4" />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em]">
+                                <span className="text-[10px] font-black uppercase tracking-widest">
                                     {isRearrangeMode ? 'Cancel Swap' : 'Rearrange'}
                                 </span>
                             </Button>
@@ -1309,11 +1309,11 @@ function AlbumEditorContent() {
                                 )}
                             </AnimatePresence>
 
-                            <div className="w-[1px] h-6 bg-black/5 mx-2" />
+                            <div className="w-[1px] h-6 bg-black/5 mx-1" />
 
                             {selectedAsset && !album.config.isLocked ? (
                                 <div className="flex items-center gap-6 shrink-0 animate-in fade-in slide-in-from-left-4 duration-500">
-                                    <span className="text-[9px] font-black text-catalog-text/20 uppercase tracking-[0.4em] mr-2 hidden md:inline-block">Selection Context</span>
+                                    <span className="text-[9px] font-black text-catalog-text/20 uppercase tracking-widest mr-1 hidden md:inline-block">Selection Context</span>
 
                                     <div className="flex items-center gap-3">
                                         {selectedAsset.type === 'text' && (
@@ -1483,7 +1483,7 @@ function AlbumEditorContent() {
                                                             sel?.addRange(range);
                                                         }
                                                     }}
-                                                    className="h-12 px-5 gap-3 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
+                                                    className="h-10 px-4 gap-2 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
                                                 >
                                                     <Pencil className="w-5 h-5 text-catalog-accent" />
                                                     <span className="text-[11px] font-black uppercase tracking-widest">Edit Text</span>
@@ -1497,7 +1497,7 @@ function AlbumEditorContent() {
                                                             if (album.config.isLocked || selectedAsset.isLocked) return;
                                                             setEditorMode('mask');
                                                         }}
-                                                        className="h-12 px-5 gap-3 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
+                                                        className="h-10 px-4 gap-2 bg-black/5 border border-black/5 rounded-2xl hover:bg-black/10 transition-all font-outfit"
                                                     >
                                                         <Scissors className="w-5 h-5 text-catalog-accent" />
                                                         <span className="text-[11px] font-black uppercase tracking-widest">Crop</span>
@@ -1511,7 +1511,7 @@ function AlbumEditorContent() {
                                                                 if (album.config.isLocked || selectedAsset.isLocked) return;
                                                                 setEditorMode('studio');
                                                             }}
-                                                            className="h-12 px-5 gap-3 bg-purple-500/10 border border-purple-500/20 rounded-2xl hover:bg-purple-500/20 transition-all font-outfit text-purple-600"
+                                                            className="h-10 px-4 gap-2 bg-purple-500/10 border border-purple-500/20 rounded-2xl hover:bg-purple-500/20 transition-all font-outfit text-purple-600"
                                                         >
                                                             <Wand2 className="w-5 h-5" />
                                                             <span className="text-[11px] font-black uppercase tracking-widest">Studio</span>
@@ -1520,7 +1520,7 @@ function AlbumEditorContent() {
                                                 </>
                                             )}
 
-                                            <div className="flex items-center gap-1.5 p-1.5 bg-black/5 rounded-2xl border border-black/5">
+                                            <div className="flex items-center gap-1 p-1 bg-black/5 rounded-2xl border border-black/5">
                                                 <button
                                                     disabled={album.config.isLocked || selectedAsset.isLocked}
                                                     onClick={() => {
@@ -1547,7 +1547,7 @@ function AlbumEditorContent() {
                                                 </button>
                                             </div>
 
-                                            <div className="flex items-center gap-4 px-5 h-12 bg-black/5 rounded-2xl border border-black/5">
+                                            <div className="flex items-center gap-3 px-4 h-10 bg-black/5 rounded-2xl border border-black/5">
                                                 <span className="text-[10px] font-black text-catalog-text/20 uppercase tracking-[0.2em]">Geometry</span>
                                                 <div className="flex items-center gap-1">
                                                     <input

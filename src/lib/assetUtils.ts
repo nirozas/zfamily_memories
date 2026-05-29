@@ -81,13 +81,14 @@ export const getFilterStyle = (asset: Asset) => {
  * 
  * Returns CSS clip-path for custom masks/crops.
  */
-export const getClipPathStyle = (asset: Asset) => {
-    if (!asset.clipPoints || asset.clipPoints.length < 3) {
+export const getClipPathStyle = (asset: any) => {
+    const points = asset?.clipPoints || asset?.config?.clipPoints;
+    if (!points || points.length < 3) {
         return {};
     }
 
-    const pointsStr = asset.clipPoints
-        .map(p => `${p.x * 100}% ${p.y * 100}%`)
+    const pointsStr = points
+        .map((p: any) => `${p.x * 100}% ${p.y * 100}%`)
         .join(', ');
 
     return { clipPath: `polygon(${pointsStr})` };

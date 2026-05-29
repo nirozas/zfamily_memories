@@ -59,7 +59,16 @@ export function SecureMedia({
                     return;
                 }
 
-                // If it's a public R2 URL or we have a key, get a fresh authorized URL
+                // Public R2 CDN URLs (pub-*.r2.dev) are publicly accessible — use directly
+                if (url && url.includes('pub-') && url.includes('.r2.dev')) {
+                    if (isMounted) {
+                        setSrc(url);
+                        setLoading(false);
+                    }
+                    return;
+                }
+
+                // If it's a private R2 URL or we have a key, get a fresh authorized URL
                 if (objectKey || CloudflareR2Service.isR2Url(url)) {
                     // Extract key from URL if not provided
                     let key = objectKey;
@@ -89,23 +98,18 @@ export function SecureMedia({
                     }
 
                     if (key) {
-                        // console.log(`[SecureMedia] Authorizing R2 key: "${key}"`);
                         const authorizedUrl = await CloudflareR2Service.getAuthorizedUrl(key);
                         
                         // Check if we got a different URL (success) or just the fallback
                         if (authorizedUrl && (authorizedUrl.includes('X-Amz-Signature') || !CloudflareR2Service.isR2Url(authorizedUrl))) {
                             if (isMounted) setSrc(authorizedUrl);
                         } else {
-                            console.warn('[SecureMedia] getAuthorizedUrl returned fallback for key:', key);
-                            if (isMounted) {
-                                // We don't setSrc here if we want to avoid 401s, 
-                                // but we might want to show an error instead
-                                setError(true);
-                            }
+                            // Fallback: use URL directly (may or may not work)
+                            if (isMounted) setSrc(url || authorizedUrl);
                         }
                     } else {
-                        console.warn('[SecureMedia] Identified as R2 but could not extract key:', url);
-                        if (isMounted) setError(true);
+                        // No key found — use the URL directly as last resort
+                        if (isMounted) setSrc(url || null);
                     }
                 } else if (url) {
                     // Not an R2 URL, use as is

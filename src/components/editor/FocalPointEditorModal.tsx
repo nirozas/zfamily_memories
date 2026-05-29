@@ -59,6 +59,7 @@ export function FocalPointEditorModal({ asset, onSave, onClose }: FocalPointEdit
             }
 
             const img = new Image();
+            img.crossOrigin = 'anonymous';
             img.src = cleanUrl;
 
             img.onload = async () => {

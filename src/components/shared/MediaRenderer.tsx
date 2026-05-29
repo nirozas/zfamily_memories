@@ -4,6 +4,7 @@ import { getTransformedUrl, getFilterStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
 import { cn } from '../../lib/utils';
 import { useAuthorizedUrl } from '../../hooks/useAuthorizedUrl';
+import { ChromaKeyImage } from './ChromaKeyImage';
 
 interface MediaRendererProps {
     id?: string;
@@ -45,24 +46,64 @@ export const MediaRenderer = memo(function MediaRenderer({
     // 1. Handle Images and Decorative Assets
     if (type === 'image' || type === 'sticker' || type === 'ribbon' || type === 'frame') {
         if (!displayUrl) return null;
+
+        // Build image style based on whether a crop is applied
+        let imageStyle: React.CSSProperties;
+        if (config.crop && config.crop.width && config.crop.height) {
+            // === CROP MODE: Viewport-into-image technique ===
+            // The container (LayoutFrame inner div) has overflow:hidden which clips the image.
+            // We make the image larger than the container, offset it so the crop region is visible.
+            //
+            // Given crop = { x, y, width, height } all in 0-1 (fraction of original image):
+            //   - Image rendered width = container_width / cropWidth
+            //   - Image rendered height = container_height / cropHeight  
+            //   - Image left = -(cropX / cropWidth) * container_width
+            //   - Image top = -(cropY / cropHeight) * container_height
+            const cw = Math.max(0.001, config.crop.width);
+            const ch = Math.max(0.001, config.crop.height);
+            const cx = config.crop.x ?? 0;
+            const cy = config.crop.y ?? 0;
+            imageStyle = {
+                position: 'absolute',
+                width: `${(1 / cw) * 100}%`,
+                height: `${(1 / ch) * 100}%`,
+                left: `${-(cx / cw) * 100}%`,
+                top: `${-(cy / ch) * 100}%`,
+                objectFit: 'fill',  // fill the positioned box exactly
+                maxWidth: 'none',
+                maxHeight: 'none',
+                display: 'block',
+                ...getFilterStyle(config),
+            };
+        } else {
+            // === NORMAL MODE: object-fit with focal point ===
+            imageStyle = {
+                position: 'absolute',
+                width: '100%',
+                height: '100%',
+                objectFit: config.fitMode === 'fit' ? 'contain' : (config.fitMode === 'stretch' ? 'fill' : 'cover'),
+                objectPosition: `${focalX}% ${focalY}%`,
+                transform: zoom !== 1 ? `scale(${zoom})` : undefined,
+                transformOrigin: `${focalX}% ${focalY}%`,
+                maxWidth: 'none',
+                maxHeight: 'none',
+                display: 'block',
+                ...getFilterStyle(config),
+            };
+        }
+
         return (
-            <img
+            <ChromaKeyImage
                 src={getTransformedUrl(displayUrl, config)}
                 alt=""
-                className={cn("absolute w-full h-full shadow-none transition-all duration-300", className)}
-                style={{
-                    objectFit: config.fitMode === 'fit' ? 'contain' : (config.fitMode === 'stretch' || config.fitMode === 'fill') ? 'fill' : 'cover',
-                    objectPosition: `${focalX}% ${focalY}%`,
-                    transform: `scale(${zoom}) rotate(${rotation}deg)`,
-                    transformOrigin: `${focalX}% ${focalY}%`, // Pivot at the focal point
-                    display: 'block',
-                    ...getFilterStyle(config),
-                }}
+                className={cn("pointer-events-auto transition-all duration-300 shadow-none", className)}
+                style={imageStyle}
                 draggable={false}
-                loading="lazy"
-                onClick={(e) => {
+                onClick={(e: any) => {
                     if (!isEditable) e.stopPropagation();
                 }}
+                chromaKeyColors={config.chromaKeyColors}
+                chromaKeyTolerance={config.chromaKeyTolerance}
             />
         );
     }
@@ -81,6 +122,39 @@ export const MediaRenderer = memo(function MediaRenderer({
             cursor: 'pointer'
         };
 
+        // Build video style based on whether a crop is applied
+        let computedVideoStyle: React.CSSProperties;
+        if (config.crop && config.crop.width && config.crop.height) {
+            const cw = Math.max(0.001, config.crop.width);
+            const ch = Math.max(0.001, config.crop.height);
+            const cx = config.crop.x ?? 0;
+            const cy = config.crop.y ?? 0;
+            computedVideoStyle = {
+                position: 'absolute',
+                width: `${(1 / cw) * 100}%`,
+                height: `${(1 / ch) * 100}%`,
+                left: `${-(cx / cw) * 100}%`,
+                top: `${-(cy / ch) * 100}%`,
+                objectFit: 'fill',
+                maxWidth: 'none',
+                maxHeight: 'none',
+                display: 'block',
+                cursor: 'pointer',
+                pointerEvents: 'auto',
+                zIndex: 50,
+            };
+        } else {
+            computedVideoStyle = {
+                ...videoStyle,
+                objectFit: config.fitMode === 'fit' ? 'contain' : (config.fitMode === 'stretch' ? 'fill' : 'cover'),
+                objectPosition: `${focalX}% ${focalY}%`,
+                width: '100%',
+                height: '100%',
+                maxWidth: 'none',
+                maxHeight: 'none',
+            };
+        }
+
         const stopPropagation = (e: React.SyntheticEvent | React.MouseEvent | React.TouchEvent) => {
             e.stopPropagation();
         };
@@ -96,8 +170,8 @@ export const MediaRenderer = memo(function MediaRenderer({
             >
                 <video
                     src={displayUrl}
-                    className="w-full h-full"
-                    style={videoStyle}
+                    className={cn("absolute max-w-none max-h-none", className)}
+                    style={computedVideoStyle}
                     playsInline
                     controls={true}
                     controlsList="nofullscreen"

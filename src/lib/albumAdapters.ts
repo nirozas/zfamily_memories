@@ -45,10 +45,13 @@ export function unifiedAssetToContextAsset(unifiedAsset: UnifiedAsset): Asset {
         crop: unifiedAsset.transform.crop ? {
             x: unifiedAsset.transform.crop.x,
             y: unifiedAsset.transform.crop.y,
-            width: 100, // Normalized width
-            height: 100, // Normalized height
+            width: unifiedAsset.transform.crop.width || 100, // Use actual width
+            height: unifiedAsset.transform.crop.height || 100, // Use actual height
             zoom: unifiedAsset.transform.crop.zoom,
         } : undefined,
+
+        // Masking
+        clipPoints: unifiedAsset.config.clipPoints,
 
         // Fit mode
         fitMode: unifiedAsset.fitMode as any,
@@ -121,6 +124,7 @@ export function unifiedPageToContextPage(unifiedPage: UnifiedPage, pageId: strin
                 y: slottedAsset.transform.crop?.y || 50,
                 rotation: slottedAsset.transform.rotation,
                 config: slottedAsset.config,
+                crop: slottedAsset.transform.crop,
             };
         }
 
@@ -279,7 +283,13 @@ export function contextAssetToUnifiedAsset(asset: Asset): UnifiedAsset {
         transform: {
             rotation: asset.rotation,
             scale: asset.scale || 1,
-            crop: asset.crop,
+            crop: asset.crop ? {
+                zoom: asset.crop.zoom || 1,
+                x: asset.crop.x || 0,
+                y: asset.crop.y || 0,
+                width: asset.crop.width,
+                height: asset.crop.height
+            } : undefined,
         },
         slotId: asset.slotId?.toString() || null,
         fitMode: asset.fitMode as any,
@@ -293,6 +303,9 @@ export function contextAssetToUnifiedAsset(asset: Asset): UnifiedAsset {
             brightness: asset.brightness,
             contrast: asset.contrast,
             saturation: asset.saturate,
+
+            // Masking
+            clipPoints: asset.clipPoints,
 
             // Text
             content: asset.content,

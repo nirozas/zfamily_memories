@@ -178,6 +178,9 @@ export interface LayoutBox {
 
         // Additional config (preserved as-is)
         config?: Record<string, any>;
+
+        // Crop data
+        crop?: any;
     };
 
     // Legacy field aliases for backward compatibility
@@ -282,7 +285,7 @@ interface AlbumContextType {
     uploadProgress: Record<string, number>;
     updatePageAssets: (pageId: string, assets: Asset[], options?: { skipHistory?: boolean }) => void;
     moveAssetToPage: (assetId: string, fromPageId: string, toPageId: string, newX: number, newY: number) => void;
-    commitHistory: () => void;
+    commitHistory: (previousState?: Album) => void;
     showLayoutOutlines: boolean;
     toggleLayoutOutlines: () => void;
     activeSlot: { pageId: string; index: number } | null;
@@ -330,10 +333,14 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
         });
     }, []);
 
-    const commitHistory = useCallback(() => {
+    const commitHistory = useCallback((previousState?: Album) => {
         setAlbumInternal(current => {
-            if (current) {
-                setHistory(h => [...h.slice(-49), current]);
+            if (current && previousState && current !== previousState) {
+                setHistory(h => {
+                    // Don't push duplicate consecutive states
+                    if (h.length > 0 && h[h.length - 1] === previousState) return h;
+                    return [...h.slice(-49), previousState];
+                });
                 setRedoStack([]);
             }
             return current;
@@ -346,6 +353,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             const previous = h[h.length - 1];
             setAlbumInternal(current => {
                 if (current) setRedoStack(r => [...r, current]);
+                albumRef.current = previous;
                 return previous;
             });
             return h.slice(0, -1);
@@ -358,6 +366,7 @@ export function AlbumProvider({ children }: { children: React.ReactNode }) {
             const next = r[r.length - 1];
             setAlbumInternal(current => {
                 if (current) setHistory(h => [...h, current]);
+                albumRef.current = next;
                 return next;
             });
             return r.slice(0, -1);
