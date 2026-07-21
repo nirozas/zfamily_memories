@@ -1,5 +1,5 @@
 import { memo, useRef, useEffect, useState } from 'react';
-import { Maximize2, MapPin } from 'lucide-react';
+import { Maximize2, MapPin, Play } from 'lucide-react';
 import { getTransformedUrl, getFilterStyle } from '../../lib/assetUtils';
 import { MapAsset } from '../ui/MapAsset';
 import { cn } from '../../lib/utils';
@@ -173,13 +173,17 @@ export const MediaRenderer = memo(function MediaRenderer({
                     className={cn("absolute max-w-none max-h-none", className)}
                     style={computedVideoStyle}
                     playsInline
-                    controls={true}
+                    controls={isEditable}
                     controlsList="nofullscreen"
                     preload="metadata"
                     muted
                     onPlay={(e) => {
                         e.stopPropagation();
                         e.nativeEvent.stopImmediatePropagation();
+                        if (!isEditable) {
+                            e.currentTarget.pause();
+                            if (displayUrl && onVideoClick) onVideoClick(displayUrl, rotation);
+                        }
                     }}
                     onClick={(e) => {
                         e.stopPropagation();
@@ -195,9 +199,9 @@ export const MediaRenderer = memo(function MediaRenderer({
                     }}
                 />
 
-
                 {!isEditable && onVideoClick && (
-                    <button
+                    <div 
+                        className="absolute inset-0 flex items-center justify-center bg-black/10 hover:bg-black/40 transition-all duration-300 cursor-pointer z-[60] group/overlay"
                         onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -208,11 +212,12 @@ export const MediaRenderer = memo(function MediaRenderer({
                             e.stopPropagation();
                             e.nativeEvent.stopImmediatePropagation();
                         }}
-                        className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-catalog-accent text-white rounded-md opacity-0 group-hover:opacity-100 transition-all z-[60] pointer-events-auto cursor-pointer shadow-lg backdrop-blur-sm scale-90 hover:scale-100"
-                        title="Open Fullscreen"
+                        title="Play Fullscreen"
                     >
-                        <Maximize2 className="w-4 h-4" />
-                    </button>
+                        <div className="w-16 h-16 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center shadow-[0_0_30px_rgba(0,0,0,0.5)] border border-white/20 transform scale-90 group-hover/overlay:scale-105 transition-all duration-300 group-hover/overlay:bg-catalog-accent">
+                            <Play className="w-6 h-6 text-white ml-1.5" />
+                        </div>
+                    </div>
                 )}
 
             </div>

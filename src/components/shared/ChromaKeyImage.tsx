@@ -74,7 +74,7 @@ export const ChromaKeyImage: React.FC<ChromaKeyImageProps> = ({
 
     // If no chroma key is needed, just render a standard image
     if (!chromaKeyColors || chromaKeyColors.length === 0) {
-        return <img src={src} crossOrigin={crossOrigin as any} {...props} />;
+        return <img src={src} {...props} />;
     }
 
     // Render a canvas that behaves like an image
