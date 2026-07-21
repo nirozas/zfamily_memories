@@ -40,9 +40,10 @@ export function SharingDialog({ albumId, eventId, title, onClose }: SharingDialo
 
             if (error) throw error;
 
+            const safeTitle = title ? title.replace(/\s+/g, '_') : 'Memory';
             const url = albumId
-                ? `${window.location.origin}/shared/${token}`
-                : `${window.location.origin}/share/${token}`;
+                ? `${window.location.origin}/shared/${safeTitle}/${token}`
+                : `${window.location.origin}/share/${safeTitle}/${token}`;
             setLink(url);
         } catch (error) {
             console.error('Error generating link:', error);

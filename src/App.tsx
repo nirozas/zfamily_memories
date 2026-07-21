@@ -69,8 +69,13 @@ function App() {
 
                 {/* Shared Album View - Public */}
                 <Route path="/shared/:token" element={<SharedAlbumView />} />
+                <Route path="/shared/:title/:token" element={<SharedAlbumView />} />
+                
                 <Route path="/share/:token" element={<SharedEventView />} />
+                <Route path="/share/:title/:token" element={<SharedEventView />} />
+                
                 <Route path="/stack/share/:token" element={<SharedStackView />} />
+                <Route path="/stack/share/:title/:token" element={<SharedStackView />} />
 
                 {/* Dedicated Event Reading View - No Layout, open in new tab */}
                 <Route

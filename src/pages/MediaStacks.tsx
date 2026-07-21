@@ -151,17 +151,17 @@ export function MediaStacks() {
 
             if (error) throw error;
 
-            const shareUrl = `${window.location.origin}/stack/share/${token}`;
-
-            // Premium Email helper
-            const emailSubject = encodeURIComponent(`Shared Memory Stack: ${stack.title}`);
-            const emailBody = encodeURIComponent(`Hi!\n\nI wanted to share this memory stack with you: ${stack.title}\n\nYou can view it here (valid for 48 hours):\n${shareUrl}\n\nEnjoy!`);
+            const groupTitle = stack.title;
+            const safeTitle = groupTitle ? groupTitle.replace(/\s+/g, '_') : 'Stack';
+            const shareUrl = `${window.location.origin}/stack/share/${safeTitle}/${token}`;
+            const emailSubject = encodeURIComponent(`Shared Media Stack: ${groupTitle}`);
+            const emailBody = encodeURIComponent(`Hi!\n\nI wanted to share this media stack with you: ${groupTitle}\n\nYou can view it here (valid for 48 hours):\n${shareUrl}\n\nEnjoy!`);
             const mailtoUrl = `mailto:?subject=${emailSubject}&body=${emailBody}`;
 
             if (navigator.share) {
                 await navigator.share({
-                    title: `Memory Stack: ${stack.title}`,
-                    text: 'View this memory stack for the next 48 hours!',
+                    title: `Media Stack: ${groupTitle}`,
+                    text: `View this media stack: ${groupTitle} (valid for the next 48 hours!)`,
                     url: shareUrl,
                 });
             } else {

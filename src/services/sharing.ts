@@ -171,7 +171,8 @@ export async function generateAndShareAlbum(album: any, _pages: any[]): Promise<
         await CloudflareR2Service.uploadFile(blob, key, 'application/json');
 
         // 3. Share the link natively
-        const shareUrl = `${window.location.origin}/shared/${token}`;
+        const safeTitle = album.title ? album.title.replace(/\s+/g, '_') : 'Album';
+        const shareUrl = `${window.location.origin}/shared/${safeTitle}/${token}`;
         const emailSubject = encodeURIComponent(`Shared Memory Album: ${album.title}`);
         const emailBody = encodeURIComponent(`Hi!\n\nI wanted to share this memory album with you: ${album.title}\n\nYou can view it here (valid for 48 hours):\n${shareUrl}\n\nEnjoy!`);
         const mailtoUrl = `mailto:?subject=${emailSubject}&body=${emailBody}`;
@@ -179,7 +180,7 @@ export async function generateAndShareAlbum(album: any, _pages: any[]): Promise<
         if (navigator.share) {
             await navigator.share({
                 title: `Memory Album: ${album.title}`,
-                text: 'View this memory album for the next 48 hours!',
+                text: `View this memory album: ${album.title} (valid for the next 48 hours!)`,
                 url: shareUrl,
             });
         } else {
