@@ -51,6 +51,14 @@ function App() {
 
                 {/* Album Viewer - Full screen flip-book */}
                 <Route
+                  path="/album/:id/view"
+                  element={
+                    <ProtectedRoute>
+                      <AlbumView />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/album/:id"
                   element={
                     <ProtectedRoute>

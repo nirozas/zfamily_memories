@@ -94,7 +94,7 @@ export function CreateAlbumModal({ isOpen, onClose }: CreateAlbumModalProps) {
 
             if (data) {
                 onClose();
-                navigate(`/album/${(data as any).id}/edit`);
+                navigate(`/album/${(data as any).title ? (data as any).title.replace(/\s+/g, '_') : (data as any).id}/edit`);
             }
         } catch (error: any) {
             console.error('Error creating album:', error);

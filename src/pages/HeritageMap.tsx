@@ -298,7 +298,7 @@ export function HeritageMap() {
                             lat: valLat,
                             lng: valLng,
                             coverImage: albumCover,
-                            link: `/album/${a.id}`
+                            link: `/album/${a.title ? a.title.replace(/\s+/g, '_') : a.id}/view`
                         });
                     }
                 }
@@ -328,7 +328,7 @@ export function HeritageMap() {
                                         lat,
                                         lng,
                                         coverImage: assetConfig.previewImage || (config.cover && config.cover.url) || undefined,
-                                        link: `/album/${a.id}?page=${p.page_number}`
+                                        link: `/album/${a.title ? a.title.replace(/\s+/g, '_') : a.id}/view?page=${p.page_number}`
                                     });
                                 }
                             }
@@ -350,7 +350,7 @@ export function HeritageMap() {
                                             lat: pLat,
                                             lng: pLng,
                                             coverImage: assetConfig.previewImage || (config.cover && config.cover.url) || undefined,
-                                            link: `/album/${a.id}?page=${p.page_number}`
+                                            link: `/album/${a.title ? a.title.replace(/\s+/g, '_') : a.id}/view?page=${p.page_number}`
                                         });
                                     }
                                 });

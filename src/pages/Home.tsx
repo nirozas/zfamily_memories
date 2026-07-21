@@ -863,7 +863,7 @@ export function Home() {
                                                     key={`${album.id}-${index}`}
                                                     className="carousel-item"
                                                     style={{ '--i': index + 1 } as React.CSSProperties}
-                                                    onClick={() => navigate(`/album/${album.id}`)}
+                                                    onClick={() => navigate(`/album/${album.title ? album.title.replace(/\s+/g, '_') : album.id}/view`)}
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">

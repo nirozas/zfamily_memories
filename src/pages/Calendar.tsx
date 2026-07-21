@@ -185,7 +185,7 @@ export function Calendar() {
     };
 
     const navToEvent = (evt: CalendarEvent) => {
-        if (evt.type === 'album') navigate(`/album/${evt.id}`);
+        if (evt.type === 'album') navigate(`/album/${evt.title.replace(/\s+/g, '_')}/view`);
         else if (evt.type === 'stack') navigate(`/stacks?id=${evt.id}`);
         else navigate(`/event/${evt.id}/view`);
     };

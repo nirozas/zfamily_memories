@@ -97,7 +97,7 @@ export function AlbumCard(props: AlbumCardProps) {
 
     return (
         <div className="relative group h-[440px] transition-all duration-700 hover-lift active:scale-[0.98]">
-            <Link to={`/album/${id}`} className="block h-full no-underline">
+            <Link to={`/album/${title ? title.replace(/\s+/g, '_') : id}/view`} className="block h-full no-underline">
                 <div className="relative h-full overflow-hidden bg-zinc-950 rounded-[2.5rem] border border-white/5 shadow-2xl group/card ring-1 ring-black/5">
 
                     {/* 1. Dynamic Background & Glow */}

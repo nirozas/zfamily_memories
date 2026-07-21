@@ -122,7 +122,7 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
                             lng: albumCoords.lng,
                             coverImage: cover,
                             date: a.created_at,
-                            link: `/album/${a.id}`
+                            link: `/album/${a.title ? a.title.replace(/\s+/g, '_') : a.id}/view`
                         });
                     }
 
@@ -150,7 +150,7 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
                                             lng: assetCoords.lng,
                                             coverImage: assetConfig.previewImage || cover,
                                             date: a.created_at,
-                                            link: `/album/${a.id}?page=${p.page_number}`
+                                            link: `/album/${a.title ? a.title.replace(/\s+/g, '_') : a.id}/view?page=${p.page_number}`
                                         });
                                     }
                                 }
@@ -171,7 +171,7 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
                                                 lng: pLng,
                                                 coverImage: assetConfig.previewImage || cover,
                                                 date: a.created_at,
-                                                link: `/album/${a.id}?page=${p.page_number}`
+                                                link: `/album/${a.title ? a.title.replace(/\s+/g, '_') : a.id}/view?page=${p.page_number}`
                                             });
                                         }
                                     });
