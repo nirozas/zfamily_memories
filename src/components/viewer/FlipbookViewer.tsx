@@ -350,7 +350,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
                 <>
                     <div style={{ width: dimensions.width, height: dimensions.height }} />
                     <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
-                        <AlbumPage page={processedPages[0]} dimensions={dimensions} side="right" density="hard" isCover={true} onVideoClick={() => {}} showPageNumber={showPageNumbers} />
+                        <AlbumPage page={processedPages[0]} dimensions={dimensions} side="right" density="hard" isCover={true} onVideoClick={(url, rotation) => setSelectedVideo({ url, rotation })} showPageNumber={showPageNumbers} />
                     </div>
                 </>
             );
@@ -361,7 +361,7 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
             return (
                 <>
                     <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
-                        <AlbumPage page={processedPages[processedPages.length - 1]} dimensions={dimensions} side="left" density="hard" isCover={true} onVideoClick={() => {}} showPageNumber={showPageNumbers} />
+                        <AlbumPage page={processedPages[processedPages.length - 1]} dimensions={dimensions} side="left" density="hard" isCover={true} onVideoClick={(url, rotation) => setSelectedVideo({ url, rotation })} showPageNumber={showPageNumbers} />
                     </div>
                     <div style={{ width: dimensions.width, height: dimensions.height }} />
                 </>
@@ -374,10 +374,10 @@ export function FlipbookViewer({ pages, album, onClose }: FlipbookViewerProps) {
         return (
             <>
                 <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
-                    {leftPage && <AlbumPage page={leftPage} dimensions={dimensions} side="left" density="soft" isCover={false} onVideoClick={() => {}} showPageNumber={showPageNumbers} />}
+                    {leftPage && <AlbumPage page={leftPage} dimensions={dimensions} side="left" density="soft" isCover={false} onVideoClick={(url, rotation) => setSelectedVideo({ url, rotation })} showPageNumber={showPageNumbers} />}
                 </div>
                 <div style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }}>
-                    {rightPage && <AlbumPage page={rightPage} dimensions={dimensions} side="right" density="soft" isCover={false} onVideoClick={() => {}} showPageNumber={showPageNumbers} />}
+                    {rightPage && <AlbumPage page={rightPage} dimensions={dimensions} side="right" density="soft" isCover={false} onVideoClick={(url, rotation) => setSelectedVideo({ url, rotation })} showPageNumber={showPageNumbers} />}
                 </div>
             </>
         );
