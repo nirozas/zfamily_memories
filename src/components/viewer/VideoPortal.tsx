@@ -32,7 +32,6 @@ export function VideoPortal({ videoUrl, objectKey, posterUrl, rotation = 0, onCl
     useEffect(() => {
         let isMounted = true;
         async function loadUrl() {
-            // Using objectKey is the preferred, most secure way
             if (objectKey) {
                 try {
                     const { CloudflareR2Service } = await import('../../services/cloudflareR2');
@@ -44,39 +43,7 @@ export function VideoPortal({ videoUrl, objectKey, posterUrl, rotation = 0, onCl
                 }
             }
 
-            if (!videoUrl) {
-                if (isMounted) setDisplayUrl(null);
-                return;
-            }
-            if (videoUrl.includes('X-Amz-Signature')) {
-                if (isMounted) setDisplayUrl(videoUrl);
-                return;
-            }
-
-            try {
-                const { CloudflareR2Service } = await import('../../services/cloudflareR2');
-                if (CloudflareR2Service.isR2Url(videoUrl)) {
-                    let key = videoUrl;
-                    try {
-                        key = new URL(videoUrl).pathname.substring(1);
-                        // Strip bucket name if present in path (common in S3-style URLs)
-                        if (key.includes('/') && (key.startsWith('zoabimemories/') || key.startsWith('familyzoabi/'))) {
-                           key = key.split('/').slice(1).join('/');
-                        }
-                    } catch (e) {
-                        key = videoUrl.split('/').pop() || '';
-                    }
-                    if (key) {
-                        // Request a 2-hour signed URL for videos to allow long playback
-                        const secure = await CloudflareR2Service.getAuthorizedUrl(key, 7200);
-                        if (isMounted) setDisplayUrl(secure || videoUrl);
-                    }
-                } else {
-                    if (isMounted) setDisplayUrl(videoUrl);
-                }
-            } catch (err) {
-                if (isMounted) setDisplayUrl(videoUrl);
-            }
+            if (isMounted) setDisplayUrl(videoUrl);
         }
         loadUrl();
         return () => { isMounted = false; };
