@@ -128,3 +128,62 @@ export async function getAlbumShareLinks(albumId: string): Promise<{
         return { links: [], error: 'Failed to fetch links' };
     }
 }
+
+/**
+ * Generate a share link for an album similarly to Stacks, bypassing the modal
+ * and creating a fully valid R2-backed snapshot.
+ */
+export async function generateAndShareAlbum(album: any, pages: any[]): Promise<void> {
+    try {
+        const token = crypto.randomUUID();
+        const expiresAt = new Date();
+        expiresAt.setHours(expiresAt.getHours() + 48);
+
+        // 1. Create token in DB
+        const { error: dbError } = await (supabase.from('shared_links' as any) as any).insert({
+            token,
+            album_id: album.id,
+            expires_at: expiresAt.toISOString(),
+            is_active: true
+        });
+
+        if (dbError) throw dbError;
+
+        // 2. Upload album data + pages to R2 to bypass RLS limitations
+        const exportData = {
+            album: album,
+            pages: pages || []
+        };
+        const jsonString = JSON.stringify(exportData);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        
+        const key = `shared-links/album-${token}.json`;
+        const { CloudflareR2Service } = await import('./cloudflareR2');
+        await CloudflareR2Service.uploadFile(blob, key, 'application/json');
+
+        // 3. Share the link natively
+        const shareUrl = `${window.location.origin}/shared/${token}`;
+        const emailSubject = encodeURIComponent(`Shared Memory Album: ${album.title}`);
+        const emailBody = encodeURIComponent(`Hi!\n\nI wanted to share this memory album with you: ${album.title}\n\nYou can view it here (valid for 48 hours):\n${shareUrl}\n\nEnjoy!`);
+        const mailtoUrl = `mailto:?subject=${emailSubject}&body=${emailBody}`;
+
+        if (navigator.share) {
+            await navigator.share({
+                title: `Memory Album: ${album.title}`,
+                text: 'View this memory album for the next 48 hours!',
+                url: shareUrl,
+            });
+        } else {
+            const choice = confirm(`Share link created!\n\nClick OK to Copy Link to clipboard.\nClick CANCEL to Share by Email.`);
+            if (choice) {
+                await navigator.clipboard.writeText(shareUrl);
+                alert('Link copied to clipboard!');
+            } else {
+                window.location.href = mailtoUrl;
+            }
+        }
+    } catch (err) {
+        console.error('Error sharing album:', err);
+        alert('Failed to generate share link.');
+    }
+}

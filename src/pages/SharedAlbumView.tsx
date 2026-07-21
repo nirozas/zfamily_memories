@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '../components/ui/Button';
@@ -21,17 +20,23 @@ export function SharedAlbumView() {
 
         const fetchSharedAlbum = async () => {
             try {
-                // Call the Postgres function we created
-                const { data, error: fnError } = await (supabase.rpc as any)('get_shared_album_content', {
-                    token_param: token
-                });
-
-                if (fnError || !data || data.success === false) {
-                    throw new Error(fnError?.message || data?.error || 'Link is invalid or has expired after 48 hours.');
+                // Fetch the JSON payload directly from R2 (which acts as a secure, public snapshot)
+                const publicUrl = import.meta.env.VITE_R2_PUBLIC_URL as string;
+                if (!publicUrl) throw new Error("R2 Public URL is not configured in .env");
+                const r2Url = publicUrl.endsWith('/') ? publicUrl.slice(0, -1) : publicUrl;
+                
+                const response = await fetch(`${r2Url}/shared-links/album-${token}.json`, { cache: 'no-store' });
+                
+                if (!response.ok) {
+                    throw new Error('Link is invalid or has expired.');
                 }
 
-                setAlbum(data.album);
-                // Attach pages to the album object if needed by FlipbookViewer
+                const data = await response.json();
+                
+                if (!data || !data.album) {
+                    throw new Error('This link does not contain a valid memory album.');
+                }
+
                 if (data.pages) {
                     data.album.pages = data.pages;
                 }

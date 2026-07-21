@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Grid, List, PlusCircle, Filter } from 'lucide-react';
 import { AlbumsGrid } from '../components/catalog/AlbumsGrid';
 import { CreateAlbumModal } from '../components/catalog/CreateAlbumModal';
-import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Button } from '../components/ui/Button';
 import { cn } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
@@ -22,7 +21,6 @@ export function Catalog() {
     const [eventFilter, setEventFilter] = useState('All');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-    const [sharingAlbumId, setSharingAlbumId] = useState<string | null>(null);
 
     const fetchAlbums = async () => {
         if (!familyId) {
@@ -120,7 +118,13 @@ export function Catalog() {
         }
     };
 
-    const handleShareAlbum = (id: string) => setSharingAlbumId(id);
+    const handleShareAlbum = async (id: string) => {
+        const album = albums.find(a => a.id === id);
+        if (album) {
+            const { generateAndShareAlbum } = await import('../services/sharing');
+            await generateAndShareAlbum(album, album.pages || []);
+        }
+    };
 
     const handleDuplicateAlbum = async (id: string) => {
         try {
@@ -287,14 +291,6 @@ export function Catalog() {
             </AnimatePresence>
 
             <CreateAlbumModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} />
-
-            {sharingAlbumId && (
-                <SharingDialog
-                    albumId={sharingAlbumId}
-                    title={albums.find(a => a.id === sharingAlbumId)?.title || 'Album'}
-                    onClose={() => setSharingAlbumId(null)}
-                />
-            )}
         </div>
     );
 }

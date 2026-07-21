@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { FlipbookViewer } from '../components/viewer/FlipbookViewer';
 import { useAlbum } from '../contexts/AlbumContext';
 import { useAuth } from '../contexts/AuthContext';
-import { SharingDialog } from '../components/sharing/SharingDialog';
 import { Share2, Edit3, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
@@ -12,7 +11,6 @@ export function AlbumView() {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { album, fetchAlbum, isLoading: loading } = useAlbum();
-    const [showSharing, setShowSharing] = useState(false);
     const { userRole } = useAuth();
     const canEdit = userRole === 'admin' || userRole === 'creator';
     const error = null; // We can use context error if we add it, but for now null is fine
@@ -83,7 +81,12 @@ export function AlbumView() {
                     <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setShowSharing(true)}
+                        onClick={async () => {
+                            if (album) {
+                                const { generateAndShareAlbum } = await import('../services/sharing');
+                                await generateAndShareAlbum(album, album.pages || []);
+                            }
+                        }}
                         className="gap-2"
                     >
                         <Share2 className="w-4 h-4" />
@@ -109,13 +112,6 @@ export function AlbumView() {
                 onClose={() => navigate('/library')}
             />
 
-            {showSharing && (
-                <SharingDialog
-                    albumId={album.id}
-                    title={album.title}
-                    onClose={() => setShowSharing(false)}
-                />
-            )}
         </div>
     );
 }

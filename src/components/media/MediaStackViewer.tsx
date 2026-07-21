@@ -172,7 +172,7 @@ export function MediaStackViewer({
             nextCalledRef.current = false; 
             
             if (audioRef.current && !isMuted) {
-                audioRef.current.volume = bgmVolume;
+                audioRef.current.volume = activeItem.type === 'video' ? bgmVolume * 0.2 : bgmVolume;
             }
         }
     }, [activeIndex, activeItem, isMuted, bgmVolume]);
@@ -219,11 +219,10 @@ export function MediaStackViewer({
             return;
         }
 
-        // BGM Logic: If it's a video, pause BGM. If image, play BGM.
+        // BGM Logic: Keep playing during videos but at 20% volume
         if (audioRef.current) {
-            if (activeItem?.type === 'video') {
-                audioRef.current.pause();
-            } else if (!isMuted) {
+            audioRef.current.volume = activeItem?.type === 'video' ? bgmVolume * 0.2 : bgmVolume;
+            if (!isMuted) {
                 audioRef.current.play().catch(e => console.error("Audio play error:", e));
             }
         }
@@ -404,9 +403,9 @@ export function MediaStackViewer({
     // Set audio volume on change
     useEffect(() => {
         if (audioRef.current) {
-            audioRef.current.volume = bgmVolume;
+            audioRef.current.volume = activeItem?.type === 'video' ? bgmVolume * 0.2 : bgmVolume;
         }
-    }, [bgmVolume]);
+    }, [bgmVolume, activeItem]);
 
 
     const handleTouchZone = (e: React.MouseEvent | React.TouchEvent) => {
