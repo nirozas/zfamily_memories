@@ -133,8 +133,17 @@ export async function getAlbumShareLinks(albumId: string): Promise<{
  * Generate a share link for an album similarly to Stacks, bypassing the modal
  * and creating a fully valid R2-backed snapshot.
  */
-export async function generateAndShareAlbum(album: any, pages: any[]): Promise<void> {
+export async function generateAndShareAlbum(album: any, _pages: any[]): Promise<void> {
     try {
+        // 0. Fetch fully hydrated album data to ensure all assets/layouts are included
+        const { AlbumDataService } = await import('./albumDataService');
+        const { unifiedAlbumToContextAlbum } = await import('../lib/albumAdapters');
+        
+        const unifiedAlbum = await AlbumDataService.fetchAlbum(album.id);
+        if (!unifiedAlbum) throw new Error("Failed to fetch full album data for sharing.");
+        
+        const fullAlbum = unifiedAlbumToContextAlbum(unifiedAlbum);
+
         const token = crypto.randomUUID();
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 48);
@@ -149,10 +158,10 @@ export async function generateAndShareAlbum(album: any, pages: any[]): Promise<v
 
         if (dbError) throw dbError;
 
-        // 2. Upload album data + pages to R2 to bypass RLS limitations
+        // 2. Upload fully hydrated album data to R2 to bypass RLS limitations
         const exportData = {
-            album: album,
-            pages: pages || []
+            album: fullAlbum,
+            pages: fullAlbum.pages || []
         };
         const jsonString = JSON.stringify(exportData);
         const blob = new Blob([jsonString], { type: 'application/json' });
