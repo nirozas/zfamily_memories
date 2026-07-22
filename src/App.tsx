@@ -119,6 +119,8 @@ function App() {
                           <Route path="/calendar" element={<Calendar />} />
                           <Route path="/map" element={<HeritageMap />} />
                           <Route path="/stacks" element={<MediaStacks />} />
+                          <Route path="/stacks/:id" element={<MediaStacks />} />
+                          <Route path="/stacks/:id/edit" element={<MediaStacks />} />
                           <Route path="/debug/events" element={<EventsDiagnostic />} />
                           <Route path="/profile" element={<Profile />} />
                           <Route path="/settings" element={<Settings />} />

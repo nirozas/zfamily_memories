@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/Button';
@@ -68,7 +68,11 @@ export function MediaStacks() {
     const [searchQuery, setSearchQuery] = useState('');
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
     const [searchParams, setSearchParams] = useSearchParams();
-    const stackIdFromUrl = searchParams.get('id');
+    
+    const { id: paramId } = useParams<{ id: string }>();
+    const location = useLocation();
+    const navigate = useNavigate();
+    const isEditMode = location.pathname.endsWith('/edit');
 
     // Modal states
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -103,11 +107,33 @@ export function MediaStacks() {
     };
 
     useEffect(() => {
-        if (stackIdFromUrl && stacks.length > 0) {
-            const s = stacks.find(st => st.id === stackIdFromUrl);
-            if (s) setViewingStack(s);
+        if (paramId && stacks.length > 0) {
+            const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(paramId);
+            const targetTitle = paramId.replace(/_/g, ' ').toLowerCase();
+            const s = stacks.find(st => isUUID ? st.id === paramId : st.title?.toLowerCase() === targetTitle);
+            
+            if (s) {
+                if (isEditMode) {
+                    setEditingStack(s);
+                    setViewingStack(null);
+                    setShowCreateModal(true);
+                } else {
+                    setViewingStack(s);
+                    setEditingStack(null);
+                    setShowCreateModal(false);
+                }
+            } else {
+                 setEditingStack(null);
+                 setViewingStack(null);
+                 setShowCreateModal(false);
+            }
+        } else {
+             setEditingStack(null);
+             setViewingStack(null);
+             // don't force modal to close if they clicked "Create New" manually 
+             // but if they just landed on /stacks, it shouldn't auto open.
         }
-    }, [stackIdFromUrl, stacks]);
+    }, [paramId, isEditMode, stacks]);
 
     const handleDeleteStack = async (id: string) => {
         if (!confirm('Delete this stack? This action cannot be undone.')) return;
@@ -180,13 +206,11 @@ export function MediaStacks() {
     };
 
     const handleViewStack = (stack: Stack) => {
-        setSearchParams({ id: stack.id });
-        setViewingStack(stack);
+        navigate(`/stacks/${stack.title ? stack.title.replace(/\s+/g, '_') : stack.id}`);
     };
 
     const handleCloseViewer = () => {
-        setSearchParams({});
-        setViewingStack(null);
+        navigate('/stacks');
     };
 
     const handleShufflePlay = () => {
@@ -431,7 +455,7 @@ export function MediaStacks() {
                                                         <Share className="w-4 h-4" />
                                                     </button>
                                                     <button
-                                                        onClick={e => { e.stopPropagation(); setEditingStack(stack); setShowCreateModal(true); }}
+                                                        onClick={e => { e.stopPropagation(); navigate(`/stacks/${stack.title ? stack.title.replace(/\s+/g, '_') : stack.id}/edit`); }}
                                                         className="p-2 hover:bg-blue-50 text-blue-500 rounded-xl transition-colors"
                                                         title="Edit"
                                                     >
@@ -552,7 +576,7 @@ export function MediaStacks() {
                                                 <Share className="w-4 h-4" /> <span className="hidden sm:inline">Share</span>
                                             </button>
                                             <button
-                                                onClick={e => { e.stopPropagation(); setEditingStack(stack); setShowCreateModal(true); }}
+                                                onClick={e => { e.stopPropagation(); navigate(`/stacks/${stack.title ? stack.title.replace(/\s+/g, '_') : stack.id}/edit`); }}
                                                 className="flex items-center gap-1.5 p-2 px-3 hover:bg-blue-50 text-blue-500 rounded-xl transition-colors font-bold text-xs"
                                                 title="Edit"
                                             >
@@ -600,8 +624,17 @@ export function MediaStacks() {
             <CreateStackModal
                 isOpen={showCreateModal}
                 initialStack={editingStack}
-                onClose={() => { setShowCreateModal(false); setEditingStack(null); }}
-                onCreated={() => { setShowCreateModal(false); setEditingStack(null); fetchStacks(); }}
+                onClose={() => { 
+                    setShowCreateModal(false); 
+                    setEditingStack(null); 
+                    if (location.pathname.endsWith('/edit')) navigate('/stacks'); 
+                }}
+                onCreated={() => { 
+                    setShowCreateModal(false); 
+                    setEditingStack(null); 
+                    fetchStacks(); 
+                    if (location.pathname.endsWith('/edit')) navigate('/stacks'); 
+                }}
             />
 
             {/* ============ VIEWER ============ */}
@@ -614,9 +647,7 @@ export function MediaStacks() {
                         onClose={handleCloseViewer}
                         onShare={() => handleShareStack(viewingStack)}
                         onEdit={() => {
-                            setEditingStack(viewingStack);
-                            handleCloseViewer();
-                            setShowCreateModal(true);
+                            navigate(`/stacks/${viewingStack.title ? viewingStack.title.replace(/\s+/g, '_') : viewingStack.id}/edit`);
                         }}
                         onDelete={() => handleDeleteStack(viewingStack.id)}
                     />

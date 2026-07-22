@@ -69,7 +69,7 @@ function EventCard({
                 {/* Media Section */}
                 <div
                     className="relative h-64 overflow-hidden cursor-pointer"
-                    onClick={() => navigate(`/event/${event.id}/view`)}
+                    onClick={() => navigate(`/event/${event.title ? event.title.replace(/\s+/g, '_') : event.id}/view`)}
                 >
                     <motion.div
                         className="w-full h-full bg-cover bg-center transition-transform duration-700 group-hover:scale-110"
@@ -150,7 +150,7 @@ function EventCard({
 
                         <div className="flex items-center gap-1">
                             <ActionToolbar
-                                onEdit={isAdmin ? () => navigate(`/event/${event.id}/edit`) : undefined}
+                                onEdit={isAdmin ? () => navigate(`/event/${event.title ? event.title.replace(/\s+/g, '_') : event.id}/edit`) : undefined}
                                 onDelete={isAdmin ? () => handleDeleteEvent(event.id) : undefined}
                                 onShare={() => handleShareEvent(event.id)}
                                 onPrint={() => handlePrintEvent(event)}

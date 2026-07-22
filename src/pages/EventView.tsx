@@ -135,11 +135,16 @@ export function EventView() {
 
     const fetchEvent = async (eventId: string) => {
         try {
-            const { data, error } = await supabase
-                .from('events')
-                .select('*')
-                .eq('id', eventId)
-                .single();
+            const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId);
+            let query = supabase.from('events').select('*');
+            
+            if (isUUID) {
+                query = query.eq('id', eventId);
+            } else {
+                query = query.ilike('title', eventId.replace(/_/g, ' '));
+            }
+
+            const { data, error } = await query.single();
 
             if (error) throw error;
             setEvent(data);
