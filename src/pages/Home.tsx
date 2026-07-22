@@ -17,7 +17,7 @@ import type { Event, Profile } from '../types/supabase';
 import { motion } from 'framer-motion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
-import { Album, Asset } from '../contexts/AlbumContext';
+
 
 const DEFAULT_HERO_IMAGE = 'https://images.unsplash.com/photo-1511895426328-dc8714191300?q=100&w=3840&auto=format&fit=crop';
 
