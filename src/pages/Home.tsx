@@ -857,6 +857,20 @@ export function Home() {
                                     >
                                         {recentAlbums.map((album, index) => {
                                             const coverPage = (album.pages && album.pages.length > 0) ? album.pages[0] : null;
+                                            
+                                            let displayUrl = album.cover_url;
+                                            if (coverPage) {
+                                                const firstImage = (coverPage.assets && coverPage.assets.find((a: any) => a.type === 'image' || a.type === 'video')) || 
+                                                                   (coverPage.elements && coverPage.elements.find((e: any) => e.type === 'image' || e.type === 'video'));
+                                                if (firstImage && firstImage.url) {
+                                                    displayUrl = firstImage.url;
+                                                } else if (coverPage.backgroundImage) {
+                                                    displayUrl = coverPage.backgroundImage;
+                                                } else if (coverPage.pageStyles && coverPage.pageStyles.backgroundImage) {
+                                                    displayUrl = coverPage.pageStyles.backgroundImage;
+                                                }
+                                            }
+                                            displayUrl = displayUrl || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80';
 
                                             return (
                                                 <div
@@ -867,33 +881,10 @@ export function Home() {
                                                     title={album.title}
                                                 >
                                                     <div className="carousel-3d-container">
-                                                        {coverPage ? (
-                                                            <div className="w-full h-[23.4rem] rounded-xl overflow-hidden shadow-[-2px_5px_12px_rgba(0,0,0,0.08)] border-[3px] border-white relative bg-white pointer-events-none">
-                                                                <div 
-                                                                    style={{ 
-                                                                        transform: 'scale(0.2275)', 
-                                                                        transformOrigin: 'top left', 
-                                                                        width: '800px', 
-                                                                        height: '1028.5px' 
-                                                                    }}
-                                                                >
-                                                                    <AlbumPage 
-                                                                        page={coverPage as any} 
-                                                                        dimensions={{ width: 800, height: 1028.5 }} 
-                                                                        side="single" 
-                                                                        isCover={true} 
-                                                                        density="hard"
-                                                                        onVideoClick={() => {}}
-                                                                        showPageNumber={false}
-                                                                    />
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <img
-                                                                src={album.cover_url || 'https://images.unsplash.com/photo-1544376798-89aa6b82c6cd?auto=format&fit=crop&w=800&q=80'}
-                                                                alt={album.title}
-                                                            />
-                                                        )}
+                                                        <img
+                                                            src={displayUrl}
+                                                            alt={album.title}
+                                                        />
                                                         <h3 className="carousel-title">{album.title}</h3>
                                                         <p className="carousel-date">
                                                             {new Date(album.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
