@@ -391,7 +391,7 @@ export function Home() {
                 if (albums) {
                     const formatted = (albums || []).map((album: any) => {
                         let parsedPages = [];
-                        
+
                         // Pick album_pages if unified schema, otherwise fallback to legacy pages
                         if (album.album_pages && album.album_pages.length > 0) {
                             parsedPages = album.album_pages.map((ap: any) => {
@@ -404,7 +404,7 @@ export function Home() {
                                     assets = layoutJson.assets || [];
                                     slots = layoutJson.slots;
                                 }
-                                
+
                                 // Return loosely as a Page object
                                 return {
                                     id: ap.id,
@@ -857,11 +857,11 @@ export function Home() {
                                     >
                                         {recentAlbums.map((album, index) => {
                                             const coverPage = (album.pages && album.pages.length > 0) ? album.pages[0] : null;
-                                            
+
                                             let displayUrl = album.cover_url;
                                             if (coverPage) {
-                                                const firstImage = (coverPage.assets && coverPage.assets.find((a: any) => a.type === 'image' || a.type === 'video')) || 
-                                                                   (coverPage.elements && coverPage.elements.find((e: any) => e.type === 'image' || e.type === 'video'));
+                                                const firstImage = (coverPage.assets && coverPage.assets.find((a: any) => a.type === 'image' || a.type === 'video')) ||
+                                                    (coverPage.elements && coverPage.elements.find((e: any) => e.type === 'image' || e.type === 'video'));
                                                 if (firstImage && firstImage.url) {
                                                     displayUrl = firstImage.url;
                                                 } else if (coverPage.backgroundImage) {

@@ -210,7 +210,7 @@ export function WorldMapPreview({ familyId }: WorldMapPreviewProps) {
                             lng,
                             coverImage: coverUrl,
                             date: e.event_date,
-                            link: `/event/${e.id}/view`
+                            link: `/event/${e.title ? e.title.replace(/\s+/g, '_') : e.id}/view`
                         };
                     })
                     .filter((item: any) => item !== null) as LocationData[];

@@ -186,8 +186,8 @@ export function Calendar() {
 
     const navToEvent = (evt: CalendarEvent) => {
         if (evt.type === 'album') navigate(`/album/${evt.title.replace(/\s+/g, '_')}/view`);
-        else if (evt.type === 'stack') navigate(`/stacks?id=${evt.id}`);
-        else navigate(`/event/${evt.id}/view`);
+        else if (evt.type === 'stack') navigate(`/stacks/${evt.title ? evt.title.replace(/\s+/g, '_') : evt.id}`);
+        else navigate(`/event/${evt.title ? evt.title.replace(/\s+/g, '_') : evt.id}/view`);
     };
 
     // --- Sub-Components for Different Views ---

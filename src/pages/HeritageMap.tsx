@@ -208,7 +208,7 @@ export function HeritageMap() {
                         lat,
                         lng,
                         coverImage: coverUrl,
-                        link: `/event/${e.id}/view`
+                        link: `/event/${e.title ? e.title.replace(/\s+/g, '_') : e.id}/view`
                     };
                 })
                 .filter((item: any): item is HeritageLocation => item !== null);
